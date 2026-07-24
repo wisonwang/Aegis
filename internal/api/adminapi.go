@@ -497,6 +497,49 @@ func (h *Handler) AdminAuditStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stats)
 }
 
+// ---- Security alerts (anomaly detection) ----
+
+// AdminListAlerts returns raised security alerts, newest first.
+// Query params: level, resolved (open|resolved), limit, offset.
+func (h *Handler) AdminListAlerts(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	f := store.SecurityAlertFilter{
+		Level:    q.Get("level"),
+		Resolved: q.Get("resolved"),
+		Limit:    atoiDefault(q.Get("limit"), 50),
+		Offset:   atoiDefault(q.Get("offset"), 0),
+	}
+	alerts, total, err := h.Store.ListSecurityAlerts(f)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"alerts": alerts,
+		"total":  total,
+	})
+}
+
+// AdminResolveAlert marks an alert as handled.
+func (h *Handler) AdminResolveAlert(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := h.Store.ResolveSecurityAlert(id); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// AdminAlertStats returns aggregate counters for the alert dashboard.
+func (h *Handler) AdminAlertStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := h.Store.SecurityAlertStats()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
 // helpers --------------------------------------------------------------------
 
 func orEmpty(s string) string {

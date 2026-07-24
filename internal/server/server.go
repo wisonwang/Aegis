@@ -6,8 +6,10 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/wisonwang/aegis/internal/api"
+	"github.com/wisonwang/aegis/internal/alerting"
 	"github.com/wisonwang/aegis/internal/config"
 	"github.com/wisonwang/aegis/internal/datasource"
 	"github.com/wisonwang/aegis/internal/metrics"
@@ -53,6 +55,20 @@ func Run(cfg *config.Config) error {
 	dm := datasource.NewManager(st)
 	px := proxy.New(st, dm)
 	px.SetGuard(proxy.NewGuard(cfg.Limits))
+	// Anomaly detection: observe the audit stream and persist security alerts.
+	det := alerting.New(alerting.Config{
+		DeniedCount:   cfg.Alerting.DeniedCount,
+		DeniedWindow:  time.Duration(cfg.Alerting.DeniedWindow) * time.Second,
+		BulkRows:      cfg.Alerting.BulkRows,
+		OffHoursOn:    cfg.Alerting.OffHoursOn,
+		OffHoursStart: cfg.Alerting.OffHoursStart,
+		OffHoursEnd:   cfg.Alerting.OffHoursEnd,
+		Cooldown:      time.Duration(cfg.Alerting.Cooldown) * time.Second,
+		Webhook:       cfg.Alerting.Webhook,
+	}, func(a store.SecurityAlert) error {
+		return st.InsertSecurityAlert(&a)
+	})
+	px.SetDetector(det)
 	h := &api.Handler{Store: st, Proxy: px, DS: dm, Cfg: cfg}
 
 	mux := http.NewServeMux()
@@ -120,6 +136,11 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 
 	mux.HandleFunc("GET /admin/api/audit", a(h.AdminListAudits))
 	mux.HandleFunc("GET /admin/api/audit/stats", a(h.AdminAuditStats))
+
+	// ---- Security alerts (anomaly detection) ----
+	mux.HandleFunc("GET /admin/api/alerts", a(h.AdminListAlerts))
+	mux.HandleFunc("GET /admin/api/alerts/stats", a(h.AdminAlertStats))
+	mux.HandleFunc("POST /admin/api/alerts/{id}/resolve", a(h.AdminResolveAlert))
 
 	// ---- Schema semantics (AI data-supply layer) ----
 	mux.HandleFunc("GET /admin/api/datasources/{id}/semantics", a(h.AdminListSemantics))

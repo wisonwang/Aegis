@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wisonwang/aegis/internal/alerting"
 	"github.com/wisonwang/aegis/internal/auth"
 	"github.com/wisonwang/aegis/internal/datasource"
 	"github.com/wisonwang/aegis/internal/metrics"
@@ -32,9 +33,10 @@ type TableInfo struct {
 // Proxy executes queries on behalf of a platform principal, enforcing
 // governance via the permission engine and the datasource connection pools.
 type Proxy struct {
-	store *store.Store
-	ds    *datasource.Manager
-	guard *Guard // nil = behavior limits disabled
+	store    *store.Store
+	ds       *datasource.Manager
+	guard    *Guard             // nil = behavior limits disabled
+	detector *alerting.Detector // nil = anomaly alerting disabled
 }
 
 func New(store *store.Store, ds *datasource.Manager) *Proxy {
@@ -43,6 +45,10 @@ func New(store *store.Store, ds *datasource.Manager) *Proxy {
 
 // SetGuard installs AI-behavior limits (max rows / timeout / rate limit).
 func (p *Proxy) SetGuard(g *Guard) { p.guard = g }
+
+// SetDetector installs the anomaly-detection engine that watches governed
+// outcomes and raises security alerts. Pass nil to disable alerting.
+func (p *Proxy) SetDetector(d *alerting.Detector) { p.detector = d }
 
 // Channel context ------------------------------------------------------------
 
@@ -106,6 +112,11 @@ func (p *Proxy) audit(ctx context.Context, dsID string, claims *auth.Claims, sql
 	ch := channelFrom(ctx)
 	metrics.RecordQuery(ch, status, time.Since(started))
 	metrics.RecordRows(ch, status, rowCount)
+	// Anomaly detection: observe every governed outcome (ok/denied/error) so
+	// the engine can spot probing, bulk export and off-hours access.
+	if p.detector != nil {
+		p.detector.Observe(claims.Username, claims.IsAdmin(), ch, status, rowCount, time.Now())
+	}
 }
 
 // Execute runs a statement under the principal's permissions and returns a

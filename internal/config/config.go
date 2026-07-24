@@ -17,8 +17,9 @@ type Config struct {
 	DBPath     string    `json:"db_path"`     // SQLite path for the control plane store
 	DataDir    string    `json:"data_dir"`    // directory for demo/seeded database files
 	SeedDemo   bool      `json:"seed_demo"`   // seed demo datasource + users on first run
-	MCP        MCPConfig `json:"mcp"`
-	Limits     Limits    `json:"limits"`
+	MCP        MCPConfig     `json:"mcp"`
+	Limits     Limits        `json:"limits"`
+	Alerting   AlertingConfig `json:"alerting"`
 }
 
 // Limits governs AI/agent query behavior: result caps, timeouts and rate
@@ -30,6 +31,21 @@ type Limits struct {
 	AdminExempt     bool   `json:"admin_exempt"`      // admin bypasses limits (default true via Default())
 	MaxAffectedRows int    `json:"max_affected_rows"` // max rows a single UPDATE/DELETE may touch (0 = no cap)
 	AllowNoWhere    bool   `json:"allow_no_where_writes"` // permit UPDATE/DELETE without WHERE (unsafe; default false => blocked)
+}
+
+// AlertingConfig tunes the anomaly-detection engine that watches the audit
+// stream for risky agent/user behavior (probing, bulk export, off-hours).
+// Zero values fall back to safe defaults; thresholds can also be set via the
+// AEGIS_ALERT_* environment variables.
+type AlertingConfig struct {
+	DeniedCount   int    `json:"denied_count"`    // denied queries within window to trip (0 = default 10)
+	DeniedWindow  int    `json:"denied_window_sec"` // sliding window in seconds (0 = default 60)
+	BulkRows      int    `json:"bulk_rows"`       // single-query rows >= this trips bulk_export (0 = default 5000)
+	OffHoursOn    bool   `json:"off_hours_on"`    // enable the off-hours access rule (default false)
+	OffHoursStart int    `json:"off_hours_start"` // inclusive local hour, e.g. 0
+	OffHoursEnd   int    `json:"off_hours_end"`   // exclusive local hour, e.g. 6
+	Cooldown      int    `json:"cooldown_sec"`    // min seconds between repeated alerts of the same rule (0 = default 300)
+	Webhook       string `json:"webhook"`         // optional URL to POST raised alerts to
 }
 
 // MCPConfig configures the Model Context Protocol endpoint used by AI agents.
@@ -86,6 +102,15 @@ func Default() *Config {
 			MaxAffectedRows: 0,
 			AllowNoWhere:    false,
 		},
+		Alerting: AlertingConfig{
+			DeniedCount:   10,
+			DeniedWindow:  60,
+			BulkRows:      5000,
+			OffHoursOn:    false,
+			OffHoursStart: 0,
+			OffHoursEnd:   6,
+			Cooldown:      300,
+		},
 	}
 }
 
@@ -128,5 +153,41 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("AEGIS_ALLOW_NO_WHERE_WRITES"); v != "" {
 		cfg.Limits.AllowNoWhere = v == "true" || v == "1"
+	}
+	if v := os.Getenv("AEGIS_ALERT_DENIED_COUNT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Alerting.DeniedCount = n
+		}
+	}
+	if v := os.Getenv("AEGIS_ALERT_DENIED_WINDOW_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Alerting.DeniedWindow = n
+		}
+	}
+	if v := os.Getenv("AEGIS_ALERT_BULK_ROWS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Alerting.BulkRows = n
+		}
+	}
+	if v := os.Getenv("AEGIS_ALERT_OFFHOURS"); v != "" {
+		cfg.Alerting.OffHoursOn = v == "true" || v == "1"
+	}
+	if v := os.Getenv("AEGIS_ALERT_OFFHOURS_START"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Alerting.OffHoursStart = n
+		}
+	}
+	if v := os.Getenv("AEGIS_ALERT_OFFHOURS_END"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Alerting.OffHoursEnd = n
+		}
+	}
+	if v := os.Getenv("AEGIS_ALERT_COOLDOWN_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Alerting.Cooldown = n
+		}
+	}
+	if v := os.Getenv("AEGIS_ALERT_WEBHOOK"); v != "" {
+		cfg.Alerting.Webhook = v
 	}
 }

@@ -365,6 +365,9 @@ func (p *Proxy) auditDataset(ctx context.Context, dsMeta *store.Dataset, claims 
 	ch := channelFrom(ctx)
 	metrics.RecordQuery(ch, status, time.Since(started))
 	metrics.RecordRows(ch, status, rowCount)
+	if p.detector != nil {
+		p.detector.Observe(claims.Username, claims.IsAdmin(), ch, status, rowCount, time.Now())
+	}
 }
 
 // IsValidDatasetName reports whether name is a safe identifier usable as a

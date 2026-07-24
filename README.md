@@ -280,6 +280,29 @@ curl -s http://localhost:8080/admin/api/audit/stats -H "Authorization: Bearer $A
 
 后台管理 UI 的「审计日志」标签页提供同等能力（统计卡片 + 过滤 + 分页）。
 
+### 安全告警（异常行为检测）
+
+Aegis 在审计汇聚点（每一次受治理查询）之外，额外运行一个轻量**异常检测引擎**，对可疑的 Agent / 用户行为自动生成安全告警，把「治理执行闭环」补上「发现」这一环。当前内置三条规则：
+
+- **高频拒绝（repeated_denied）**：同一主体在滑动窗口内被拒绝 N 次（默认 60s 内 10 次），疑似探测 / 越权 / 配置错误。
+- **批量导出（bulk_export）**：单次查询返回行数超过阈值（默认 5000 行），疑似拖库。
+- **非工作时段（off_hours）**：在配置的非工作时段（默认 `00:00–06:00`）发生访问，排除 `admin`（运维访问属正常）。
+
+命中后写入控制面 `security_alerts` 表，并可在冷却期（默认 5 分钟）内对同一「主体 + 规则」去重，避免刷屏；若配置了 `webhook`，还会把告警 JSON POST 到外部系统（Slack / 飞书 / SIEM 等）。
+
+> 阈值与开关在 `config.json` 的 `alerting` 段，或环境变量 `AEGIS_ALERT_*` 覆盖：`AEGIS_ALERT_DENIED_COUNT` / `AEGIS_ALERT_DENIED_WINDOW_SEC` / `AEGIS_ALERT_BULK_ROWS` / `AEGIS_ALERT_OFFHOURS` / `AEGIS_ALERT_OFFHOURS_START` / `AEGIS_ALERT_OFFHOURS_END` / `AEGIS_ALERT_COOLDOWN_SEC` / `AEGIS_ALERT_WEBHOOK`。
+
+告警在管理后台「安全告警」标签页查看（统计卡片 + 级别 / 状态过滤 + 标记已处理），或经 API：
+
+```bash
+# 列出告警（支持 level / resolved=open|resolved 过滤）
+curl -s "http://localhost:8080/admin/api/alerts" -H "Authorization: Bearer $ADMIN_TOKEN"
+# 聚合计数（total / warning / critical / open / resolved）
+curl -s "http://localhost:8080/admin/api/alerts/stats" -H "Authorization: Bearer $ADMIN_TOKEN"
+# 标记已处理
+curl -X POST "http://localhost:8080/admin/api/alerts/<id>/resolve" -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
 ### AI 行为治理（Limits）
 
 针对 AI Agent「概率性调用方」的行为约束，在权限治理之外再加一层运行时防线（`config.json` 的 `limits` 段，亦可用环境变量覆盖）：

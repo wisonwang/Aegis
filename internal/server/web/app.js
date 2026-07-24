@@ -302,4 +302,48 @@ document.getElementById('aPrev').addEventListener('click', () => { auditOffset =
 document.getElementById('aNext').addEventListener('click', () => { auditOffset += AUDIT_PAGE; loadAudit(); });
 document.querySelector('[data-tab="audit"]').addEventListener('click', () => { auditOffset = 0; loadAudit(); });
 
+// ---- security alerts (anomaly detection) ----
+let alertOffset = 0;
+const ALERT_PAGE = 20;
+
+async function loadAlerts() {
+  const params = new URLSearchParams();
+  const lv = document.getElementById('alLevel').value;
+  const rs = document.getElementById('alResolved').value;
+  if (lv) params.set('level', lv);
+  if (rs) params.set('resolved', rs);
+  params.set('limit', ALERT_PAGE);
+  params.set('offset', alertOffset);
+  try {
+    const [data, stats] = await Promise.all([
+      api('/admin/api/alerts?' + params.toString()),
+      api('/admin/api/alerts/stats'),
+    ]);
+    document.getElementById('alertStats').innerHTML =
+      `<span class="stat">总计 <b>${stats.total}</b></span>` +
+      `<span class="stat denied">未处理 <b>${stats.open || 0}</b></span>` +
+      `<span class="stat ok">已处理 <b>${stats.resolved || 0}</b></span>` +
+      `<span class="stat err">严重 <b>${stats.critical || 0}</b></span>`;
+    const t = document.getElementById('alertTable');
+    t.innerHTML = '<thead><tr><th>时间</th><th>级别</th><th>规则</th><th>主体</th><th>渠道</th><th>说明</th><th>状态</th><th>操作</th></tr></thead><tbody>' +
+      data.alerts.map(a => `<tr>
+        <td>${esc(new Date(a.ts).toLocaleString())}</td>
+        <td><span class="badge ${esc(a.level)}">${esc(a.level)}</span></td>
+        <td><code>${esc(a.rule)}</code></td>
+        <td>${esc(a.principal)}</td>
+        <td>${esc(a.channel)}</td>
+        <td>${esc(a.detail)}</td>
+        <td>${a.resolved ? '<span class="badge ok">已处理</span>' : '<span class="badge denied">未处理</span>'}</td>
+        <td>${a.resolved ? '' : `<button class="sec" data-act="resolve" data-id="${a.id}">标记处理</button>`}</td>
+      </tr>`).join('') + '</tbody>';
+  } catch (e) { alert(e.message); }
+}
+document.getElementById('alertTable').addEventListener('click', async (e) => {
+  if (e.target.dataset.act !== 'resolve') return;
+  try { await api('/admin/api/alerts/' + e.target.dataset.id + '/resolve', { method: 'POST' }); loadAlerts(); }
+  catch (err) { alert(err.message); }
+});
+document.getElementById('alLoad').addEventListener('click', () => { alertOffset = 0; loadAlerts(); });
+document.querySelector('[data-tab="alerts"]').addEventListener('click', () => { alertOffset = 0; loadAlerts(); });
+
 boot();

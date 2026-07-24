@@ -267,6 +267,7 @@
           <li><span class="pill ok">已验证</span> 数据分级分类标签：PII / 敏感 / 内部 / 公开 标签随语义目录透出，MCP 卡片标注 [class: ...] 并在 nl2sql 提示词中提示 Agent 谨慎处理敏感列</li>
           <li><span class="pill ok">已验证</span> 真实 MySQL 8.0 数据源在线注册与治理（含 JOIN 双表行策略）</li>
           <li><span class="pill ok">已验证</span> 全量审计：ok/denied/error 三态、dataapi/mcp 双渠道留痕 + 管理台检索</li>
+          <li><span class="pill ok">已验证</span> 异常行为告警：高频 denied / 批量导出 / 非工作时段检测，控制面 <code>security_alerts</code> 落库 + 管理台「安全告警」页 + 可选 Webhook</li>
           <li><span class="pill ok">已验证</span> REST DataAPI：login / query / list datasources / describe table</li>
           <li><span class="pill ok">已验证</span> MCP Streamable HTTP：list_datasources / list_tables / describe_table / query</li>
           <li><span class="pill ok">已验证</span> 后台管理 UI（用户/角色/数据源/权限/策略 CRUD + 审计日志页）</li>
@@ -369,7 +370,7 @@
         <tr><td>动态脱敏</td><td>掩码显示（<code>138****0001</code>、邮箱域保留）替代整列剔除，兼顾可用性与安全</td><td>已落地</td></tr>
         <tr><td>数据集管理（Data Products）</td><td>在数据源之上固化「查询 → 受治理的数据产品」：发布/下架生命周期、稳定字段契约、按名称供 Agent 消费；治理复用同一套表/行/列引擎（<code>table_name = 数据集名</code>），无需新建权限模型</td><td>已落地</td></tr>
         <tr><td>分级分类标签</td><td>列打 PII/敏感/内部/公开 标签，随语义目录与 MCP 卡片透出，并在 nl2sql 提示词中标注敏感列处理规则，对齐数据安全分级要求</td><td>已落地</td></tr>
-        <tr><td>审计升级</td><td>关联 AI 会话 ID（一次对话多条查询串联）；异常行为告警（高频 denied、深夜批量导出）</td><td>规划</td></tr>
+        <tr><td>审计升级</td><td>关联 AI 会话 ID（一次对话多条查询串联，已落地）；异常行为告警（高频 denied / 批量导出 / 非工作时段，控制面 <code>security_alerts</code> 落库 + 管理台检索标记 + 可选 Webhook）</td><td>已落地</td></tr>
         <tr><td>身份体系对接</td><td>SSO / LDAP / OAuth2 统一身份；API Key 到期与轮换机制</td><td>规划</td></tr>
       </table>
 
@@ -460,7 +461,7 @@
       <li><b>已完成（P0-②）：</b>结果行数上限 + 查询超时 + 限流配额 + 写操作无 WHERE 拦截与影响行数上限——proxy 层集中实现，AI 上生产硬前提已满足</li>
       <li><b>已完成（P0-①）：</b>MCP resources + Schema 语义描述，直接提升 Agent 取数体验与 NL2SQL 准确率</li>
       <li><b>已完成（P1-③）：</b>数据分级分类标签（PII / 敏感 / 内部 / 公开）随 Schema 语义卡片与 MCP 目录透出，并在 nl2sql 提示词中标注敏感列处理规则</li>
-      <li><b>进行中（楔子策略首役）：</b>审计关联 AI 会话 ID（会话级串联，强化「全程录像」卖点）+ 异常行为告警；同步把 MCP 治理能力整理为开发者叙事（README / 落地页），启动 OSS 采用率验证</li>
+      <li><b>已完成（楔子策略首役 · 本轮）：</b>审计关联 AI 会话 ID（会话级串联，强化「全程录像」卖点）+ 异常行为告警（高频 denied / 批量导出 / 非工作时段 → 控制面 <code>security_alerts</code> 落库、管理台可检索标记、可选 Webhook）。下一步把 MCP 治理能力整理为开发者叙事（README / 落地页），启动 OSS 采用率验证。</li>
       <li><b>短期：</b>SSO / OIDC / LDAP 身份对接；PostgreSQL 端到端验证；可观测性（Prometheus 指标、结构化日志、探针）</li>
       <li><b>中期：</b>NL2SQL 安全网关 + 语义指标层；脱敏算法库（Tokenization / 格式保留加密）；多租户工作区（企业版前置）</li>
       <li><b>远期：</b>集群化 + 插件市场 + 治理即代码，升级为「AI 数据服务中台」</li>

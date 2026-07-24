@@ -152,6 +152,11 @@ func (s *Store) migrate() error {
 			description TEXT, synonyms TEXT, examples TEXT, updated_at DATETIME)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_semantics_key
 			ON schema_semantics(datasource_id, table_name, column_name)`,
+		`CREATE TABLE IF NOT EXISTS security_alerts (
+			id TEXT PRIMARY KEY, ts DATETIME, level TEXT, rule TEXT,
+			principal TEXT, channel TEXT, detail TEXT, resolved INTEGER DEFAULT 0)`,
+		`CREATE INDEX IF NOT EXISTS idx_alerts_ts ON security_alerts(ts DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_alerts_principal ON security_alerts(principal)`,
 		`CREATE TABLE IF NOT EXISTS data_classifications (
 			id TEXT PRIMARY KEY, datasource_id TEXT NOT NULL,
 			table_name TEXT NOT NULL, column_name TEXT NOT NULL DEFAULT '',

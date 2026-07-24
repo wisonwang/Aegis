@@ -16,5 +16,15 @@
     "query_timeout": "30s",
     "rate_per_min": 120,
     "admin_exempt": true
+  },
+  "alerting": {
+    "denied_count": 10,
+    "denied_window_sec": 60,
+    "bulk_rows": 5000,
+    "off_hours_on": false,
+    "off_hours_start": 0,
+    "off_hours_end": 6,
+    "cooldown_sec": 300,
+    "webhook": ""
   }
 }
