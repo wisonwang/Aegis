@@ -242,11 +242,26 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 		if err != nil {
 			return nil, err
 		}
-		res, err := s.proxy.Execute(proxy.WithChannel(r.Context(), "mcp"), dsID, claims, sql, rawParams...)
+		// Link every query an agent issues in one conversation. Prefer a
+		// client-supplied session_id, then the MCP transport session header,
+		// then a freshly generated id.
+		sessionID, _ := args["session_id"].(string)
+		if sessionID == "" {
+			if h := r.Header.Get("Mcp-Session-Id"); h != "" {
+				sessionID = h
+			} else {
+				sessionID = uuid.NewString()
+			}
+		}
+		ctx := proxy.WithSession(proxy.WithChannel(r.Context(), "mcp"), sessionID)
+		res, err := s.proxy.Execute(ctx, dsID, claims, sql, rawParams...)
 		if err != nil {
 			return nil, err
 		}
-		payload = res
+		payload = map[string]interface{}{
+			"session_id":   sessionID,
+			"queryResult":  res,
+		}
 	case "get_catalog":
 		dsName, _ := args["datasource"].(string)
 		dsID, err := resolveDatasource(s.store, dsName)
@@ -437,6 +452,7 @@ func toolsList() []map[string]interface{} {
 					"datasource": map[string]interface{}{"type": "string"},
 					"sql":        map[string]interface{}{"type": "string", "description": "SQL statement"},
 					"params":     map[string]interface{}{"type": "array", "description": "optional query parameters"},
+					"session_id": map[string]interface{}{"type": "string", "description": "optional id linking queries from one AI conversation; echoed back for threading"},
 				},
 				"required": []string{"datasource", "sql"},
 			},

@@ -14,6 +14,7 @@ type AuditLog struct {
 	Channel      string    `json:"channel"` // dataapi | mcp
 	DataSourceID string    `json:"datasource_id"`
 	DataSource   string    `json:"datasource"`
+	SessionID    string    `json:"session_id"` // links queries from one AI conversation
 	SQLText      string    `json:"sql"`
 	RewrittenSQL string    `json:"rewritten_sql"`
 	Status       string    `json:"status"` // ok | denied | error
@@ -28,6 +29,7 @@ type AuditFilter struct {
 	DataSource string
 	Status     string
 	Channel    string
+	SessionID  string
 	Limit      int
 	Offset     int
 }
@@ -41,9 +43,9 @@ func (s *Store) InsertAudit(a *AuditLog) error {
 	}
 	_, err := s.db.Exec(
 		`INSERT INTO audit_logs
-		 (id,ts,user_id,username,channel,datasource_id,datasource,sql_text,rewritten_sql,status,error,row_count,duration_ms)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		a.ID, a.TS, a.UserID, a.Username, a.Channel, a.DataSourceID, a.DataSource,
+		 (id,ts,user_id,username,channel,datasource_id,datasource,session_id,sql_text,rewritten_sql,status,error,row_count,duration_ms)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		a.ID, a.TS, a.UserID, a.Username, a.Channel, a.DataSourceID, a.DataSource, a.SessionID,
 		a.SQLText, a.RewrittenSQL, a.Status, a.Error, a.RowCount, a.DurationMS)
 	return err
 }
@@ -69,6 +71,10 @@ func (s *Store) ListAudits(f AuditFilter) ([]*AuditLog, int, error) {
 		where += ` AND channel=?`
 		args = append(args, f.Channel)
 	}
+	if f.SessionID != "" {
+		where += ` AND session_id=?`
+		args = append(args, f.SessionID)
+	}
 
 	total := 0
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM audit_logs`+where, args...).Scan(&total); err != nil {
@@ -79,7 +85,7 @@ func (s *Store) ListAudits(f AuditFilter) ([]*AuditLog, int, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
-	q := `SELECT id,ts,user_id,username,channel,datasource_id,datasource,sql_text,rewritten_sql,status,error,row_count,duration_ms
+	q := `SELECT id,ts,user_id,username,channel,datasource_id,datasource,session_id,sql_text,rewritten_sql,status,error,row_count,duration_ms
 	      FROM audit_logs` + where + ` ORDER BY ts DESC LIMIT ? OFFSET ?`
 	args = append(args, limit, f.Offset)
 
@@ -92,7 +98,7 @@ func (s *Store) ListAudits(f AuditFilter) ([]*AuditLog, int, error) {
 	for rows.Next() {
 		a := &AuditLog{}
 		if err := rows.Scan(&a.ID, &a.TS, &a.UserID, &a.Username, &a.Channel,
-			&a.DataSourceID, &a.DataSource, &a.SQLText, &a.RewrittenSQL,
+			&a.DataSourceID, &a.DataSource, &a.SessionID, &a.SQLText, &a.RewrittenSQL,
 			&a.Status, &a.Error, &a.RowCount, &a.DurationMS); err != nil {
 			return nil, 0, err
 		}

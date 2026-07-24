@@ -72,7 +72,8 @@
   <div class="tagrow">
     <span class="tag">Golang 单二进制</span>
     <span class="tag">表 / 行 / 列三级治理</span>
-    <span class="tag">全量审计</span>
+    <span class="tag">治理默认开启</span>
+    <span class="tag">全量审计 · 会话级串联</span>
     <span class="tag">DataAPI（REST）</span>
     <span class="tag">MCP for AI Agent</span>
     <span class="tag">MySQL 已接入</span>
@@ -101,6 +102,36 @@
     </div>
     <div class="callout">
       <strong>核心价值：</strong>把「谁能看什么数据」从散落在各业务代码、各数据库账号的隐式规则，收口为平台上的显式策略，使数据访问<b>可审计、可收敛、可供给 AI</b>。
+    </div>
+
+    <h3>市场定位与竞争策略（2026-07 复盘）</h3>
+    <div class="callout blue">
+      <strong>核心判断：</strong>「让 LLM Agent 安全查企业数据」是真实且正在放大的需求；MCP 正成为 Agent↔数据的标准协议，但<strong>带治理的 MCP 网关</strong>仍很薄。Aegis 的差异化不在功能广度，而在「<b>单二进制自托管 + 治理默认开启</b>」——把重型目录级的治理压缩成 10 分钟可跑的网关。
+    </div>
+    <div class="grid c2">
+      <div class="card">
+        <h3>竞争象限（二维定位）</h3>
+        <p class="lead" style="margin:0">横轴=部署形态（轻量自托管 ↔ 重型平台），纵轴=治理范式（AI Agent 原生 ↔ 传统面向人/BI）。</p>
+        <ul class="clean">
+          <li><b>轻量 + AI 原生（蓝海）：</b>Aegis 当前所在，相对空旷。</li>
+          <li><b>重型 + 传统：</b>Collibra / Alation / Atlan 等数据目录。</li>
+          <li><b>轻量 + 传统：</b>ShardingSphere / ProxySQL 等 SQL 代理（非 AI 原生）。</li>
+          <li><b>重型/初创 + AI 原生：</b>MCP 安全 / LLM 防火墙初创、dbt / Cube 语义层。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>护城河与风险</h3>
+        <ul class="clean">
+          <li><b>顺风：</b>Agent 接数据的治理缺口、MCP 风口、单二进制易落地 Pilot。</li>
+          <li class="muted"><b>风险：</b>PII 识别 / NL2SQL / 语义描述正被 LLM 能力本身吞掉，价值在<b>治理执行闭环</b>而非识别算法。</li>
+          <li class="muted"><b>单人天花板：</b>企业买家要 SSO / 审计对接 SIEM / 合规认证 / 多租户，缺这些难进大客户。</li>
+          <li class="muted"><b>邻接升温：</b>数据目录厂商下沉、云厂数据库上绑、MCP 安全初创抢同一批用户。</li>
+        </ul>
+      </div>
+    </div>
+    <div class="value">
+      <h4>产品策略 · 走「楔子」而非「平台」</h4>
+      <p>不与重型目录拼广度，定位为「自托管、治理默认开启的 AI 数据网关」：开源单二进制让团队分钟级跑起来、把内部库变成受控 Agent 工具。护城河 = <b>部署简单 + 治理不可绕过</b>。商业化路径：OSS 积累采用率 → 托管版 / 企业版（SSO + 审计 + 多租户）收费。<strong>第一成功指标是采用率，而非功能数。</strong></p>
     </div>
   </section>
 
@@ -352,7 +383,7 @@
     </table>
 
     <div class="callout blue" style="margin-top:16px">
-      <strong>实施节奏建议：</strong>近期先做 ② 的行数上限 + 超时 + 限流（改动集中在 proxy 层，是 AI 上生产的硬前提），再做 ① 的 MCP resources + Schema 语义描述；中期推进 ③ 动态脱敏与分级分类、④ PostgreSQL 与读写分离；远期落地 NL2SQL 网关与语义指标层，把平台从「安全通道」升级为「AI 数据服务中台」。P0 两组合计 6–8 个功能点，完成后即可支撑 ChatBI 与 Agent 工作流安全上生产。
+      <strong>实施节奏建议（2026-07 重排）：</strong>基于「轻量 + 治理默认开」的楔子策略，优先级重排为——<b>① 先补企业门槛</b>：审计关联 AI 会话 ID（会话级串联，强化「全程录像」卖点）+ 异常行为告警，SSO / OIDC 身份对接；<b>② 同时把 MCP 治理能力讲成开发者故事</b>（README / 落地页叙事），尽早验证 OSS 采用率；<b>③ 再纵深</b>：PostgreSQL 端到端、NL2SQL 安全网关、语义指标层。避免与重型目录拼功能广度，集中资源把「治理不可绕过 + 会话级可审计」打成招牌。
     </div>
   </section>
 
@@ -429,14 +460,15 @@
       <li><b>已完成（P0-②）：</b>结果行数上限 + 查询超时 + 限流配额 + 写操作无 WHERE 拦截与影响行数上限——proxy 层集中实现，AI 上生产硬前提已满足</li>
       <li><b>已完成（P0-①）：</b>MCP resources + Schema 语义描述，直接提升 Agent 取数体验与 NL2SQL 准确率</li>
       <li><b>已完成（P1-③）：</b>数据分级分类标签（PII / 敏感 / 内部 / 公开）随 Schema 语义卡片与 MCP 目录透出，并在 nl2sql 提示词中标注敏感列处理规则</li>
-      <li><b>短期：</b>PostgreSQL 端到端验证；可观测性（Prometheus 指标、结构化日志、探针）</li>
-      <li><b>中期：</b>SSO；审计关联 AI 会话 ID 与异常告警</li>
-      <li><b>远期：</b>NL2SQL 安全网关 + 语义指标层，升级为「AI 数据服务中台」</li>
+      <li><b>进行中（楔子策略首役）：</b>审计关联 AI 会话 ID（会话级串联，强化「全程录像」卖点）+ 异常行为告警；同步把 MCP 治理能力整理为开发者叙事（README / 落地页），启动 OSS 采用率验证</li>
+      <li><b>短期：</b>SSO / OIDC / LDAP 身份对接；PostgreSQL 端到端验证；可观测性（Prometheus 指标、结构化日志、探针）</li>
+      <li><b>中期：</b>NL2SQL 安全网关 + 语义指标层；脱敏算法库（Tokenization / 格式保留加密）；多租户工作区（企业版前置）</li>
+      <li><b>远期：</b>集群化 + 插件市场 + 治理即代码，升级为「AI 数据服务中台」</li>
     </ul>
   </section>
 
   <p class="footnote">
-    Aegis 项目 PRD 蓝图 v0.2 · 更新于 2026-07-24 · 已合并「企业 AI 应用建设场景」必要性论证与功能扩充规划（原 AI-SCENARIO.html 专项文档）。
+    Aegis 项目 PRD 蓝图 v0.2 · 更新于 2026-07-24 · 已合并「企业 AI 应用建设场景」必要性论证、功能扩充规划（原 AI-SCENARIO.html 专项文档），并新增「市场定位与竞争策略（2026-07 复盘）」：定位为<strong>自托管、治理默认开启的 AI 数据网关</strong>，以「轻量 + AI 原生」楔子切入，优先 OSS 采用率。
     当前版本为单二进制 Golang 实现，三级治理 / 审计 / 真实 MySQL 已端到端验证。文档与代码同源维护于本仓库（模块 <code>github.com/wisonwang/aegis</code>）。
   </p>
 </div>

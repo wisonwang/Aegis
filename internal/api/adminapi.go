@@ -464,7 +464,7 @@ func (h *Handler) AdminDeleteRowPolicy(w http.ResponseWriter, r *http.Request) {
 // ---- Audit logs ----
 
 // AdminListAudits returns governed-query audit entries, newest first.
-// Query params: user, datasource, status, channel, limit, offset.
+// Query params: user, datasource, status, channel, session_id, limit, offset.
 func (h *Handler) AdminListAudits(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	f := store.AuditFilter{
@@ -472,6 +472,7 @@ func (h *Handler) AdminListAudits(w http.ResponseWriter, r *http.Request) {
 		DataSource: q.Get("datasource"),
 		Status:     q.Get("status"),
 		Channel:    q.Get("channel"),
+		SessionID:  q.Get("session_id"),
 		Limit:      atoiDefault(q.Get("limit"), 50),
 		Offset:     atoiDefault(q.Get("offset"), 0),
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/wisonwang/aegis/internal/auth"
 	"github.com/wisonwang/aegis/internal/datasource"
 	"github.com/wisonwang/aegis/internal/proxy"
@@ -33,6 +34,14 @@ type queryRequest struct {
 	SQL        string          `json:"sql"`        // SQL for SQL-family backends
 	Query      json.RawMessage `json:"query"`      // backend-specific JSON for NoSQL (mongo/es)
 	Params     []interface{}   `json:"params"`
+	SessionID  string          `json:"session_id"` // optional; links queries from one AI conversation
+}
+
+// queryResponse wraps the governed result with the session id used for this
+// call, so clients can thread it across subsequent queries in the same chat.
+type queryResponse struct {
+	*proxy.QueryResult
+	SessionID string `json:"session_id"`
 }
 
 // Login authenticates a principal and returns a JWT.
@@ -114,25 +123,30 @@ func (h *Handler) Query(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := claimsFromContext(r.Context())
+	sessionID := req.SessionID
+	if sessionID == "" {
+		sessionID = uuid.NewString()
+	}
+	ctx := proxy.WithSession(proxy.WithChannel(r.Context(), "dataapi"), sessionID)
 	var res *proxy.QueryResult
 	if datasource.IsNoSQL(ds.Type) {
 		if len(req.Query) == 0 {
 			writeError(w, http.StatusBadRequest, "query (JSON) is required for NoSQL datasource")
 			return
 		}
-		res, err = h.Proxy.Execute(proxy.WithChannel(r.Context(), "dataapi"), dsID, c, string(req.Query))
+		res, err = h.Proxy.Execute(ctx, dsID, c, string(req.Query))
 	} else {
 		if req.SQL == "" {
 			writeError(w, http.StatusBadRequest, "sql is required for SQL datasource")
 			return
 		}
-		res, err = h.Proxy.Execute(proxy.WithChannel(r.Context(), "dataapi"), dsID, c, req.SQL, req.Params...)
+		res, err = h.Proxy.Execute(ctx, dsID, c, req.SQL, req.Params...)
 	}
 	if err != nil {
 		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, res)
+	writeJSON(w, http.StatusOK, queryResponse{QueryResult: res, SessionID: sessionID})
 }
 
 // ListDataSources returns the registered datasources (id, name, type).

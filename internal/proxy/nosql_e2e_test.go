@@ -247,3 +247,60 @@ func TestNoSQLCatalogSurfacesCollections(t *testing.T) {
 		t.Fatal("secret should be excluded from catalog (allowed_cols)")
 	}
 }
+
+// TestAuditSessionLink verifies that a session id threaded through the context
+// is recorded on the audit entry and can be used to reassemble every query an
+// agent issued during one conversation.
+func TestAuditSessionLink(t *testing.T) {
+	p, st := func() (*Proxy, *store.Store) {
+		pp, _ := newNoSQLTestStack(t)
+		return pp, pp.store
+	}()
+	const sid = "conv-abc-123"
+	ctx := WithSession(context.Background(), sid)
+	if _, err := p.Execute(ctx, "ds1", nosqlClaims(),
+		`{"collection":"orders","filter":{"status":"open"}}`); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	logs, total, err := st.ListAudits(store.AuditFilter{SessionID: sid})
+	if err != nil {
+		t.Fatalf("list audits: %v", err)
+	}
+	if total != 1 || len(logs) != 1 {
+		t.Fatalf("expected exactly 1 audit entry for session %q, got %d", sid, total)
+	}
+	if logs[0].SessionID != sid {
+		t.Fatalf("audit SessionID = %q, want %q", logs[0].SessionID, sid)
+	}
+
+	// A different session id must not match.
+	other, _, err := st.ListAudits(store.AuditFilter{SessionID: "nobody"})
+	if err != nil {
+		t.Fatalf("list audits: %v", err)
+	}
+	if len(other) != 0 {
+		t.Fatalf("session filter leaked entries: %v", other)
+	}
+}
+
+// TestAuditSessionEmptyWhenUntagged confirms that a query issued without a
+// session id records an empty SessionID (clients must supply their own id to
+// get conversation-level linkage).
+func TestAuditSessionEmptyWhenUntagged(t *testing.T) {
+	p, st := func() (*Proxy, *store.Store) {
+		pp, _ := newNoSQLTestStack(t)
+		return pp, pp.store
+	}()
+	if _, err := p.Execute(context.Background(), "ds1", nosqlClaims(),
+		`{"collection":"orders","filter":{"status":"open"}}`); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	logs, _, err := st.ListAudits(store.AuditFilter{})
+	if err != nil {
+		t.Fatalf("list audits: %v", err)
+	}
+	if len(logs) == 0 || logs[0].SessionID != "" {
+		t.Fatalf("expected empty SessionID when untagged, got %q", logs[0].SessionID)
+	}
+}

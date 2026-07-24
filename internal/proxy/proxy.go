@@ -49,6 +49,7 @@ func (p *Proxy) SetGuard(g *Guard) { p.guard = g }
 type ctxKey int
 
 const channelKey ctxKey = 1
+const sessionKey ctxKey = 2
 
 // WithChannel tags the request context with the access channel ("dataapi" or
 // "mcp") so audit entries record where a query came from.
@@ -61,6 +62,22 @@ func channelFrom(ctx context.Context) string {
 		return v
 	}
 	return "dataapi"
+}
+
+// WithSession tags the request context with an AI conversation / session id so
+// that every query an agent issues during one conversation can be tied back
+// together in the audit trail. Callers should pass a stable id per conversation
+// (e.g. the client's own conversation id); the API layer falls back to a
+// generated id when none is supplied.
+func WithSession(ctx context.Context, sessionID string) context.Context {
+	return context.WithValue(ctx, sessionKey, sessionID)
+}
+
+func sessionFrom(ctx context.Context) string {
+	if v, ok := ctx.Value(sessionKey).(string); ok {
+		return v
+	}
+	return ""
 }
 
 // audit persists one governed-query trace. Failures to write audit never
@@ -77,6 +94,7 @@ func (p *Proxy) audit(ctx context.Context, dsID string, claims *auth.Claims, sql
 		Channel:      channelFrom(ctx),
 		DataSourceID: dsID,
 		DataSource:   dsName,
+		SessionID:    sessionFrom(ctx),
 		SQLText:      sqlText,
 		RewrittenSQL: rewritten,
 		Status:       status,

@@ -142,8 +142,8 @@ func (s *Store) migrate() error {
 		`CREATE TABLE IF NOT EXISTS audit_logs (
 			id TEXT PRIMARY KEY, ts DATETIME, user_id TEXT, username TEXT,
 			channel TEXT, datasource_id TEXT, datasource TEXT,
-			sql_text TEXT, rewritten_sql TEXT, status TEXT, error TEXT,
-			row_count INTEGER, duration_ms INTEGER)`,
+			session_id TEXT, sql_text TEXT, rewritten_sql TEXT, status TEXT,
+			error TEXT, row_count INTEGER, duration_ms INTEGER)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_logs(ts DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(username)`,
 		`CREATE TABLE IF NOT EXISTS schema_semantics (
@@ -162,6 +162,15 @@ func (s *Store) migrate() error {
 	for _, st := range stmts {
 		if _, err := s.db.Exec(st); err != nil {
 			return fmt.Errorf("migrate: %w", err)
+		}
+	}
+	// Idempotent migration: add session_id to existing audit_logs tables that
+	// were created before this column existed. ALTER errors if the column is
+	// already present, which we safely ignore.
+	if _, err := s.db.Exec(`ALTER TABLE audit_logs ADD COLUMN session_id TEXT`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			// Non-fatal: a different open failure should not block startup.
+			_ = err
 		}
 	}
 	if err := migrateDatasets(s); err != nil {

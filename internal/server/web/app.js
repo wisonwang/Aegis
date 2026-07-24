@@ -261,9 +261,11 @@ async function loadAudit() {
   const u = document.getElementById('aUser').value.trim();
   const st = document.getElementById('aStatus').value;
   const ch = document.getElementById('aChannel').value;
+  const sid = document.getElementById('aSession').value.trim();
   if (u) params.set('user', u);
   if (st) params.set('status', st);
   if (ch) params.set('channel', ch);
+  if (sid) params.set('session_id', sid);
   params.set('limit', AUDIT_PAGE);
   params.set('offset', auditOffset);
   try {
@@ -277,12 +279,13 @@ async function loadAudit() {
       `<span class="stat denied">拒绝 <b>${stats.denied || 0}</b></span>` +
       `<span class="stat err">错误 <b>${stats.error || 0}</b></span>`;
     const t = document.getElementById('auditTable');
-    t.innerHTML = '<thead><tr><th>时间</th><th>用户</th><th>渠道</th><th>数据源</th><th>SQL</th><th>重写后</th><th>状态</th><th>行数</th><th>耗时ms</th></tr></thead><tbody>' +
+    t.innerHTML = '<thead><tr><th>时间</th><th>用户</th><th>渠道</th><th>数据源</th><th>会话</th><th>SQL</th><th>重写后</th><th>状态</th><th>行数</th><th>耗时ms</th></tr></thead><tbody>' +
       data.logs.map(l => `<tr>
         <td>${esc(new Date(l.ts).toLocaleString())}</td>
         <td>${esc(l.username)}</td>
         <td>${esc(l.channel)}</td>
         <td>${esc(l.datasource)}</td>
+        <td><code title="${esc(l.session_id || '')}">${esc((l.session_id || '').slice(0, 8) || '—')}</code></td>
         <td><code title="${esc(l.sql)}">${esc(l.sql.length > 60 ? l.sql.slice(0, 60) + '…' : l.sql)}</code></td>
         <td><code title="${esc(l.rewritten_sql)}">${esc((l.rewritten_sql || '').length > 60 ? l.rewritten_sql.slice(0, 60) + '…' : (l.rewritten_sql || ''))}</code></td>
         <td><span class="badge ${esc(l.status)}">${esc(l.status)}</span>${l.error ? ' <span class="error" title="' + esc(l.error) + '">!</span>' : ''}</td>
