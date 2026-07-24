@@ -4,8 +4,8 @@ import (
 	"flag"
 	"log"
 
-	"github.com/fosun/aegis/internal/config"
-	"github.com/fosun/aegis/internal/server"
+	"github.com/wisonwang/aegis/internal/config"
+	"github.com/wisonwang/aegis/internal/server"
 )
 
 func main() {

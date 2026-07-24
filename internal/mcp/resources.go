@@ -10,6 +10,10 @@ import (
 // uriPrefix is the scheme Aegis uses for its MCP resources.
 const uriPrefix = "aegis://"
 
+// datasetURIPrefix namespaces dataset resources so they don't collide with
+// data-source resources that share the same trailing path shape.
+const datasetURIPrefix = uriPrefix + "dataset/"
+
 // listResources exposes one "schema" resource per data source the caller may
 // access. Reading a resource returns the governed, semantically enriched
 // schema (see proxy.Catalog) that helps an agent write correct SQL.
@@ -36,10 +40,22 @@ func (s *Server) listResources(r *http.Request) ([]map[string]interface{}, error
 			"mimeType":    "text/markdown",
 		})
 	}
+	// Datasets the caller may consume are also exposed as resources.
+	datasets, err := s.proxy.ListDatasets(r.Context(), claims)
+	if err == nil {
+		for _, d := range datasets {
+			out = append(out, map[string]interface{}{
+				"uri":         datasetURIPrefix + d.Name + "/schema",
+				"name":        d.Name + " dataset",
+				"description": fmt.Sprintf("Governed contract for dataset %q (%s).", d.Name, d.DisplayName),
+				"mimeType":    "text/markdown",
+			})
+		}
+	}
 	return out, nil
 }
 
-// resourceTemplates advertises the URI shape so agents can construct reads.
+// resourceTemplates advertises the URI shapes so agents can construct reads.
 func resourceTemplates() []map[string]interface{} {
 	return []map[string]interface{}{
 		{
@@ -48,11 +64,17 @@ func resourceTemplates() []map[string]interface{} {
 			"description": "Governed schema with business descriptions for a data source.",
 			"mimeType":    "text/markdown",
 		},
+		{
+			"uriTemplate": datasetURIPrefix + "{name}/schema",
+			"name":        "Dataset contract",
+			"description": "Governed field contract for a curated dataset.",
+			"mimeType":    "text/markdown",
+		},
 	}
 }
 
-// readResource resolves a aegis:// URI and returns the governed semantic
-// schema for the referenced data source, as both markdown and JSON.
+// readResource resolves a aegis:// URI and returns the governed schema for the
+// referenced data source or dataset, as both markdown and JSON.
 func (s *Server) readResource(r *http.Request, params json.RawMessage) (interface{}, error) {
 	claims, err := s.principal(r)
 	if err != nil {
@@ -63,6 +85,34 @@ func (s *Server) readResource(r *http.Request, params json.RawMessage) (interfac
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params")
+	}
+	// Dataset resources: aegis://dataset/<name>/schema
+	if strings.HasPrefix(p.URI, datasetURIPrefix) {
+		name, kind, err := parseDatasetURI(p.URI)
+		if err != nil {
+			return nil, err
+		}
+		if kind != "schema" {
+			return nil, fmt.Errorf("unsupported resource kind %q", kind)
+		}
+		d, err := s.store.GetDatasetByName(name)
+		if err != nil {
+			return nil, err
+		}
+		if d == nil {
+			return nil, fmt.Errorf("dataset %q not found", name)
+		}
+		schema, err := s.proxy.DatasetCatalog(r.Context(), d.ID, claims)
+		if err != nil {
+			return nil, err
+		}
+		jsonText, _ := json.MarshalIndent(schema, "", "  ")
+		return map[string]interface{}{
+			"contents": []map[string]interface{}{
+				{"uri": p.URI, "mimeType": "text/markdown", "text": schema.CatalogMarkdown()},
+				{"uri": p.URI + "?format=json", "mimeType": "application/json", "text": string(jsonText)},
+			},
+		}, nil
 	}
 	dsName, kind, err := parseURI(p.URI)
 	if err != nil {
@@ -101,6 +151,22 @@ func parseURI(uri string) (datasource, kind string, err error) {
 	parts := strings.SplitN(rest, "/", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", fmt.Errorf("malformed resource uri %q", uri)
+	}
+	return parts[0], parts[1], nil
+}
+
+// parseDatasetURI splits aegis://dataset/<name>/<kind>.
+func parseDatasetURI(uri string) (name, kind string, err error) {
+	if !strings.HasPrefix(uri, datasetURIPrefix) {
+		return "", "", fmt.Errorf("unknown dataset resource uri %q", uri)
+	}
+	rest := strings.TrimPrefix(uri, datasetURIPrefix)
+	if i := strings.IndexByte(rest, '?'); i >= 0 {
+		rest = rest[:i]
+	}
+	parts := strings.SplitN(rest, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", fmt.Errorf("malformed dataset resource uri %q", uri)
 	}
 	return parts[0], parts[1], nil
 }

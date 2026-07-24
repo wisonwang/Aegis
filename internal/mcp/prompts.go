@@ -74,6 +74,7 @@ Rules:
 - Use only tables/columns present in the schema. Never invent columns; if a needed column is missing, say so instead of guessing.
 - Prefer the business meaning described for each column; match user terms against column descriptions and synonyms.
 - Row-level filtering (e.g. tenant/owner scoping) is enforced automatically by the platform — do NOT add such filters yourself.
+- A column marked "[class: pii]" or "[class: restricted]" carries personal or sensitive data, and "[class: confidential]" marks financial/commercially sensitive data. Treat these columns with care: prefer aggregates (COUNT, GROUP BY, sums) over listing individual records, and never echo raw PII values back in free-text answers. Masks shown as "[masked: ...]" are already applied by the platform — keep them masked.
 - Return only the SQL, then a one-line explanation. Do not include DROP/DELETE/UPDATE/INSERT.
 
 %s`, dialectName(dialect), schema.CatalogMarkdown())

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fosun/aegis/internal/store"
+	"github.com/wisonwang/aegis/internal/store"
 )
 
 func permsFor(table string, ops ...string) map[string]*store.TableEffective {

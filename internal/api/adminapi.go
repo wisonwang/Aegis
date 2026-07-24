@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/fosun/aegis/internal/store"
+	"github.com/wisonwang/aegis/internal/datasource"
+	"github.com/wisonwang/aegis/internal/store"
 )
 
 // ---- Users ----
@@ -252,7 +253,7 @@ func (h *Handler) AdminCreateDataSource(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "name and type required")
 		return
 	}
-	d := &store.DataSource{Name: req.Name, Type: req.Type, DSN: req.DSN}
+	d := &store.DataSource{Name: req.Name, Type: datasource.NormalizeType(req.Type), DSN: req.DSN}
 	if err := h.Store.CreateDataSource(d); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -276,7 +277,7 @@ func (h *Handler) AdminUpdateDataSource(w http.ResponseWriter, r *http.Request) 
 		d.Name = req.Name
 	}
 	if req.Type != "" {
-		d.Type = req.Type
+		d.Type = datasource.NormalizeType(req.Type)
 	}
 	if req.DSN != "" {
 		d.DSN = req.DSN

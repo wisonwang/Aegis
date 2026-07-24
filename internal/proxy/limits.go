@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fosun/aegis/internal/config"
+	"github.com/wisonwang/aegis/internal/config"
 )
 
 // Guard enforces AI-behavior governance on top of permission governance:

@@ -7,12 +7,14 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/fosun/aegis/internal/api"
-	"github.com/fosun/aegis/internal/config"
-	"github.com/fosun/aegis/internal/datasource"
-	"github.com/fosun/aegis/internal/mcp"
-	"github.com/fosun/aegis/internal/proxy"
-	"github.com/fosun/aegis/internal/store"
+	"github.com/wisonwang/aegis/internal/api"
+	"github.com/wisonwang/aegis/internal/config"
+	"github.com/wisonwang/aegis/internal/datasource"
+	"github.com/wisonwang/aegis/internal/metrics"
+	"github.com/wisonwang/aegis/internal/mcp"
+	"github.com/wisonwang/aegis/internal/proxy"
+	"github.com/wisonwang/aegis/internal/store"
+	"github.com/wisonwang/aegis/internal/version"
 )
 
 //go:embed all:web
@@ -31,6 +33,21 @@ func Run(cfg *config.Config) error {
 		if err := seedIfEmpty(st, cfg); err != nil {
 			log.Printf("warn: demo seed failed: %v", err)
 		}
+	}
+
+	// Observability: advertise build identity and live counts at start-up.
+	metrics.SetBuildInfo(version.Version, version.Commit)
+	if dss, err := st.ListDataSources(); err == nil {
+		metrics.SetDatasources(len(dss))
+	}
+	if dsets, err := st.ListDatasets(); err == nil {
+		n := 0
+		for _, d := range dsets {
+			if d.Status == store.DatasetPublished {
+				n++
+			}
+		}
+		metrics.SetDatasetsPublished(n)
 	}
 
 	dm := datasource.NewManager(st)
@@ -61,11 +78,17 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		api.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	mux.Handle("GET /metrics", metrics.Handler())
 	mux.HandleFunc("GET /api/v1/me", api.Authenticate(cfg, h.Me))
 	mux.HandleFunc("POST /api/v1/query", api.Authenticate(cfg, h.Query))
 	mux.HandleFunc("GET /api/v1/datasources", api.Authenticate(cfg, h.ListDataSources))
 	mux.HandleFunc("GET /api/v1/datasources/{id}/tables", api.Authenticate(cfg, h.ListTables))
 	mux.HandleFunc("GET /api/v1/datasources/{id}/tables/{table}", api.Authenticate(cfg, h.DescribeTable))
+
+	// ---- Datasets (agent-facing consumption) ----
+	mux.HandleFunc("GET /api/v1/datasets", api.Authenticate(cfg, h.ListDatasets))
+	mux.HandleFunc("GET /api/v1/datasets/{id}", api.Authenticate(cfg, h.GetDataset))
+	mux.HandleFunc("POST /api/v1/datasets/{id}/query", api.Authenticate(cfg, h.QueryDataset))
 
 	// ---- Admin API (admin role only) ----
 	a := func(fn http.HandlerFunc) http.HandlerFunc { return api.Authenticate(cfg, api.RequireAdmin(fn)) }
@@ -102,6 +125,37 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 	mux.HandleFunc("GET /admin/api/datasources/{id}/semantics", a(h.AdminListSemantics))
 	mux.HandleFunc("POST /admin/api/datasources/{id}/semantics", a(h.AdminUpsertSemantic))
 	mux.HandleFunc("DELETE /admin/api/datasources/{id}/semantics/{sem}", a(h.AdminDeleteSemantic))
+
+	// ---- Column masks (dynamic masking / PII supply) ----
+	mux.HandleFunc("GET /admin/api/datasources/{id}/masks", a(h.AdminListMasks))
+	mux.HandleFunc("POST /admin/api/datasources/{id}/masks", a(h.AdminUpsertMask))
+	mux.HandleFunc("DELETE /admin/api/datasources/{id}/masks/{mask}", a(h.AdminDeleteMask))
+
+	// ---- Data classification (PII / sensitivity tags) ----
+	mux.HandleFunc("GET /admin/api/datasources/{id}/classifications", a(h.AdminListClassifications))
+	mux.HandleFunc("POST /admin/api/datasources/{id}/classifications", a(h.AdminUpsertClassification))
+	mux.HandleFunc("DELETE /admin/api/datasources/{id}/classifications/{cls}", a(h.AdminDeleteClassification))
+
+	// ---- Dataset management (curated, governed data products) ----
+	mux.HandleFunc("GET /admin/api/datasets", a(h.AdminListDatasets))
+	mux.HandleFunc("POST /admin/api/datasets", a(h.AdminCreateDataset))
+	mux.HandleFunc("GET /admin/api/datasets/{id}", a(h.AdminGetDataset))
+	mux.HandleFunc("PUT /admin/api/datasets/{id}", a(h.AdminUpdateDataset))
+	mux.HandleFunc("DELETE /admin/api/datasets/{id}", a(h.AdminDeleteDataset))
+	mux.HandleFunc("POST /admin/api/datasets/{id}/publish", a(h.AdminPublishDataset))
+	mux.HandleFunc("POST /admin/api/datasets/{id}/unpublish", a(h.AdminUnpublishDataset))
+	mux.HandleFunc("GET /admin/api/datasets/{id}/permissions", a(h.AdminListDatasetPermissions))
+	mux.HandleFunc("POST /admin/api/datasets/{id}/permissions", a(h.AdminCreateDatasetPermission))
+	mux.HandleFunc("DELETE /admin/api/datasets/{id}/permissions/{perm}", a(h.AdminDeleteDatasetPermission))
+	mux.HandleFunc("GET /admin/api/datasets/{id}/policies", a(h.AdminListDatasetPolicies))
+	mux.HandleFunc("POST /admin/api/datasets/{id}/policies", a(h.AdminCreateDatasetPolicy))
+	mux.HandleFunc("DELETE /admin/api/datasets/{id}/policies/{policy}", a(h.AdminDeleteDatasetPolicy))
+	mux.HandleFunc("GET /admin/api/datasets/{id}/masks", a(h.AdminListDatasetMasks))
+	mux.HandleFunc("POST /admin/api/datasets/{id}/masks", a(h.AdminUpsertDatasetMask))
+	mux.HandleFunc("DELETE /admin/api/datasets/{id}/masks/{mask}", a(h.AdminDeleteDatasetMask))
+	mux.HandleFunc("GET /admin/api/datasets/{id}/semantics", a(h.AdminListDatasetSemantics))
+	mux.HandleFunc("POST /admin/api/datasets/{id}/semantics", a(h.AdminUpsertDatasetSemantic))
+	mux.HandleFunc("DELETE /admin/api/datasets/{id}/semantics/{sem}", a(h.AdminDeleteDatasetSemantic))
 
 	// ---- MCP endpoint for AI agents ----
 	if cfg.MCP.Enabled {

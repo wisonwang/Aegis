@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/fosun/aegis/internal/auth"
-	"github.com/fosun/aegis/internal/proxy"
-	"github.com/fosun/aegis/internal/store"
+	"github.com/wisonwang/aegis/internal/auth"
+	"github.com/wisonwang/aegis/internal/datasource"
+	"github.com/wisonwang/aegis/internal/proxy"
+	"github.com/wisonwang/aegis/internal/store"
 )
 
 type loginRequest struct {
@@ -28,9 +29,10 @@ type meResponse struct {
 }
 
 type queryRequest struct {
-	DataSource string        `json:"datasource"` // id or name
-	SQL        string        `json:"sql"`
-	Params     []interface{} `json:"params"`
+	DataSource string          `json:"datasource"` // id or name
+	SQL        string          `json:"sql"`        // SQL for SQL-family backends
+	Query      json.RawMessage `json:"query"`      // backend-specific JSON for NoSQL (mongo/es)
+	Params     []interface{}   `json:"params"`
 }
 
 // Login authenticates a principal and returns a JWT.
@@ -88,15 +90,17 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toMe(u, c.Roles, c.Attributes))
 }
 
-// Query executes a governed SQL statement.
+// Query executes a governed statement. For SQL-family backends it takes `sql`;
+// for NoSQL backends (mongo/es) it takes `query` (a backend-specific JSON
+// document, e.g. {"collection":...,"filter":...} for Mongo).
 func (h *Handler) Query(w http.ResponseWriter, r *http.Request) {
 	var req queryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if req.SQL == "" {
-		writeError(w, http.StatusBadRequest, "sql is required")
+	if req.SQL == "" && len(req.Query) == 0 {
+		writeError(w, http.StatusBadRequest, "sql or query is required")
 		return
 	}
 	dsID, err := h.resolveDS(req.DataSource)
@@ -104,8 +108,26 @@ func (h *Handler) Query(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	ds, derr := h.Store.GetDataSource(dsID)
+	if derr != nil || ds == nil {
+		writeError(w, http.StatusBadRequest, "datasource not found")
+		return
+	}
 	c := claimsFromContext(r.Context())
-	res, err := h.Proxy.Execute(proxy.WithChannel(r.Context(), "dataapi"), dsID, c, req.SQL, req.Params...)
+	var res *proxy.QueryResult
+	if datasource.IsNoSQL(ds.Type) {
+		if len(req.Query) == 0 {
+			writeError(w, http.StatusBadRequest, "query (JSON) is required for NoSQL datasource")
+			return
+		}
+		res, err = h.Proxy.Execute(proxy.WithChannel(r.Context(), "dataapi"), dsID, c, string(req.Query))
+	} else {
+		if req.SQL == "" {
+			writeError(w, http.StatusBadRequest, "sql is required for SQL datasource")
+			return
+		}
+		res, err = h.Proxy.Execute(proxy.WithChannel(r.Context(), "dataapi"), dsID, c, req.SQL, req.Params...)
+	}
 	if err != nil {
 		writeError(w, http.StatusForbidden, err.Error())
 		return

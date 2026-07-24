@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fosun/aegis/internal/auth"
-	"github.com/fosun/aegis/internal/store"
+	"github.com/wisonwang/aegis/internal/auth"
+	"github.com/wisonwang/aegis/internal/store"
 )
 
 // SemanticSchema is the governance-filtered, semantically enriched view of a
@@ -31,15 +31,24 @@ type SemanticTable struct {
 	Columns     []SemanticColumn  `json:"columns"`
 }
 
+// ClassificationInfo carries the sensitivity label attached to a column or
+// table so AI agents can treat PII / sensitive columns with appropriate care.
+type ClassificationInfo struct {
+	Level string   `json:"level,omitempty"` // public|internal|confidential|restricted|pii
+	Tags  []string `json:"tags,omitempty"`
+}
+
 // SemanticColumn pairs physical metadata with optional business semantics.
 type SemanticColumn struct {
-	Name        string   `json:"name"`
-	Type        string   `json:"type"`
-	Nullable    string   `json:"nullable,omitempty"`
-	Key         string   `json:"key,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Synonyms    []string `json:"synonyms,omitempty"`
-	Examples    []string `json:"examples,omitempty"`
+	Name        string              `json:"name"`
+	Type        string              `json:"type"`
+	Nullable    string              `json:"nullable,omitempty"`
+	Key         string              `json:"key,omitempty"`
+	Description string              `json:"description,omitempty"`
+	Synonyms    []string            `json:"synonyms,omitempty"`
+	Examples    []string            `json:"examples,omitempty"`
+	Masked      string              `json:"masked,omitempty"` // masking strategy applied to this column's values (e.g. "phone")
+	Classification *ClassificationInfo `json:"classification,omitempty"`
 }
 
 // Catalog builds the governed, semantically enriched schema for a principal.
@@ -53,7 +62,7 @@ func (p *Proxy) Catalog(ctx context.Context, dsID string, claims *auth.Claims) (
 	if ds == nil {
 		return nil, fmt.Errorf("datasource not found")
 	}
-	physical, err := p.ds.ListTables(ds)
+	physical, err := p.physicalTables(ctx, ds)
 	if err != nil {
 		return nil, err
 	}
@@ -62,6 +71,10 @@ func (p *Proxy) Catalog(ctx context.Context, dsID string, claims *auth.Claims) (
 		return nil, err
 	}
 	semantics, err := p.store.SemanticIndexFor(dsID)
+	if err != nil {
+		return nil, err
+	}
+	classes, err := p.store.ClassificationIndexFor(dsID)
 	if err != nil {
 		return nil, err
 	}
@@ -79,11 +92,19 @@ func (p *Proxy) Catalog(ctx context.Context, dsID string, claims *auth.Claims) (
 				continue
 			}
 		}
-		cols, err := p.ds.DescribeTable(ds, t)
+		cols, err := p.describeColumns(ctx, ds, t)
 		if err != nil {
 			return nil, err
 		}
 		denied, allowSet, allowActive := columnGovernance(perms, claims, t)
+		masked := map[string]string{}
+		if !claims.IsAdmin() {
+			if eff := perms[strings.ToLower(t)]; eff != nil {
+				for _, m := range eff.Masks {
+					masked[strings.ToLower(m.Column)] = m.Strategy
+				}
+			}
+		}
 		out := make([]SemanticColumn, 0, len(cols))
 		for _, c := range cols {
 			lc := strings.ToLower(c.Name)
@@ -102,7 +123,16 @@ func (p *Proxy) Catalog(ctx context.Context, dsID string, claims *auth.Claims) (
 				sc.Synonyms = jsonStringSlice(sem.Synonyms)
 				sc.Examples = jsonStringSlice(sem.Examples)
 			}
-			out = append(out, sc)
+		if ms, ok := masked[lc]; ok {
+			sc.Masked = ms
+		}
+		if cls := classes.Column(t, c.Name); cls != nil {
+			sc.Classification = &ClassificationInfo{
+				Level: cls.Level,
+				Tags:  jsonStringSlice(cls.Tags),
+			}
+		}
+		out = append(out, sc)
 		}
 		st := SemanticTable{Name: t, Columns: out}
 		if claims.IsAdmin() {
@@ -184,6 +214,17 @@ func (s *SemanticSchema) CatalogMarkdown() string {
 			}
 			if len(c.Synonyms) > 0 {
 				fmt.Fprintf(&b, " (aka: %s)", strings.Join(c.Synonyms, ", "))
+			}
+			if c.Masked != "" {
+				fmt.Fprintf(&b, " [masked: %s]", c.Masked)
+			}
+			if c.Classification != nil {
+				if c.Classification.Level != "" {
+					fmt.Fprintf(&b, " [class: %s]", c.Classification.Level)
+				}
+				if len(c.Classification.Tags) > 0 {
+					fmt.Fprintf(&b, " [tags: %s]", strings.Join(c.Classification.Tags, ", "))
+				}
 			}
 			b.WriteString("\n")
 			if len(c.Examples) > 0 {

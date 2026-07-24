@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/fosun/aegis/internal/store"
+	"github.com/wisonwang/aegis/internal/store"
 )
 
 // AdminListSemantics returns all semantic entries (table & column business

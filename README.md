@@ -2,7 +2,7 @@
 
 > 使用 Golang 构建的**数据库代理 / 数据服务治理平台**：集中管理数据库访问权限、封装表/行/列级数据权限，并以 **DataAPI** 与 **MCP 服务** 的形式统一对外提供数据能力，供业务系统与 AI Agent 使用。
 
-> **命名（Rebrand）：** 项目已由 **DataHub** 更名为 **Aegis**（副标题 *AI Data Supply Gateway*），以规避与 LinkedIn / Acryl 同名数据目录产品（metadata catalog）的品牌与 SEO 混淆。代码级标识符已同步更名完成：模块路径 `github.com/fosun/aegis`、`aegis://` URI 方案、`aegis_svc` 受限账号、`AEGIS_*` 环境变量、`cmd/aegis` 入口目录。
+> **命名（Rebrand）：** 项目已由 **DataHub** 更名为 **Aegis**（副标题 *AI Data Supply Gateway*），以规避与 LinkedIn / Acryl 同名数据目录产品（metadata catalog）的品牌与 SEO 混淆。代码级标识符已同步更名完成：模块路径 `github.com/wisonwang/aegis`、`aegis://` URI 方案、`aegis_svc` 受限账号、`AEGIS_*` 环境变量、`cmd/aegis` 入口目录。
 
 ---
 
@@ -164,7 +164,50 @@ curl -s -X POST localhost:8080/mcp -H "Content-Type: application/json" \
 
 > 在 Claude Desktop / 任意 MCP 客户端中，将 transport 设为 `streamable-http`，URL 设为 `http://localhost:8080/mcp`，并配置 `Authorization: Bearer <token>` 或 `X-MCP-API-Key` 头即可。
 
+---
 
+## 数据集管理（Data Products）
+
+在「数据库连接（数据源）」之上，Aegis 提供**数据集（Dataset）**这一受治理的「数据产品」层：把一条查询固化成稳定的、可发布的、带契约的数据集，供 AI Agent 按名称消费，而无需接触底层物理表。
+
+- **数据集是虚拟表**：其治理（表/行/列权限、动态脱敏、语义）复用同一套权限引擎，治理行以 `table_name = 数据集名` 写入现有权限表，无需新建权限模型。
+- **生命周期**：`draft → published`；仅 `published` 且已授权的数据集对 Agent 可见、可查。
+- **只读数据产品**：数据集是经策展的视图，Agent 消费受治理的结果（行策略自动注入、列按契约裁剪、PII 按角色脱敏），写操作仍走底层数据源表。
+
+### 后台 API（仅 admin）
+
+```
+GET    /admin/api/datasets                      列出数据集
+POST   /admin/api/datasets                      创建（name, datasource_id, definition, ...）
+GET/PUT/DELETE /admin/api/datasets/{id}        查看 / 更新 / 删除（级联清理治理）
+POST   /admin/api/datasets/{id}/publish         发布
+POST   /admin/api/datasets/{id}/unpublish       下架
+# 数据集级治理（table_name 自动设为数据集名）
+GET/POST /admin/api/datasets/{id}/permissions   角色 × 数据集 表权限
+GET/POST /admin/api/datasets/{id}/policies      行级策略
+GET/POST/DELETE /admin/api/datasets/{id}/masks   列动态脱敏
+GET/POST/DELETE /admin/api/datasets/{id}/semantics 业务语义
+```
+
+### Agent 消费
+
+```
+GET  /api/v1/datasets                 列出当前主体可消费的数据集
+GET  /api/v1/datasets/{id}            获取数据集治理后的字段契约（catalog）
+POST /api/v1/datasets/{id}/query      执行受治理的数据集查询
+```
+
+MCP 侧同步暴露：`list_datasets` / `get_dataset_catalog` 工具，以及 `aegis://dataset/<名称>/schema` 资源。
+
+示例：演示租户已内置数据集 `paid_orders`（已支付订单，按租户隔离），`analyst` 仅能看到 `tenant_id='acme'` 的已支付订单；`admin` 绕过治理可见全部。
+
+```bash
+# 列出可消费的数据集
+curl -s localhost:8080/api/v1/datasets -H "Authorization: Bearer $TOKEN"
+
+# 查询数据集（行策略 + 列脱敏由平台自动施加）
+curl -s localhost:8080/api/v1/datasets/<dataset-id>/query -H "Authorization: Bearer $TOKEN"
+```
 
 ---
 
@@ -183,8 +226,41 @@ curl -s -X POST localhost:8080/mcp -H "Content-Type: application/json" \
 
 ### 列级（Column Masking）
 
-表权限中可配置 `allowed_cols`（白名单）与 `denied_cols`（黑名单，优先）。  
-对于 `SELECT` 结果，平台在返回前剔除无权列——即使原始 SQL 写了 `SELECT *`。
+表权限中可配置 `allowed_cols`（白名单）与 `denied_cols`（黑名单，优先）——平台在返回前剔除无权列，即使原始 SQL 写了 `SELECT *`。
+
+**动态脱敏（Dynamic Masking）**：除了整列隐藏，Aegis 还支持对列值做**变换掩码**——列仍返回，但敏感值被脱敏，让 AI 既能拿到有用数据又不暴露 PII。规则按「角色 × 数据源 × 表 × 列」配置，内置 6 种策略：
+
+| 策略 | 效果 | 示例 |
+| --- | --- | --- |
+| `phone` | 保留前 3 + 后 4 位，中间 `*` | `13812345678` → `138****5678` |
+| `email` | 保留首字符 + 完整域名 | `ops@acme.com` → `o***@acme.com` |
+| `card` | 仅保留后 4 位 | `4111111111111111` → `************1111` |
+| `partial` | 保留首尾各 N 位（`keep`，默认 2） | `Acme Corp` → `Ac*****rp` |
+| `hash` | SHA-256 截断 16 位（不可逆） | `secret` → `2bb80d537b1da3e3` |
+| `redact` | 常量 `***` | 任意值 → `***` |
+
+掩码在结果层对单元格执行，`admin` 角色与无掩码规则的角色不受影响；MCP `get_catalog` 的语义卡片会标注被掩码列（`masked: <策略>`），让 Agent 知道自己拿到的字段是脱敏值。
+
+<!-- 管理 API（仅管理员）：
+GET  /admin/api/datasources/{id}/masks
+POST /admin/api/datasources/{id}/masks   {role, table, column, strategy, keep?}
+DELETE /admin/api/datasources/{id}/masks/{mask}
+-->
+
+### 数据分级分类（Data Classification）
+
+分级分类是贴在「表 / 列」上的**数据敏感度标签**，与按角色下发的脱敏规则相互独立：它描述的是数据资产本身有多敏感，主要作用是让语义目录与 AI Agent 知道哪些列需要谨慎处理。
+
+- **分级（Level）**：`public` / `internal` / `confidential` / `restricted` / `pii`
+- **标签（Tags）**：自由标签，如 `["pii:phone","contact"]`、`["financial","money"]`
+- **粒度**：`column_name` 为空表示整表级别标签；列级标签对表级做细化。
+
+标签随语义目录自动透出：
+
+- MCP `get_catalog` / `resources/read` 的语义卡片会标注 `[class: <level>] [tags: ...]`；
+- `nl2sql` 提示词据此注入敏感列处理规则（优先聚合而非逐条列举个人记录、不回显原始 PII 值、保留平台已施加的掩码）。
+
+> 分级分类通过后台 API 维护（仅 admin）：`GET/POST /admin/api/datasources/{id}/classifications`、`DELETE .../classifications/{cls}`。演示数据源已内置示例：`customers.name/phone/email = pii`、`orders.amount = confidential`。
 
 权限在「角色」维度定义，用户通过「用户-角色」关联获得权限；`admin` 角色为内置超级用户。
 
@@ -274,3 +350,50 @@ curl -X POST localhost:8080/admin/api/datasources -H "Authorization: Bearer $ADM
 - `INSERT` 行级策略未注入（仅校验表级 INSERT 权限）。
 
 这些边界在生产化时可基于具体数据库的原生 Row-Level Security (RLS) 进一步加固。
+
+---
+
+## 可观测性（Observability）
+
+Aegis 在 `GET /metrics` 暴露 Prometheus 格式指标，可直接被 Prometheus / Grafana 抓取，用于监控网关的治理流量、延迟与数据供给量。
+
+> 指标走独立的 Prometheus registry，仅暴露 Aegis 相关指标（含 Go runtime / 进程级指标），不含默认全局注册表的其他内容。
+
+核心指标：
+
+| 指标 | 类型 | 标签 | 说明 |
+| --- | --- | --- | --- |
+| `aegis_queries_total` | Counter | `channel`(dataapi/mcp), `status`(ok/denied/error) | 受治理查询总数（DataAPI、MCP、数据集查询均计入） |
+| `aegis_query_duration_seconds` | Histogram | `channel`, `status` | 受治理查询延迟分布 |
+| `aegis_rows_returned_total` | Counter | `channel`, `status` | 返回给调用方的数据行累计数 |
+| `aegis_datasources_total` | Gauge | — | 已配置数据源数量 |
+| `aegis_datasets_published_total` | Gauge | — | 已发布数据集数量 |
+| `aegis_build_info` | Gauge | `version`, `commit` | 构建版本与提交号（值恒为 1） |
+
+抓取配置示例（`prometheus.yml`）：
+
+```yaml
+scrape_configs:
+  - job_name: aegis
+    static_configs:
+      - targets: ["localhost:8080"]
+```
+
+构建时通过 ldflags 注入版本与提交号，使 `aegis_build_info` 准确：
+
+```bash
+go build -ldflags "\
+  -X github.com/wisonwang/aegis/internal/version.Version=1.2.3 \
+  -X github.com/wisonwang/aegis/internal/version.Commit=$(git rev-parse --short HEAD)" \
+  -o aegis ./cmd/aegis
+```
+
+---
+
+## License
+
+本项目以 [MIT License](./LICENSE) 开源。
+
+你可以自由地用于学习、商用、修改与再分发，只需在副本中保留版权声明与许可声明即可；软件按「原样」提供，不附带任何担保。
+
+> 若需将版权持有人（当前为 `wisonwang`）改为贵司或具体作者，直接替换 `LICENSE` 文件首行的 `Copyright (c) 2026 wisonwang` 即可。

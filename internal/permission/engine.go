@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fosun/aegis/internal/store"
+	"github.com/wisonwang/aegis/internal/store"
 	"github.com/xwb1989/sqlparser"
 )
 
@@ -14,6 +14,7 @@ type RewriteResult struct {
 	IsRead      bool     // true for SELECT (use Query), false for DML (use Exec)
 	DeniedCols  []string // result columns that must be stripped (deny wins)
 	AllowedCols []string // if non-empty, only these result columns are permitted
+	Masks       map[string]store.MaskSpec // result columns to value-mask (keyed by lower column name)
 	// WriteHasWhere reports whether the (row-policy-injected) write statement
 	// still carries a WHERE clause. When false, the statement would touch every
 	// row of the table — the proxy rejects such UPDATE/DELETE for non-admins.
@@ -43,7 +44,7 @@ func Rewrite(sql string, perms map[string]*store.TableEffective, attrs map[strin
 		return nil, fmt.Errorf("parse sql: %w", err)
 	}
 
-	res := &RewriteResult{}
+	res := &RewriteResult{Masks: map[string]store.MaskSpec{}}
 	var tables []string
 
 	switch node := stmt.(type) {
@@ -120,6 +121,69 @@ func rewriteSelect(sel *sqlparser.Select, perms map[string]*store.TableEffective
 		}
 	}
 	return tables, nil
+}
+
+// RewriteVirtual applies governance to a dataset: a curated query (definition)
+// exposed to callers as a single virtual table named `tableKey`. The definition
+// is wrapped as a derived table aliased to tableKey so the existing permission
+// engine can treat it exactly like a physical table — SELECT permission is
+// checked on tableKey, row policies are injected *into* the definition (so they
+// filter the dataset's rows, not a re-wrapped outer query), and column masks
+// apply to the result by column name. The underlying physical tables referenced
+// by the definition are NOT separately governed: the dataset is the unit of
+// access.
+//
+// superuser bypasses all enforcement (the body is still wrapped so column names
+// resolve, but no policy/mask is applied).
+func RewriteVirtual(tableKey, definition string, perms map[string]*store.TableEffective, attrs map[string]string, superuser bool) (*RewriteResult, error) {
+	if superuser {
+		return &RewriteResult{
+			SQL:    "SELECT * FROM (" + definition + ") AS " + tableKey,
+			IsRead: true,
+			Masks:  map[string]store.MaskSpec{},
+		}, nil
+	}
+	wrapped := "SELECT * FROM (" + definition + ") AS " + tableKey
+	stmt, err := sqlparser.Parse(wrapped)
+	if err != nil {
+		return nil, fmt.Errorf("parse dataset definition: %w", err)
+	}
+	sel, ok := stmt.(*sqlparser.Select)
+	if !ok {
+		return nil, fmt.Errorf("dataset definition must be a SELECT statement")
+	}
+	key := strings.ToLower(tableKey)
+	eff, ok := perms[key]
+	if !ok {
+		return nil, fmt.Errorf("access denied to dataset %q (no permission granted)", tableKey)
+	}
+	if !eff.Ops["SELECT"] {
+		return nil, fmt.Errorf("SELECT denied on dataset %q", tableKey)
+	}
+	if len(eff.RowPolicies) > 0 {
+		combined, err := combinePredicates(eff.RowPolicies, attrs)
+		if err != nil {
+			return nil, err
+		}
+		for _, ate := range collectTopLevelTables(sel.From[0]) {
+			sub, ok := ate.Expr.(*sqlparser.Subquery)
+			if !ok {
+				continue
+			}
+			inner, ok := sub.Select.(*sqlparser.Select)
+			if !ok {
+				continue
+			}
+			if inner.Where == nil {
+				inner.Where = &sqlparser.Where{Type: sqlparser.WhereStr, Expr: combined}
+			} else {
+				inner.Where.Expr = &sqlparser.AndExpr{Left: inner.Where.Expr, Right: combined}
+			}
+		}
+	}
+	res := &RewriteResult{SQL: sqlparser.String(stmt), IsRead: true, Masks: map[string]store.MaskSpec{}}
+	computeColumnMask([]string{key}, perms, res)
+	return res, nil
 }
 
 // dmlTables checks operation permission on every top-level table of an
@@ -333,7 +397,8 @@ func collectTopLevelTables(te sqlparser.TableExpr) []*sqlparser.AliasedTableExpr
 	return out
 }
 
-// computeColumnMask aggregates denied/allowed columns from referenced tables.
+// computeColumnMask aggregates denied/allowed columns and value-masks from
+// referenced tables.
 func computeColumnMask(tables []string, perms map[string]*store.TableEffective, res *RewriteResult) {
 	deniedSet := map[string]bool{}
 	allowSet := map[string]bool{}
@@ -351,6 +416,9 @@ func computeColumnMask(tables []string, perms map[string]*store.TableEffective, 
 			for _, c := range eff.AllowedCols {
 				allowSet[strings.ToLower(c)] = true
 			}
+		}
+		for _, m := range eff.Masks {
+			res.Masks[strings.ToLower(m.Column)] = m
 		}
 	}
 	for c := range deniedSet {

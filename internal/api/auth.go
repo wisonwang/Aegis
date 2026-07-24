@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/fosun/aegis/internal/auth"
-	"github.com/fosun/aegis/internal/config"
-	"github.com/fosun/aegis/internal/datasource"
-	"github.com/fosun/aegis/internal/proxy"
-	"github.com/fosun/aegis/internal/store"
+	"github.com/wisonwang/aegis/internal/auth"
+	"github.com/wisonwang/aegis/internal/config"
+	"github.com/wisonwang/aegis/internal/datasource"
+	"github.com/wisonwang/aegis/internal/proxy"
+	"github.com/wisonwang/aegis/internal/store"
 )
 
 type ctxKeyClaims struct{}

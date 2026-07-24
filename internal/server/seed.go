@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/fosun/aegis/internal/auth"
-	"github.com/fosun/aegis/internal/config"
-	"github.com/fosun/aegis/internal/store"
+	"github.com/wisonwang/aegis/internal/auth"
+	"github.com/wisonwang/aegis/internal/config"
+	"github.com/wisonwang/aegis/internal/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -77,9 +77,92 @@ func seedIfEmpty(st *store.Store, cfg *config.Config) error {
 		Predicate: "tenant_id = :tenant", Priority: 10,
 	})
 
+	// Dynamic masking: the analyst keeps PII columns (phone/email) visible but
+	// their values are masked, so AI supply stays useful without leaking PII.
+	_ = st.UpsertColumnMask(&store.ColumnMask{
+		RoleID: analyst.ID, DataSourceID: dsID, TableName: "customers",
+		ColumnName: "phone", Strategy: "phone",
+	})
+	_ = st.UpsertColumnMask(&store.ColumnMask{
+		RoleID: analyst.ID, DataSourceID: dsID, TableName: "customers",
+		ColumnName: "email", Strategy: "email",
+	})
+
 	// Semantic layer: business descriptions so AI agents generate correct SQL.
 	seedSemantics(st, dsID)
+
+	// Data classification: mark PII / financial columns so AI agents know which
+	// columns demand care (a metadata layer, independent of per-role masks).
+	seedClassifications(st, dsID)
+
+	// Dataset management demo: a curated, governed "paid orders" data product
+	// over the demo source. The analyst may consume it; a row policy scopes it
+	// to the caller's tenant, mirroring how a platform team would publish a
+	// safe extract without exposing the raw table.
+	_ = st.CreateDataset(&store.Dataset{
+		Name:         "paid_orders",
+		DisplayName:  "已支付订单",
+		Description:  "已支付订单的只读数据产品，按租户隔离，供分析师消费。",
+		DataSourceID: dsID,
+		Definition:   "SELECT id, tenant_id, customer, amount, status FROM orders WHERE status = 'paid'",
+		Status:       store.DatasetPublished,
+		Fields:       `[{"name":"id","type":"integer"},{"name":"tenant_id","type":"text"},{"name":"customer","type":"text"},{"name":"amount","type":"real"},{"name":"status","type":"text"}]`,
+	})
+	pd, _ := st.GetDatasetByName("paid_orders")
+	if pd != nil {
+		_ = st.CreateTablePermission(&store.TablePermission{
+			RoleID: analyst.ID, DataSourceID: dsID, TableName: "paid_orders", Ops: "SELECT",
+		})
+		_ = st.CreateRowPolicy(&store.RowPolicy{
+			RoleID: analyst.ID, DataSourceID: dsID, TableName: "paid_orders",
+			Predicate: "tenant_id = :tenant", Priority: 10,
+		})
+		// Dataset-level semantics enrich the catalog the agent sees.
+		_ = st.UpsertSemantic(&store.Semantic{
+			DataSourceID: dsID, TableName: "paid_orders", ColumnName: "amount",
+			Description: "订单金额（仅含已支付订单），单位人民币元。",
+			Synonyms:    `["金额","成交额"]`,
+			Examples:    `["120.50","340.00"]`,
+		})
+		_ = st.UpsertSemantic(&store.Semantic{
+			DataSourceID: dsID, TableName: "paid_orders", ColumnName: "customer",
+			Description: "下单客户名称。", Synonyms: `["客户名"]`,
+		})
+	}
 	return nil
+}
+
+// seedClassifications attaches sensitivity labels (PII / financial) to the
+// demo tables and columns. This flows into the semantic catalog so AI agents
+// are told which columns carry personal or financial data and must be handled
+// with care. Like semantics it is a metadata layer, independent of per-role
+// masks: a column can be classified AND masked at once.
+func seedClassifications(st *store.Store, dsID string) {
+	arr := func(items []string) string {
+		if len(items) == 0 {
+			return ""
+		}
+		b, _ := json.Marshal(items)
+		return string(b)
+	}
+	up := func(table, col, level string, tags []string) {
+		_ = st.UpsertClassification(&store.DataClassification{
+			DataSourceID: dsID, TableName: table, ColumnName: col,
+			Level: level, Tags: arr(tags),
+		})
+	}
+	// Table-level marks: the customers table as a whole holds PII, orders holds
+	// financial data. Column-level labels below refine these.
+	up("customers", "", "restricted", []string{"pii"})
+	up("orders", "", "confidential", []string{"financial"})
+	// customers columns carry direct personal identifiers.
+	up("customers", "name", "pii", []string{"pii:name", "contact"})
+	up("customers", "phone", "pii", []string{"pii:phone", "contact"})
+	up("customers", "email", "pii", []string{"pii:email", "contact"})
+	// orders.amount is the financial figure.
+	up("orders", "amount", "confidential", []string{"financial", "money"})
+	// The published dataset inherits the same sensitivity for its amount column.
+	up("paid_orders", "amount", "confidential", []string{"financial", "money"})
 }
 
 // seedSemantics attaches business descriptions, synonyms and examples to the
@@ -109,6 +192,8 @@ func seedSemantics(st *store.Store, dsID string) {
 	up("orders", "tenant_id", "租户标识，用于多租户行级隔离（由平台自动过滤，无需手写）。", []string{"租户"}, []string{"acme", "globex"})
 	// customers columns.
 	up("customers", "name", "客户名称。", []string{"名称", "客户名"}, []string{"Acme Corp"})
+	up("customers", "phone", "联系电话（对受限角色动态掩码，如 138****5678）。", []string{"手机", "电话"}, []string{"13812345678"})
+	up("customers", "email", "联系邮箱（对受限角色动态掩码，如 o***@acme.com）。", []string{"邮箱"}, []string{"ops@acme.com"})
 	up("customers", "tenant_id", "租户标识（由平台自动过滤）。", []string{"租户"}, nil)
 }
 
@@ -145,16 +230,18 @@ func buildDemoDB(path string) error {
 		`CREATE TABLE customers (
 			id INTEGER PRIMARY KEY,
 			tenant_id TEXT NOT NULL,
-			name TEXT)`,
+			name TEXT,
+			phone TEXT,
+			email TEXT)`,
 		`INSERT INTO orders (tenant_id, customer, amount, status) VALUES
 			('acme','Acme Corp',120.50,'paid'),
 			('globex','Globex Inc',340.00,'paid'),
 			('acme','Acme Retail',75.25,'open'),
 			('initech','Initech',12.00,'refunded')`,
-		`INSERT INTO customers (tenant_id, name) VALUES
-			('acme','Acme Corp'),
-			('globex','Globex Inc'),
-			('initech','Initech')`,
+		`INSERT INTO customers (tenant_id, name, phone, email) VALUES
+			('acme','Acme Corp','13812345678','ops@acme.com'),
+			('globex','Globex Inc','13900001111','contact@globex.com'),
+			('initech','Initech','13722223333','hi@initech.com')`,
 	}
 	for _, q := range schema {
 		if _, err := db.Exec(q); err != nil {

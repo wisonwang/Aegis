@@ -1,12 +1,12 @@
 package datasource
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"sync"
 
-	"github.com/fosun/aegis/internal/store"
+	"github.com/wisonwang/aegis/internal/store"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 	_ "modernc.org/sqlite"
@@ -25,7 +25,8 @@ func NewManager(s *store.Store) *Manager {
 	return &Manager{store: s, pools: map[string]*sql.DB{}}
 }
 
-// Get returns a pooled connection for the datasource, opening it on first use.
+// Get returns a pooled *sql.DB connection for a SQL-driver datasource, opening
+// it on first use. Trino/Presto (HTTP) and NoSQL backends are not pooled here.
 func (m *Manager) Get(dsID string) (*sql.DB, error) {
 	m.mu.RLock()
 	if db, ok := m.pools[dsID]; ok {
@@ -46,6 +47,9 @@ func (m *Manager) Get(dsID string) (*sql.DB, error) {
 	if ds == nil {
 		return nil, fmt.Errorf("datasource %q not found", dsID)
 	}
+	if !IsSQLDriverType(ds.Type) {
+		return nil, fmt.Errorf("datasource %q is type %q, not a SQL-driver backend", ds.Name, ds.Type)
+	}
 	db, err := sql.Open(driverName(ds.Type), ds.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("open datasource %q: %w", ds.Name, err)
@@ -60,17 +64,54 @@ func (m *Manager) Get(dsID string) (*sql.DB, error) {
 	return db, nil
 }
 
-// ListTables returns the physical tables of a datasource (used to present
-// governance targets in the admin UI).
+// ExecSQL runs a SQL statement against a SQL-family backend. For pooled
+// *sql.DB backends it uses database/sql; for Trino/Presto it uses the HTTP
+// statement API. Both normalise to RawResult so the proxy can apply
+// governance masking uniformly.
+func (m *Manager) ExecSQL(ctx context.Context, ds *store.DataSource, sqlText string, args []interface{}, isRead bool) (*RawResult, int64, error) {
+	if IsSQLDriverType(ds.Type) {
+		db, err := m.Get(ds.ID)
+		if err != nil {
+			return nil, 0, err
+		}
+		if !isRead {
+			res, err := db.ExecContext(ctx, sqlText, args...)
+			if err != nil {
+				return nil, 0, err
+			}
+			n, _ := res.RowsAffected()
+			return &RawResult{}, n, nil
+		}
+		rows, err := db.QueryContext(ctx, sqlText, args...)
+		if err != nil {
+			return nil, 0, err
+		}
+		defer rows.Close()
+		raw, err := scanRowsToRaw(rows)
+		return raw, 0, err
+	}
+	if IsTrinoFamily(ds.Type) {
+		return execTrino(ctx, ds, sqlText, isRead)
+	}
+	return nil, 0, fmt.Errorf("unsupported datasource type %q", ds.Type)
+}
+
+// ListTables returns the physical tables/collections of a datasource.
 func (m *Manager) ListTables(ds *store.DataSource) ([]string, error) {
+	if IsTrinoFamily(ds.Type) {
+		return trinoListTables(context.Background(), ds)
+	}
+	if IsNoSQLType(ds.Type) {
+		return nil, fmt.Errorf("use NoSQLListTables for %q", ds.Type)
+	}
 	db, err := m.Get(ds.ID)
 	if err != nil {
 		return nil, err
 	}
 	var query string
-	switch strings.ToLower(ds.Type) {
-	case "mysql":
-		query = `SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type='BASE TABLE' ORDER BY table_name`
+	switch NormalizeType(ds.Type) {
+	case "mysql", "starrocks", "clickhouse":
+		query = `SHOW TABLES`
 	case "postgres":
 		query = `SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY table_name`
 	case "sqlite":
@@ -91,40 +132,99 @@ func (m *Manager) ListTables(ds *store.DataSource) ([]string, error) {
 		}
 		out = append(out, t)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // DescribeTable returns column metadata for a table.
 func (m *Manager) DescribeTable(ds *store.DataSource, table string) ([]ColumnMeta, error) {
+	if IsTrinoFamily(ds.Type) {
+		return trinoDescribeTable(context.Background(), ds, table)
+	}
+	if IsNoSQLType(ds.Type) {
+		return nil, fmt.Errorf("use NoSQLDescribeTable for %q", ds.Type)
+	}
+	if !safeIdent(table) {
+		return nil, fmt.Errorf("invalid table identifier %q", table)
+	}
 	db, err := m.Get(ds.ID)
 	if err != nil {
 		return nil, err
 	}
 	var query string
-	switch strings.ToLower(ds.Type) {
-	case "mysql":
-		query = `SELECT column_name, data_type, is_nullable, column_key FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=? ORDER BY ordinal_position`
+	switch NormalizeType(ds.Type) {
+	case "mysql", "starrocks", "clickhouse":
+		query = `DESCRIBE ` + table
 	case "postgres":
-		query = `SELECT column_name, data_type, is_nullable, '' FROM information_schema.columns WHERE table_schema='public' AND table_name=? ORDER BY ordinal_position`
+		query = `SELECT column_name, data_type, is_nullable, '' FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 ORDER BY ordinal_position`
 	case "sqlite":
 		query = `SELECT name, type, 'YES', '' FROM pragma_table_info(?)`
 	default:
 		return nil, fmt.Errorf("unsupported datasource type %q", ds.Type)
 	}
-	rows, err := db.Query(query, table)
+	var rows *sql.Rows
+	if NormalizeType(ds.Type) == "sqlite" || NormalizeType(ds.Type) == "postgres" {
+		rows, err = db.Query(query, table)
+	} else {
+		rows, err = db.Query(query)
+	}
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []ColumnMeta
-	for rows.Next() {
-		var c ColumnMeta
-		if err := rows.Scan(&c.Name, &c.Type, &c.Nullable, &c.Key); err != nil {
-			return nil, err
-		}
-		out = append(out, c)
+	return describeFromRows(rows)
+}
+
+// NoSQLExec runs a governed NoSQL query via the matching Connector.
+func (m *Manager) NoSQLExec(ctx context.Context, ds *store.DataSource, payload QueryPayload) (*RawResult, int64, error) {
+	c, err := newConnector(ds.Type)
+	if err != nil {
+		return nil, 0, err
 	}
-	return out, nil
+	sess, err := c.Open(ds)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer sess.Close()
+	return sess.Exec(ctx, payload)
+}
+
+// NoSQLListTables lists collections/indices of a NoSQL backend.
+func (m *Manager) NoSQLListTables(ctx context.Context, ds *store.DataSource) ([]string, error) {
+	c, err := newConnector(ds.Type)
+	if err != nil {
+		return nil, err
+	}
+	sess, err := c.Open(ds)
+	if err != nil {
+		return nil, err
+	}
+	defer sess.Close()
+	return sess.ListCollections(ctx)
+}
+
+// NoSQLDescribeTable returns field metadata for a collection/index.
+func (m *Manager) NoSQLDescribeTable(ctx context.Context, ds *store.DataSource, name string) ([]ColumnMeta, error) {
+	c, err := newConnector(ds.Type)
+	if err != nil {
+		return nil, err
+	}
+	sess, err := c.Open(ds)
+	if err != nil {
+		return nil, err
+	}
+	defer sess.Close()
+	return sess.DescribeCollection(ctx, name)
+}
+
+// newConnector builds the Connector for a NoSQL datasource type.
+func newConnector(t string) (Connector, error) {
+	switch NormalizeType(t) {
+	case "mongo":
+		return &mongoConnector{}, nil
+	case "es":
+		return &esConnector{}, nil
+	}
+	return nil, fmt.Errorf("no connector for datasource type %q", t)
 }
 
 // ColumnMeta describes a single column of a table.
@@ -133,15 +233,4 @@ type ColumnMeta struct {
 	Type     string `json:"type"`
 	Nullable string `json:"nullable"`
 	Key      string `json:"key"`
-}
-
-func driverName(t string) string {
-	switch strings.ToLower(t) {
-	case "mysql":
-		return "mysql"
-	case "postgres", "postgresql":
-		return "postgres"
-	default:
-		return "sqlite"
-	}
 }

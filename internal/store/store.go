@@ -60,6 +60,29 @@ type RowPolicy struct {
 	Priority    int    `json:"priority"`
 }
 
+// ColumnMask is a dynamic-masking rule applied to a column's *values* (as
+// opposed to DeniedCols, which drops the column entirely). It keeps the column
+// in the result but transforms the cell so PII never reaches the caller — the
+// AI supply gateway can hand out useful-but-safe data. Scope is per-role so
+// different roles can mask differently; admin bypasses masking.
+type ColumnMask struct {
+	ID           string    `json:"id"`
+	RoleID       string    `json:"role_id"`
+	DataSourceID string    `json:"datasource_id"`
+	TableName    string    `json:"table_name"`
+	ColumnName   string    `json:"column_name"`
+	Strategy     string    `json:"strategy"` // phone|email|card|hash|redact|partial
+	Keep         int       `json:"keep"`     // param for the "partial" strategy
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// MaskSpec is the resolved masking rule for a single column.
+type MaskSpec struct {
+	Column   string `json:"column"`
+	Strategy string `json:"strategy"`
+	Keep     int    `json:"keep"`
+}
+
 // TableEffective is the merged governance view for a single table, aggregated
 // across all of a user's roles.
 type TableEffective struct {
@@ -68,6 +91,7 @@ type TableEffective struct {
 	AllowedCols []string // empty => all columns allowed (unless denied)
 	DeniedCols  []string
 	RowPolicies []string // SQL predicate fragments (already substituted)
+	Masks       []MaskSpec // dynamic value-masking rules for result columns
 }
 
 // Store ----------------------------------------------------------------------
@@ -110,6 +134,11 @@ func (s *Store) migrate() error {
 		`CREATE TABLE IF NOT EXISTS row_policies (
 			id TEXT PRIMARY KEY, role_id TEXT, datasource_id TEXT,
 			table_name TEXT, predicate TEXT, priority INTEGER)`,
+		`CREATE TABLE IF NOT EXISTS column_masks (
+			id TEXT PRIMARY KEY, role_id TEXT, datasource_id TEXT,
+			table_name TEXT, column_name TEXT, strategy TEXT, keep INTEGER, updated_at DATETIME)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_masks_key
+			ON column_masks(role_id, datasource_id, table_name, column_name)`,
 		`CREATE TABLE IF NOT EXISTS audit_logs (
 			id TEXT PRIMARY KEY, ts DATETIME, user_id TEXT, username TEXT,
 			channel TEXT, datasource_id TEXT, datasource TEXT,
@@ -123,11 +152,20 @@ func (s *Store) migrate() error {
 			description TEXT, synonyms TEXT, examples TEXT, updated_at DATETIME)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_semantics_key
 			ON schema_semantics(datasource_id, table_name, column_name)`,
+		`CREATE TABLE IF NOT EXISTS data_classifications (
+			id TEXT PRIMARY KEY, datasource_id TEXT NOT NULL,
+			table_name TEXT NOT NULL, column_name TEXT NOT NULL DEFAULT '',
+			level TEXT, tags TEXT, updated_at DATETIME)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_classifications_key
+			ON data_classifications(datasource_id, table_name, column_name)`,
 	}
 	for _, st := range stmts {
 		if _, err := s.db.Exec(st); err != nil {
 			return fmt.Errorf("migrate: %w", err)
 		}
+	}
+	if err := migrateDatasets(s); err != nil {
+		return err
 	}
 	return nil
 }
@@ -304,6 +342,7 @@ func (s *Store) DeleteRole(id string) error {
 		`DELETE FROM user_roles WHERE role_id=?`,
 		`DELETE FROM table_permissions WHERE role_id=?`,
 		`DELETE FROM row_policies WHERE role_id=?`,
+		`DELETE FROM column_masks WHERE role_id=?`,
 		`DELETE FROM roles WHERE id=?`,
 	} {
 		if _, err := tx.Exec(q, id); err != nil {
@@ -404,6 +443,10 @@ func (s *Store) DeleteDataSource(id string) error {
 	for _, q := range []string{
 		`DELETE FROM table_permissions WHERE datasource_id=?`,
 		`DELETE FROM row_policies WHERE datasource_id=?`,
+		`DELETE FROM column_masks WHERE datasource_id=?`,
+		`DELETE FROM schema_semantics WHERE datasource_id=?`,
+		`DELETE FROM data_classifications WHERE datasource_id=?`,
+		`DELETE FROM datasets WHERE datasource_id=?`,
 		`DELETE FROM datasources WHERE id=?`,
 	} {
 		if _, err := tx.Exec(q, id); err != nil {
@@ -500,6 +543,72 @@ func (s *Store) DeleteRowPolicy(id string) error {
 	return err
 }
 
+// Column masks ---------------------------------------------------------------
+
+// UpsertColumnMask inserts or updates a masking rule, keyed by the
+// (role, datasource, table, column) natural key.
+func (s *Store) UpsertColumnMask(p *ColumnMask) error {
+	if p.ID == "" {
+		var found string
+		err := s.db.QueryRow(
+			`SELECT id FROM column_masks WHERE role_id=? AND datasource_id=? AND table_name=? AND column_name=?`,
+			p.RoleID, p.DataSourceID, p.TableName, p.ColumnName).Scan(&found)
+		if err == nil {
+			p.ID = found
+		} else {
+			p.ID = uid()
+		}
+	}
+	if p.UpdatedAt.IsZero() {
+		p.UpdatedAt = time.Now()
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO column_masks (id,role_id,datasource_id,table_name,column_name,strategy,keep,updated_at)
+		 VALUES (?,?,?,?,?,?,?,?)
+		 ON CONFLICT(id) DO UPDATE SET
+		   role_id=excluded.role_id, datasource_id=excluded.datasource_id,
+		   table_name=excluded.table_name, column_name=excluded.column_name,
+		   strategy=excluded.strategy, keep=excluded.keep, updated_at=excluded.updated_at`,
+		p.ID, p.RoleID, p.DataSourceID, p.TableName, p.ColumnName, p.Strategy, p.Keep, p.UpdatedAt)
+	return err
+}
+
+// ListColumnMasks returns masking rules. An empty roleID selects all roles.
+// An empty table selects all tables. Results are ordered for stability.
+func (s *Store) ListColumnMasks(roleID, dsID, table string) ([]*ColumnMask, error) {
+	q := `SELECT id,role_id,datasource_id,table_name,column_name,strategy,keep,updated_at
+	      FROM column_masks WHERE datasource_id=?`
+	args := []interface{}{dsID}
+	if roleID != "" {
+		q += ` AND role_id=?`
+		args = append(args, roleID)
+	}
+	if table != "" {
+		q += ` AND table_name=?`
+		args = append(args, table)
+	}
+	q += ` ORDER BY table_name, column_name`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*ColumnMask
+	for rows.Next() {
+		m := &ColumnMask{}
+		if err := rows.Scan(&m.ID, &m.RoleID, &m.DataSourceID, &m.TableName, &m.ColumnName, &m.Strategy, &m.Keep, &m.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+func (s *Store) DeleteColumnMask(id string) error {
+	_, err := s.db.Exec(`DELETE FROM column_masks WHERE id=?`, id)
+	return err
+}
+
 // Permission resolution ------------------------------------------------------
 
 // ResolvePermissions aggregates all of a user's roles into a per-table
@@ -516,13 +625,14 @@ func (s *Store) ResolvePermissions(userID, dsID string) (map[string]*TableEffect
 		allowedAll bool
 		denied     map[string]bool
 		policies   []string
+		masks      map[string]MaskSpec // keyed by lower column name
 	}
 	m := map[string]*agg{}
 	get := func(t string) *agg {
 		if a, ok := m[t]; ok {
 			return a
 		}
-		a := &agg{ops: map[string]bool{}, denied: map[string]bool{}}
+		a := &agg{ops: map[string]bool{}, denied: map[string]bool{}, masks: map[string]MaskSpec{}}
 		m[t] = a
 		return a
 	}
@@ -564,6 +674,22 @@ func (s *Store) ResolvePermissions(userID, dsID string) (map[string]*TableEffect
 			a := get(p.TableName)
 			a.policies = append(a.policies, p.Predicate)
 		}
+		masks, err := s.ListColumnMasks(r.ID, dsID, "")
+		if err != nil {
+			return nil, err
+		}
+		for _, mk := range masks {
+			a := get(mk.TableName)
+			// First role (in ListRolesForUser order) to define a mask for a
+			// column wins; later roles cannot unmask it. Deterministic.
+			if _, exists := a.masks[strings.ToLower(mk.ColumnName)]; !exists {
+				a.masks[strings.ToLower(mk.ColumnName)] = MaskSpec{
+					Column:   mk.ColumnName,
+					Strategy: mk.Strategy,
+					Keep:     mk.Keep,
+				}
+			}
+		}
 	}
 
 	out := map[string]*TableEffective{}
@@ -591,12 +717,17 @@ func (s *Store) ResolvePermissions(userID, dsID string) (map[string]*TableEffect
 		for c := range a.denied {
 			denied = append(denied, c)
 		}
+		masks := make([]MaskSpec, 0, len(a.masks))
+		for _, ms := range a.masks {
+			masks = append(masks, ms)
+		}
 		out[strings.ToLower(name)] = &TableEffective{
 			TableName:   name,
 			Ops:         a.ops,
 			AllowedCols: allowed,
 			DeniedCols:  denied,
 			RowPolicies: a.policies,
+			Masks:       masks,
 		}
 	}
 	return out, nil

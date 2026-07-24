@@ -8,10 +8,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fosun/aegis/internal/auth"
-	"github.com/fosun/aegis/internal/config"
-	"github.com/fosun/aegis/internal/proxy"
-	"github.com/fosun/aegis/internal/store"
+	"github.com/wisonwang/aegis/internal/auth"
+	"github.com/wisonwang/aegis/internal/config"
+	"github.com/wisonwang/aegis/internal/proxy"
+	"github.com/wisonwang/aegis/internal/store"
 	"github.com/google/uuid"
 )
 
@@ -258,6 +258,29 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 			return nil, err
 		}
 		payload = schema
+	case "list_datasets":
+		datasets, err := s.proxy.ListDatasets(r.Context(), claims)
+		if err != nil {
+			return nil, err
+		}
+		payload = map[string]interface{}{"datasets": datasets}
+	case "get_dataset_catalog":
+		name, _ := args["name"].(string)
+		if name == "" {
+			return nil, fmt.Errorf("name is required")
+		}
+		d, err := s.store.GetDatasetByName(name)
+		if err != nil {
+			return nil, err
+		}
+		if d == nil {
+			return nil, fmt.Errorf("dataset %q not found", name)
+		}
+		schema, err := s.proxy.DatasetCatalog(r.Context(), d.ID, claims)
+		if err != nil {
+			return nil, err
+		}
+		payload = schema
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", p.Name)
 	}
@@ -384,6 +407,25 @@ func toolsList() []map[string]interface{} {
 					"datasource": map[string]interface{}{"type": "string", "description": "data source id or name"},
 				},
 				"required": []string{"datasource"},
+			},
+		},
+		{
+			"name":        "list_datasets",
+			"description": "List the curated datasets the caller may consume (published, access-granted data products). Use this to discover governed data products before querying them.",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			"name":        "get_dataset_catalog",
+			"description": "Return the governed, semantically enriched contract of a dataset: its stable fields with business descriptions, synonyms and example values, plus any value masking. Use this before querying a dataset to understand its columns.",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name": map[string]interface{}{"type": "string", "description": "dataset name"},
+				},
+				"required": []string{"name"},
 			},
 		},
 		{

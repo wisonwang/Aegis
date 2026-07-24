@@ -171,7 +171,7 @@
         <text x="597" y="333" text-anchor="middle" font-size="11.5" fill="#5f5e5a">:attr 代入 · MySQL 别名兼容</text>
         <rect x="715" y="290" width="175" height="56" rx="8" fill="#ffffff" stroke="#e8d8b0"/>
         <text x="802" y="313" text-anchor="middle" font-size="12.5" fill="#1f2937">④ 结果层列脱敏</text>
-        <text x="802" y="333" text-anchor="middle" font-size="11.5" fill="#5f5e5a">denied / allowed cols</text>
+        <text x="802" y="333" text-anchor="middle" font-size="11.5" fill="#5f5e5a">denied / 动态掩码</text>
         <line x1="270" y1="364" x2="270" y2="396" stroke="#94a3b8" stroke-width="2" marker-end="url(#ar)"/>
         <line x1="700" y1="364" x2="700" y2="396" stroke="#94a3b8" stroke-width="2" marker-end="url(#ar)"/>
         <!-- 控制面 + 执行层 -->
@@ -216,7 +216,7 @@
         <ul class="clean">
           <li><b>表级：</b>角色×数据源×表 授权 SELECT/INSERT/UPDATE/DELETE，<b>默认拒绝</b></li>
           <li><b>行级：</b>谓词 <code>tenant_id = :tenant</code> 由 JWT attrs 代入，注入为派生表（MySQL 下自动补别名）</li>
-          <li><b>列级：</b>结果层按 <code>denied_cols</code>（deny 优先）脱敏 / 仅放行 <code>allowed_cols</code></li>
+          <li><b>列级：</b>结果层按 <code>denied_cols</code>（deny 优先）脱敏 / 仅放行 <code>allowed_cols</code>；另支持<strong>动态值掩码</strong>（phone/email/card/partial/hash/redact），列保留但 PII 值脱敏</li>
         </ul>
       </div>
     </div>
@@ -232,6 +232,8 @@
         <ul class="clean">
           <li><span class="pill ok">已验证</span> 集中权限 + 后端账号隔离（受限服务账号 <code>aegis_svc</code>，root 不进平台）</li>
           <li><span class="pill ok">已验证</span> 表 / 行 / 列三级治理引擎（SQL 解析重写 + 结果脱敏）</li>
+          <li><span class="pill ok">已验证</span> 动态脱敏：列保留、PII 值变换掩码（phone/email/card/partial/hash/redact），MCP 语义卡片标注 masked</li>
+          <li><span class="pill ok">已验证</span> 数据分级分类标签：PII / 敏感 / 内部 / 公开 标签随语义目录透出，MCP 卡片标注 [class: ...] 并在 nl2sql 提示词中提示 Agent 谨慎处理敏感列</li>
           <li><span class="pill ok">已验证</span> 真实 MySQL 8.0 数据源在线注册与治理（含 JOIN 双表行策略）</li>
           <li><span class="pill ok">已验证</span> 全量审计：ok/denied/error 三态、dataapi/mcp 双渠道留痕 + 管理台检索</li>
           <li><span class="pill ok">已验证</span> REST DataAPI：login / query / list datasources / describe table</li>
@@ -316,6 +318,7 @@
         <tr><td>Schema 语义描述</td><td>表/列业务含义注释（「amount = 含税订单金额」）随 <code>describe_table</code> 下发，提升 NL2SQL 准确率</td><td>已落地</td></tr>
         <tr><td>NL2SQL 安全网关</td><td>「自然语言 → SQL → 治理校验 → 执行」端到端接口，企业无需在每个应用重复实现</td><td>规划</td></tr>
         <tr><td>语义指标层</td><td>统一定义核心指标（GMV、活跃用户）的计算 SQL，AI 引用指标而非现场编 SQL，根治口径漂移</td><td>远期</td></tr>
+        <tr><td>可观测性（Metrics）</td><td><code>GET /metrics</code> 暴露 Prometheus 指标：受治理查询数/延迟/返回行数（按 channel×status）、数据源与已发布数据集计数、构建版本；直接接入 Prometheus/Grafana</td><td>已落地</td></tr>
       </table>
 
       <h3><span class="pill p0tag">P0</span> ② AI 行为治理</h3>
@@ -328,14 +331,15 @@
         <tr><td>查询成本预估</td><td>执行前 EXPLAIN，预估扫描行数超阈值拒绝并提示优化</td><td>远期</td></tr>
       </table>
 
-    <h3><span class="pill p1tag">P1</span> ③ 安全合规升级</h3>
-    <table>
-      <tr><th style="width:190px">功能</th><th>说明</th><th style="width:90px">状态</th></tr>
-      <tr><td>动态脱敏</td><td>掩码显示（<code>138****0001</code>、邮箱域保留）替代整列剔除，兼顾可用性与安全</td><td>规划</td></tr>
-      <tr><td>分级分类标签</td><td>列打 PII/敏感/内部/公开 标签，策略按标签批量下发，对齐数据安全分级要求</td><td>规划</td></tr>
-      <tr><td>审计升级</td><td>关联 AI 会话 ID（一次对话多条查询串联）；异常行为告警（高频 denied、深夜批量导出）</td><td>规划</td></tr>
-      <tr><td>身份体系对接</td><td>SSO / LDAP / OAuth2 统一身份；API Key 到期与轮换机制</td><td>规划</td></tr>
-    </table>
+      <h3><span class="pill p1tag">P1</span> ③ 安全合规升级</h3>
+      <table>
+        <tr><th style="width:190px">功能</th><th>说明</th><th style="width:90px">状态</th></tr>
+        <tr><td>动态脱敏</td><td>掩码显示（<code>138****0001</code>、邮箱域保留）替代整列剔除，兼顾可用性与安全</td><td>已落地</td></tr>
+        <tr><td>数据集管理（Data Products）</td><td>在数据源之上固化「查询 → 受治理的数据产品」：发布/下架生命周期、稳定字段契约、按名称供 Agent 消费；治理复用同一套表/行/列引擎（<code>table_name = 数据集名</code>），无需新建权限模型</td><td>已落地</td></tr>
+        <tr><td>分级分类标签</td><td>列打 PII/敏感/内部/公开 标签，随语义目录与 MCP 卡片透出，并在 nl2sql 提示词中标注敏感列处理规则，对齐数据安全分级要求</td><td>已落地</td></tr>
+        <tr><td>审计升级</td><td>关联 AI 会话 ID（一次对话多条查询串联）；异常行为告警（高频 denied、深夜批量导出）</td><td>规划</td></tr>
+        <tr><td>身份体系对接</td><td>SSO / LDAP / OAuth2 统一身份；API Key 到期与轮换机制</td><td>规划</td></tr>
+      </table>
 
     <h3><span class="pill p1tag">P1</span> ④ 平台化与生态</h3>
     <table>
@@ -423,15 +427,16 @@
     <ul class="clean">
       <li><b>已完成（P0-②）：</b>结果行数上限 + 查询超时 + 限流配额 + 写操作无 WHERE 拦截与影响行数上限——proxy 层集中实现，AI 上生产硬前提已满足</li>
       <li><b>已完成（P0-①）：</b>MCP resources + Schema 语义描述，直接提升 Agent 取数体验与 NL2SQL 准确率</li>
+      <li><b>已完成（P1-③）：</b>数据分级分类标签（PII / 敏感 / 内部 / 公开）随 Schema 语义卡片与 MCP 目录透出，并在 nl2sql 提示词中标注敏感列处理规则</li>
       <li><b>短期：</b>PostgreSQL 端到端验证；可观测性（Prometheus 指标、结构化日志、探针）</li>
-      <li><b>中期：</b>动态脱敏、分级分类标签、SSO；审计关联 AI 会话 ID 与异常告警</li>
+      <li><b>中期：</b>SSO；审计关联 AI 会话 ID 与异常告警</li>
       <li><b>远期：</b>NL2SQL 安全网关 + 语义指标层，升级为「AI 数据服务中台」</li>
     </ul>
   </section>
 
   <p class="footnote">
-    Aegis 项目 PRD 蓝图 v0.2 · 更新于 2026-07-23 · 已合并「企业 AI 应用建设场景」必要性论证与功能扩充规划（原 AI-SCENARIO.html 专项文档）。
-    当前版本为单二进制 Golang 实现，三级治理 / 审计 / 真实 MySQL 已端到端验证。文档与代码同源维护于 <code>/Users/vincent/workspace/fosun/datahub</code>。
+    Aegis 项目 PRD 蓝图 v0.2 · 更新于 2026-07-24 · 已合并「企业 AI 应用建设场景」必要性论证与功能扩充规划（原 AI-SCENARIO.html 专项文档）。
+    当前版本为单二进制 Golang 实现，三级治理 / 审计 / 真实 MySQL 已端到端验证。文档与代码同源维护于本仓库（模块 <code>github.com/wisonwang/aegis</code>）。
   </p>
 </div>
 </body>

@@ -2,15 +2,16 @@ package proxy
 
 import (
 	"context"
-	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/fosun/aegis/internal/auth"
-	"github.com/fosun/aegis/internal/datasource"
-	"github.com/fosun/aegis/internal/permission"
-	"github.com/fosun/aegis/internal/store"
+	"github.com/wisonwang/aegis/internal/auth"
+	"github.com/wisonwang/aegis/internal/datasource"
+	"github.com/wisonwang/aegis/internal/metrics"
+	"github.com/wisonwang/aegis/internal/permission"
+	"github.com/wisonwang/aegis/internal/store"
 )
 
 // QueryResult is the governed, safe result returned to a caller.
@@ -28,8 +29,8 @@ type TableInfo struct {
 	Ops  []string `json:"ops"`
 }
 
-// Proxy executes SQL on behalf of a platform principal, enforcing governance
-// via the permission engine and the datasource connection pools.
+// Proxy executes queries on behalf of a platform principal, enforcing
+// governance via the permission engine and the datasource connection pools.
 type Proxy struct {
 	store *store.Store
 	ds    *datasource.Manager
@@ -83,11 +84,16 @@ func (p *Proxy) audit(ctx context.Context, dsID string, claims *auth.Claims, sql
 		RowCount:     rowCount,
 		DurationMS:   time.Since(started).Milliseconds(),
 	})
+	// Observability: every governed outcome (ok/denied/error) is a data point.
+	ch := channelFrom(ctx)
+	metrics.RecordQuery(ch, status, time.Since(started))
+	metrics.RecordRows(ch, status, rowCount)
 }
 
-// Execute runs a SQL statement under the principal's permissions and returns a
-// governed result. Parameterized args are forwarded to the backend untouched.
-// Every call — allowed, denied or failed — leaves an audit trail.
+// Execute runs a statement under the principal's permissions and returns a
+// governed result. For SQL-family backends `sql` is a SQL string; for NoSQL
+// backends it is the backend-specific JSON query document. Parameterized args
+// are forwarded to SQL backends untouched. Every call leaves an audit trail.
 func (p *Proxy) Execute(ctx context.Context, dsID string, claims *auth.Claims, sql string, args ...interface{}) (*QueryResult, error) {
 	started := time.Now()
 
@@ -104,6 +110,17 @@ func (p *Proxy) Execute(ctx context.Context, dsID string, claims *auth.Claims, s
 		defer cancel()
 	}
 
+	ds, err := p.store.GetDataSource(dsID)
+	if err != nil || ds == nil {
+		p.audit(ctx, dsID, claims, sql, "", "error", "datasource not found", 0, started)
+		return nil, fmt.Errorf("datasource not found")
+	}
+
+	if datasource.IsNoSQL(ds.Type) {
+		return p.executeNoSQL(ctx, ds, claims, json.RawMessage(sql), started, limited)
+	}
+
+	// ---- SQL-family path (mysql/postgres/sqlite/starrocks/clickhouse/trino/presto) ----
 	perms, err := p.store.ResolvePermissions(claims.UserID, dsID)
 	if err != nil {
 		p.audit(ctx, dsID, claims, sql, "", "error", err.Error(), 0, started)
@@ -111,19 +128,11 @@ func (p *Proxy) Execute(ctx context.Context, dsID string, claims *auth.Claims, s
 	}
 	rr, err := permission.Rewrite(sql, perms, claims.Attributes, claims.IsAdmin())
 	if err != nil {
-		// Governance rejection (no table grant, forbidden op, parse refusal).
 		p.audit(ctx, dsID, claims, sql, "", "denied", err.Error(), 0, started)
 		return nil, err
 	}
 
-	db, err := p.ds.Get(dsID)
-	if err != nil {
-		p.audit(ctx, dsID, claims, sql, rr.SQL, "error", err.Error(), 0, started)
-		return nil, err
-	}
-
-	// Write protections (behavior governance). Gated by `limited`, so they
-	// inherit admin exemption and only apply when a Guard is installed.
+	// Write protections (behavior governance), inherited from admin exemption.
 	if limited && !rr.IsRead {
 		if !rr.WriteHasWhere && !p.guard.AllowNoWhere {
 			err := fmt.Errorf("UPDATE/DELETE without WHERE is not permitted (row-policy-bounded writes are allowed; set allow_no_where_writes to override)")
@@ -131,7 +140,7 @@ func (p *Proxy) Execute(ctx context.Context, dsID string, claims *auth.Claims, s
 			return nil, err
 		}
 		if p.guard.MaxAffectedRows > 0 && rr.CountCheckSQL != "" {
-			n, cerr := p.countAffected(ctx, db, rr.CountCheckSQL)
+			n, cerr := p.countAffectedSQL(ctx, ds, rr.CountCheckSQL)
 			if cerr != nil {
 				err := fmt.Errorf("cannot estimate affected rows: %w", cerr)
 				p.audit(ctx, dsID, claims, sql, rr.SQL, "error", err.Error(), 0, started)
@@ -145,71 +154,89 @@ func (p *Proxy) Execute(ctx context.Context, dsID string, claims *auth.Claims, s
 		}
 	}
 
+	raw, affected, err := p.ds.ExecSQL(ctx, ds, rr.SQL, args, rr.IsRead)
+	if err != nil {
+		p.audit(ctx, dsID, claims, sql, rr.SQL, "error", err.Error(), 0, started)
+		return nil, fmt.Errorf("execute: %w", err)
+	}
+
 	if !rr.IsRead {
-		res, err := db.ExecContext(ctx, rr.SQL, args...)
-		if err != nil {
-			p.audit(ctx, dsID, claims, sql, rr.SQL, "error", err.Error(), 0, started)
-			return nil, fmt.Errorf("execute: %w", err)
-		}
-		n, _ := res.RowsAffected()
-		p.audit(ctx, dsID, claims, sql, rr.SQL, "ok", "", int(n), started)
-		return &QueryResult{AffectedRows: n, RewrittenSQL: rr.SQL}, nil
+		p.audit(ctx, dsID, claims, sql, rr.SQL, "ok", "", int(affected), started)
+		return &QueryResult{AffectedRows: affected, RewrittenSQL: rr.SQL}, nil
 	}
-
-	rows, err := db.QueryContext(ctx, rr.SQL, args...)
-	if err != nil {
-		p.audit(ctx, dsID, claims, sql, rr.SQL, "error", err.Error(), 0, started)
-		return nil, fmt.Errorf("query: %w", err)
-	}
-	defer rows.Close()
-
-	cols, err := rows.Columns()
-	if err != nil {
-		p.audit(ctx, dsID, claims, sql, rr.SQL, "error", err.Error(), 0, started)
-		return nil, err
-	}
-	keep, outCols := maskColumns(cols, rr.DeniedCols, rr.AllowedCols)
 
 	maxRows := 0
 	if limited {
 		maxRows = p.guard.MaxRows
 	}
-	truncated := false
-	out := []map[string]interface{}{}
-	for rows.Next() {
-		if maxRows > 0 && len(out) >= maxRows {
-			truncated = true
-			break
-		}
-		scan := make([]interface{}, len(cols))
-		ptrs := make([]interface{}, len(cols))
-		for i := range scan {
-			ptrs[i] = &scan[i]
-		}
-		if err := rows.Scan(ptrs...); err != nil {
-			p.audit(ctx, dsID, claims, sql, rr.SQL, "error", err.Error(), 0, started)
-			return nil, err
-		}
-		row := map[string]interface{}{}
-		for i, c := range cols {
-			if keep[i] {
-				row[c] = normalizeValue(scan[i])
-			}
-		}
-		out = append(out, row)
-	}
-	if !truncated {
-		if err := rows.Err(); err != nil {
-			p.audit(ctx, dsID, claims, sql, rr.SQL, "error", err.Error(), 0, started)
-			return nil, err
-		}
-	}
+	res, truncated := p.maskRaw(raw, rr.DeniedCols, rr.AllowedCols, rr.Masks, maxRows)
+	res.RewrittenSQL = rr.SQL
 	note := ""
 	if truncated {
 		note = fmt.Sprintf("result truncated at max_rows=%d", maxRows)
 	}
-	p.audit(ctx, dsID, claims, sql, rr.SQL, "ok", note, len(out), started)
-	return &QueryResult{Columns: outCols, Rows: out, RewrittenSQL: rr.SQL, Truncated: truncated}, nil
+	p.audit(ctx, dsID, claims, sql, rr.SQL, "ok", note, len(res.Rows), started)
+	return res, nil
+}
+
+// executeNoSQL runs the governed path for Mongo / Elasticsearch backends.
+func (p *Proxy) executeNoSQL(ctx context.Context, ds *store.DataSource, claims *auth.Claims, payload json.RawMessage, started time.Time, limited bool) (*QueryResult, error) {
+	perms, err := p.store.ResolvePermissions(claims.UserID, ds.ID)
+	if err != nil {
+		p.audit(ctx, ds.ID, claims, string(payload), "", "error", err.Error(), 0, started)
+		return nil, err
+	}
+	gov, err := permission.GovernNoSQL(ds.Type, payload, perms, claims.IsAdmin())
+	if err != nil {
+		p.audit(ctx, ds.ID, claims, string(payload), "", "denied", err.Error(), 0, started)
+		return nil, err
+	}
+	raw, _, err := p.ds.NoSQLExec(ctx, ds, gov.Payload)
+	if err != nil {
+		p.audit(ctx, ds.ID, claims, string(payload), string(gov.Payload.Raw), "error", err.Error(), 0, started)
+		return nil, fmt.Errorf("execute: %w", err)
+	}
+	maxRows := 0
+	if limited {
+		maxRows = p.guard.MaxRows
+	}
+	res, truncated := p.maskRaw(raw, nil, nil, gov.Masks, maxRows)
+	res.RewrittenSQL = string(gov.Payload.Raw)
+	note := ""
+	if truncated {
+		note = fmt.Sprintf("result truncated at max_rows=%d", maxRows)
+	}
+	p.audit(ctx, ds.ID, claims, string(payload), string(gov.Payload.Raw), "ok", note, len(res.Rows), started)
+	return res, nil
+}
+
+// maskRaw applies column governance (denied/allowed) and value masking to a
+// RawResult, producing the final QueryResult. Denied columns are dropped; masks
+// transform surviving cell values. Truncation honours maxRows.
+func (p *Proxy) maskRaw(raw *datasource.RawResult, denied, allowed []string, masks map[string]store.MaskSpec, maxRows int) (*QueryResult, bool) {
+	actions, outCols := columnActions(raw.Columns, denied, allowed, masks)
+	truncated := false
+	out := []map[string]interface{}{}
+	for _, row := range raw.Rows {
+		if maxRows > 0 && len(out) >= maxRows {
+			truncated = true
+			break
+		}
+		nr := map[string]interface{}{}
+		for i, c := range raw.Columns {
+			a := actions[i]
+			if !a.keep {
+				continue
+			}
+			v := normalizeValue(row[c])
+			if a.mask != nil && v != nil {
+				v = applyMask(a.mask.Strategy, a.mask.Keep, v)
+			}
+			nr[c] = v
+		}
+		out = append(out, nr)
+	}
+	return &QueryResult{Columns: outCols, Rows: out, Truncated: truncated}, truncated
 }
 
 // ListTables returns the tables a principal may access on a datasource,
@@ -222,7 +249,7 @@ func (p *Proxy) ListTables(ctx context.Context, dsID string, claims *auth.Claims
 	if ds == nil {
 		return nil, fmt.Errorf("datasource not found")
 	}
-	physical, err := p.ds.ListTables(ds)
+	physical, err := p.physicalTables(ctx, ds)
 	if err != nil {
 		return nil, err
 	}
@@ -245,6 +272,23 @@ func (p *Proxy) ListTables(ctx context.Context, dsID string, claims *auth.Claims
 	return out, nil
 }
 
+// physicalTables returns the raw (ungoverned) table/collection names of a
+// datasource, dispatching to the correct backend for the datasource type.
+func (p *Proxy) physicalTables(ctx context.Context, ds *store.DataSource) ([]string, error) {
+	if datasource.IsNoSQL(ds.Type) {
+		return p.ds.NoSQLListTables(ctx, ds)
+	}
+	return p.ds.ListTables(ds)
+}
+
+// describeColumns returns raw column/field metadata for a table/collection.
+func (p *Proxy) describeColumns(ctx context.Context, ds *store.DataSource, table string) ([]datasource.ColumnMeta, error) {
+	if datasource.IsNoSQL(ds.Type) {
+		return p.ds.NoSQLDescribeTable(ctx, ds, table)
+	}
+	return p.ds.DescribeTable(ds, table)
+}
+
 // DescribeTable returns column metadata for a table, with denied/non-allowed
 // columns removed per the principal's governance.
 func (p *Proxy) DescribeTable(ctx context.Context, dsID, table string, claims *auth.Claims) ([]datasource.ColumnMeta, error) {
@@ -255,7 +299,7 @@ func (p *Proxy) DescribeTable(ctx context.Context, dsID, table string, claims *a
 	if ds == nil {
 		return nil, fmt.Errorf("datasource not found")
 	}
-	cols, err := p.ds.DescribeTable(ds, table)
+	cols, err := p.describeColumns(ctx, ds, table)
 	if err != nil {
 		return nil, err
 	}
@@ -287,45 +331,20 @@ func (p *Proxy) DescribeTable(ctx context.Context, dsID, table string, claims *a
 	return out, nil
 }
 
-// maskColumns returns which result columns to keep, applying column governance.
-func maskColumns(cols, denied, allowed []string) ([]bool, []string) {
-	deniedSet := toSet(denied)
-	allowSet := toSet(allowed)
-	allowActive := len(allowed) > 0
-	keep := make([]bool, len(cols))
-	outCols := make([]string, 0, len(cols))
-	for i, c := range cols {
-		lc := strings.ToLower(c)
-		if deniedSet[lc] {
-			keep[i] = false
-			continue
-		}
-		if allowActive && !allowSet[lc] {
-			keep[i] = false
-			continue
-		}
-		keep[i] = true
-		outCols = append(outCols, c)
-	}
-	return keep, outCols
-}
-
-// countAffected runs a portable SELECT COUNT(*) pre-check for a write statement
-// so the proxy can reject over-cap writes before executing them.
-func (p *Proxy) countAffected(ctx context.Context, db *sql.DB, sql string) (int64, error) {
-	rows, err := db.QueryContext(ctx, sql)
+// countAffectedSQL runs a portable SELECT COUNT(*) pre-check for a write
+// statement so the proxy can reject over-cap writes before executing them.
+func (p *Proxy) countAffectedSQL(ctx context.Context, ds *store.DataSource, sql string) (int64, error) {
+	raw, _, err := p.ds.ExecSQL(ctx, ds, sql, nil, true)
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
-	if !rows.Next() {
+	if len(raw.Rows) == 0 {
 		return 0, fmt.Errorf("count returned no rows")
 	}
-	var n int64
-	if err := rows.Scan(&n); err != nil {
-		return 0, err
+	for _, v := range raw.Rows[0] {
+		return toInt64(v), nil
 	}
-	return n, rows.Err()
+	return 0, nil
 }
 
 func normalizeValue(v interface{}) interface{} {
@@ -336,6 +355,28 @@ func normalizeValue(v interface{}) interface{} {
 		return nil
 	default:
 		return x
+	}
+}
+
+func toInt64(v interface{}) int64 {
+	switch x := v.(type) {
+	case int64:
+		return x
+	case int:
+		return int64(x)
+	case float64:
+		return int64(x)
+	case string:
+		var n int64
+		for _, ch := range x {
+			if ch < '0' || ch > '9' {
+				return 0
+			}
+			n = n*10 + int64(ch-'0')
+		}
+		return n
+	default:
+		return 0
 	}
 }
 
