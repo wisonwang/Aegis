@@ -60,6 +60,18 @@ type mongoQuery struct {
 	Limit      *int64          `json:"limit"`
 }
 
+// mongoWriteQuery carries a mutating operation. op is one of
+// insert|update|delete; the remaining fields are op-specific.
+type mongoWriteQuery struct {
+	Op        string          `json:"op"`
+	Collection string         `json:"collection"`
+	Document  json.RawMessage `json:"document"`  // insert (single)
+	Documents json.RawMessage `json:"documents"` // insertMany
+	Filter    json.RawMessage `json:"filter"`    // update / delete
+	Update    json.RawMessage `json:"update"`    // update
+	Multi     bool            `json:"multi"`     // update/delete many
+}
+
 func (s *mongoSession) Exec(ctx context.Context, payload QueryPayload) (*RawResult, int64, error) {
 	var q mongoQuery
 	if err := json.Unmarshal(payload.Raw, &q); err != nil {
@@ -181,3 +193,113 @@ func mongoType(v interface{}) string {
 }
 
 func (s *mongoSession) Close() error { return s.client.Disconnect(context.Background()) }
+
+// Write runs a governed mutating operation. op is insert|update|delete.
+func (s *mongoSession) Write(ctx context.Context, payload WritePayload) (int64, error) {
+	var w mongoWriteQuery
+	if err := json.Unmarshal(payload.Raw, &w); err != nil {
+		return 0, fmt.Errorf("invalid mongo write: %w", err)
+	}
+	if w.Collection == "" {
+		return 0, fmt.Errorf("mongo write requires 'collection'")
+	}
+	coll := s.client.Database(s.dbName).Collection(w.Collection)
+	switch w.Op {
+	case "insert":
+		if len(w.Document) > 0 {
+			var doc bson.M
+			if err := json.Unmarshal(w.Document, &doc); err != nil {
+				return 0, fmt.Errorf("invalid mongo document: %w", err)
+			}
+			res, err := coll.InsertOne(ctx, doc)
+			if err != nil {
+				return 0, fmt.Errorf("mongo insertOne: %w", err)
+			}
+			if res.InsertedID != nil {
+				return 1, nil
+			}
+			return 0, nil
+		}
+		if len(w.Documents) > 0 {
+			var docs []interface{}
+			if err := json.Unmarshal(w.Documents, &docs); err != nil {
+				return 0, fmt.Errorf("invalid mongo documents: %w", err)
+			}
+			res, err := coll.InsertMany(ctx, docs)
+			if err != nil {
+				return 0, fmt.Errorf("mongo insertMany: %w", err)
+			}
+			return int64(len(res.InsertedIDs)), nil
+		}
+		return 0, fmt.Errorf("mongo insert requires 'document' or 'documents'")
+	case "update":
+		var filter bson.M
+		if len(w.Filter) > 0 {
+			if err := json.Unmarshal(w.Filter, &filter); err != nil {
+				return 0, fmt.Errorf("invalid mongo filter: %w", err)
+			}
+		}
+		var update bson.M
+		if len(w.Update) > 0 {
+			if err := json.Unmarshal(w.Update, &update); err != nil {
+				return 0, fmt.Errorf("invalid mongo update: %w", err)
+			}
+		}
+		if w.Multi {
+			res, err := coll.UpdateMany(ctx, filter, update)
+			if err != nil {
+				return 0, fmt.Errorf("mongo update: %w", err)
+			}
+			return res.ModifiedCount + res.UpsertedCount, nil
+		}
+		res, err := coll.UpdateOne(ctx, filter, update)
+		if err != nil {
+			return 0, fmt.Errorf("mongo update: %w", err)
+		}
+		return res.ModifiedCount + res.UpsertedCount, nil
+	case "delete":
+		var filter bson.M
+		if len(w.Filter) > 0 {
+			if err := json.Unmarshal(w.Filter, &filter); err != nil {
+				return 0, fmt.Errorf("invalid mongo filter: %w", err)
+			}
+		}
+		if w.Multi {
+			res, err := coll.DeleteMany(ctx, filter)
+			if err != nil {
+				return 0, fmt.Errorf("mongo delete: %w", err)
+			}
+			return res.DeletedCount, nil
+		}
+		res, err := coll.DeleteOne(ctx, filter)
+		if err != nil {
+			return 0, fmt.Errorf("mongo delete: %w", err)
+		}
+		return res.DeletedCount, nil
+	default:
+		return 0, fmt.Errorf("unsupported mongo op %q", w.Op)
+	}
+}
+
+// Count returns the number of documents matching a governed filter. Used by the
+// proxy to enforce the affected-rows guard before an update/delete.
+func (s *mongoSession) Count(ctx context.Context, payload QueryPayload) (int64, error) {
+	var q mongoQuery
+	if err := json.Unmarshal(payload.Raw, &q); err != nil {
+		return 0, fmt.Errorf("invalid mongo count query: %w", err)
+	}
+	if q.Collection == "" {
+		return 0, fmt.Errorf("mongo count requires 'collection'")
+	}
+	var filter bson.M
+	if len(q.Filter) > 0 {
+		if err := json.Unmarshal(q.Filter, &filter); err != nil {
+			return 0, fmt.Errorf("invalid mongo filter: %w", err)
+		}
+	}
+	n, err := s.client.Database(s.dbName).Collection(q.Collection).CountDocuments(ctx, filter)
+	if err != nil {
+		return 0, fmt.Errorf("mongo count: %w", err)
+	}
+	return n, nil
+}

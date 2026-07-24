@@ -181,6 +181,11 @@ func (p *Proxy) Execute(ctx context.Context, dsID string, claims *auth.Claims, s
 
 // executeNoSQL runs the governed path for Mongo / Elasticsearch backends.
 func (p *Proxy) executeNoSQL(ctx context.Context, ds *store.DataSource, claims *auth.Claims, payload json.RawMessage, started time.Time, limited bool) (*QueryResult, error) {
+	// Mutating operations (insert/update/delete) take the write path; reads
+	// (find/search) fall through to the read path below.
+	if datasource.IsNoSQLWriteOp(payload) {
+		return p.executeNoSQLWrite(ctx, ds, claims, payload, started, limited)
+	}
 	perms, err := p.store.ResolvePermissions(claims.UserID, ds.ID)
 	if err != nil {
 		p.audit(ctx, ds.ID, claims, string(payload), "", "error", err.Error(), 0, started)
@@ -207,6 +212,48 @@ func (p *Proxy) executeNoSQL(ctx context.Context, ds *store.DataSource, claims *
 		note = fmt.Sprintf("result truncated at max_rows=%d", maxRows)
 	}
 	p.audit(ctx, ds.ID, claims, string(payload), string(gov.Payload.Raw), "ok", note, len(res.Rows), started)
+	return res, nil
+}
+
+// executeNoSQLWrite runs the governed path for Mongo / Elasticsearch writes.
+// Column governance is enforced at query time (projection / _source), so only
+// value masking applies to the result layer. When limits.max_affected_rows is
+// set, an affected-rows guard pre-checks the match count before the write runs.
+func (p *Proxy) executeNoSQLWrite(ctx context.Context, ds *store.DataSource, claims *auth.Claims, payload json.RawMessage, started time.Time, limited bool) (*QueryResult, error) {
+	perms, err := p.store.ResolvePermissions(claims.UserID, ds.ID)
+	if err != nil {
+		p.audit(ctx, ds.ID, claims, string(payload), "", "error", err.Error(), 0, started)
+		return nil, err
+	}
+	// Match the SQL write path: the no-where guard only applies when behavior
+	// limits are enabled (guard != nil); if limits are disabled, writes are
+	// unrestricted, and AllowNoWhere relaxes the guard when set.
+	allowNoWhere := p.guard == nil || p.guard.AllowNoWhere
+	gov, err := permission.GovernNoSQLWrite(ds.Type, payload, perms, claims.IsAdmin(), allowNoWhere)
+	if err != nil {
+		p.audit(ctx, ds.ID, claims, string(payload), "", "denied", err.Error(), 0, started)
+		return nil, err
+	}
+	// Affected-rows guard: pre-check the match count for update/delete.
+	if limited && p.guard.MaxAffectedRows > 0 && gov.CountPayload.Raw != nil {
+		n, err := p.ds.NoSQLCount(ctx, ds, gov.CountPayload)
+		if err != nil {
+			p.audit(ctx, ds.ID, claims, string(payload), string(gov.Payload.Raw), "error", err.Error(), 0, started)
+			return nil, fmt.Errorf("pre-check count: %w", err)
+		}
+		if int(n) > p.guard.MaxAffectedRows {
+			msg := fmt.Sprintf("write would affect %d rows, exceeding max_affected_rows=%d", n, p.guard.MaxAffectedRows)
+			p.audit(ctx, ds.ID, claims, string(payload), string(gov.Payload.Raw), "denied", msg, int(n), started)
+			return nil, fmt.Errorf("%s", msg)
+		}
+	}
+	affected, err := p.ds.NoSQLWrite(ctx, ds, gov.Payload)
+	if err != nil {
+		p.audit(ctx, ds.ID, claims, string(payload), string(gov.Payload.Raw), "error", err.Error(), 0, started)
+		return nil, fmt.Errorf("execute write: %w", err)
+	}
+	res := &QueryResult{AffectedRows: affected, RewrittenSQL: string(gov.Payload.Raw), Columns: []string{"affected_rows"}, Rows: []map[string]interface{}{{"affected_rows": affected}}}
+	p.audit(ctx, ds.ID, claims, string(payload), string(gov.Payload.Raw), "ok", "", int(affected), started)
 	return res, nil
 }
 

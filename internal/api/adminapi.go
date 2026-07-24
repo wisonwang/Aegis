@@ -253,6 +253,10 @@ func (h *Handler) AdminCreateDataSource(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "name and type required")
 		return
 	}
+	if !datasource.IsKnownType(req.Type) {
+		writeError(w, http.StatusBadRequest, "unsupported datasource type "+req.Type)
+		return
+	}
 	d := &store.DataSource{Name: req.Name, Type: datasource.NormalizeType(req.Type), DSN: req.DSN}
 	if err := h.Store.CreateDataSource(d); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -271,6 +275,10 @@ func (h *Handler) AdminUpdateDataSource(w http.ResponseWriter, r *http.Request) 
 	var req createDSRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if req.Type != "" && !datasource.IsKnownType(req.Type) {
+		writeError(w, http.StatusBadRequest, "unsupported datasource type "+req.Type)
 		return
 	}
 	if req.Name != "" {

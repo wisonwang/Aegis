@@ -60,6 +60,46 @@ type esQuery struct {
 	Aggs    json.RawMessage `json:"aggs"`
 }
 
+// esWriteQuery carries a mutating operation. op is one of
+// index|updateByQuery|deleteByQuery.
+type esWriteQuery struct {
+	Op       string          `json:"op"`
+	Index    string          `json:"index"`
+	ID       string          `json:"id"`
+	Document json.RawMessage `json:"document"`
+	Query    json.RawMessage `json:"query"`
+	Script   json.RawMessage `json:"script"`
+}
+
+type esWriteResp struct {
+	Error *struct {
+		Reason string `json:"reason"`
+	} `json:"error"`
+}
+
+type esBulkResp struct {
+	Updated int64 `json:"updated"`
+	Deleted int64 `json:"deleted"`
+	Total   int64 `json:"total"`
+	Error   *struct {
+		Reason string `json:"reason"`
+	} `json:"error"`
+}
+
+func (r esBulkResp) affected(verb string) int64 {
+	if verb == "deleted" {
+		return r.Deleted
+	}
+	return r.Updated
+}
+
+type esCountResp struct {
+	Count int64 `json:"count"`
+	Error *struct {
+		Reason string `json:"reason"`
+	} `json:"error"`
+}
+
 func (s *esSession) Exec(ctx context.Context, payload QueryPayload) (*RawResult, int64, error) {
 	var q esQuery
 	if err := json.Unmarshal(payload.Raw, &q); err != nil {
@@ -167,24 +207,28 @@ func (s *esSession) DescribeCollection(ctx context.Context, name string) ([]Colu
 	return out, nil
 }
 
-func (s *esSession) post(ctx context.Context, path string, body interface{}, out interface{}) error {
-	b, err := json.Marshal(body)
-	if err != nil {
-		return err
+func (s *esSession) req(ctx context.Context, method, path string, body interface{}, out interface{}) error {
+	var rdr io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		rdr = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.base+path, bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, method, s.base+path, rdr)
 	if err != nil {
 		return err
 	}
 	return s.do(req, out)
 }
 
+func (s *esSession) post(ctx context.Context, path string, body interface{}, out interface{}) error {
+	return s.req(ctx, http.MethodPost, path, body, out)
+}
+
 func (s *esSession) get(ctx context.Context, path string, out interface{}) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.base+path, nil)
-	if err != nil {
-		return err
-	}
-	return s.do(req, out)
+	return s.req(ctx, http.MethodGet, path, nil, out)
 }
 
 func (s *esSession) do(req *http.Request, out interface{}) error {
@@ -211,6 +255,99 @@ func (s *esSession) do(req *http.Request, out interface{}) error {
 }
 
 func (s *esSession) Close() error { return nil }
+
+// Write runs a governed mutating operation. op is index|updateByQuery|deleteByQuery.
+func (s *esSession) Write(ctx context.Context, payload WritePayload) (int64, error) {
+	var w esWriteQuery
+	if err := json.Unmarshal(payload.Raw, &w); err != nil {
+		return 0, fmt.Errorf("invalid elasticsearch write: %w", err)
+	}
+	if w.Index == "" {
+		return 0, fmt.Errorf("elasticsearch write requires 'index'")
+	}
+	switch w.Op {
+	case "index":
+		if len(w.Document) == 0 {
+			return 0, fmt.Errorf("elasticsearch index requires 'document'")
+		}
+		var doc interface{}
+		if err := json.Unmarshal(w.Document, &doc); err != nil {
+			return 0, fmt.Errorf("invalid elasticsearch document: %w", err)
+		}
+		path := "/" + w.Index + "/_doc"
+		method := http.MethodPost
+		if w.ID != "" {
+			path = "/" + w.Index + "/_doc/" + w.ID
+			method = http.MethodPut
+		}
+		var resp esWriteResp
+		if err := s.req(ctx, method, path, doc, &resp); err != nil {
+			return 0, err
+		}
+		if resp.Error != nil {
+			return 0, fmt.Errorf("elasticsearch error: %s", resp.Error.Reason)
+		}
+		return 1, nil
+	case "updateByQuery", "deleteByQuery":
+		body := map[string]interface{}{}
+		if len(w.Query) > 0 {
+			var q interface{}
+			if err := json.Unmarshal(w.Query, &q); err != nil {
+				return 0, fmt.Errorf("invalid elasticsearch query: %w", err)
+			}
+			body["query"] = q
+		}
+		if w.Op == "updateByQuery" && len(w.Script) > 0 {
+			var sc interface{}
+			if err := json.Unmarshal(w.Script, &sc); err != nil {
+				return 0, fmt.Errorf("invalid elasticsearch script: %w", err)
+			}
+			body["script"] = sc
+		}
+		verb := "updated"
+		if w.Op == "deleteByQuery" {
+			verb = "deleted"
+		}
+		var resp esBulkResp
+		if err := s.req(ctx, http.MethodPost, "/"+w.Index+"/_"+w.Op, body, &resp); err != nil {
+			return 0, err
+		}
+		if resp.Error != nil {
+			return 0, fmt.Errorf("elasticsearch error: %s", resp.Error.Reason)
+		}
+		return resp.affected(verb), nil
+	default:
+		return 0, fmt.Errorf("unsupported elasticsearch op %q", w.Op)
+	}
+}
+
+// Count returns the number of documents matching a governed query. Used by the
+// proxy to enforce the affected-rows guard before an update/delete.
+func (s *esSession) Count(ctx context.Context, payload QueryPayload) (int64, error) {
+	var q esQuery
+	if err := json.Unmarshal(payload.Raw, &q); err != nil {
+		return 0, fmt.Errorf("invalid elasticsearch count query: %w", err)
+	}
+	if q.Index == "" {
+		return 0, fmt.Errorf("elasticsearch count requires 'index'")
+	}
+	body := map[string]interface{}{}
+	if len(q.Query) > 0 {
+		var bq interface{}
+		if err := json.Unmarshal(q.Query, &bq); err != nil {
+			return 0, fmt.Errorf("invalid elasticsearch query: %w", err)
+		}
+		body["query"] = bq
+	}
+	var resp esCountResp
+	if err := s.req(ctx, http.MethodPost, "/"+q.Index+"/_count", body, &resp); err != nil {
+		return 0, err
+	}
+	if resp.Error != nil {
+		return 0, fmt.Errorf("elasticsearch error: %s", resp.Error.Reason)
+	}
+	return resp.Count, nil
+}
 
 type esSearchResp struct {
 	Hits struct {

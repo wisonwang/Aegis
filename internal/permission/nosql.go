@@ -341,3 +341,284 @@ func esSource(eff *store.TableEffective, userSrc json.RawMessage) (json.RawMessa
 	}
 	return nil, nil
 }
+
+// ---- Write governance (insert / update / delete) --------------------------
+
+// NoSQLWriteGov is the governed form of a NoSQL write. Payload is the
+// backend-specific write op (already column/row-governed); CountPayload is the
+// governed read filter the proxy uses to pre-check affected rows before the
+// write runs (nil when no pre-check is needed, e.g. a single insert).
+type NoSQLWriteGov struct {
+	Payload      datasource.WritePayload
+	CountPayload datasource.QueryPayload
+	Op           string
+}
+
+// GovernNoSQLWrite applies table/column/row governance to a NoSQL mutating
+// operation (insert/update/delete) expressed in the backend's native JSON
+// dialect. superuser bypasses all enforcement. allowNoWhere permits writes
+// without a row-bounding filter (mirrors the SQL allow_no_where_writes flag).
+func GovernNoSQLWrite(dsType string, raw json.RawMessage, perms map[string]*store.TableEffective, superuser, allowNoWhere bool) (*NoSQLWriteGov, error) {
+	if superuser {
+		return &NoSQLWriteGov{Payload: datasource.WritePayload{Raw: raw}}, nil
+	}
+	switch datasource.NormalizeType(dsType) {
+	case "mongo":
+		return governMongoWrite(raw, perms, allowNoWhere)
+	case "es":
+		return governESWrite(raw, perms, allowNoWhere)
+	}
+	return nil, fmt.Errorf("unsupported NoSQL datasource type %q", dsType)
+}
+
+func inSet(cols []string, key string) bool {
+	for _, c := range cols {
+		if strings.ToLower(c) == key {
+			return true
+		}
+	}
+	return false
+}
+
+// projectWriteFields drops non-allowed columns and rejects writes that touch
+// denied columns. Nested objects are not descended (top-level field governance).
+func projectWriteFields(raw json.RawMessage, eff *store.TableEffective) (json.RawMessage, error) {
+	var doc map[string]interface{}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("invalid document: %w", err)
+	}
+	for k := range doc {
+		lk := strings.ToLower(k)
+		if inSet(eff.DeniedCols, lk) {
+			return nil, fmt.Errorf("write to denied column %q is not permitted", k)
+		}
+		if len(eff.AllowedCols) > 0 && !inSet(eff.AllowedCols, lk) {
+			delete(doc, k)
+		}
+	}
+	return json.Marshal(doc)
+}
+
+// projectUpdateFields governs the keys of a Mongo update document. Only $set is
+// column-governed; other operators ($inc, $push, ...) pass through untouched.
+func projectUpdateFields(raw json.RawMessage, eff *store.TableEffective) (json.RawMessage, error) {
+	var upd map[string]interface{}
+	if err := json.Unmarshal(raw, &upd); err != nil {
+		return nil, fmt.Errorf("invalid update: %w", err)
+	}
+	if set, ok := upd["$set"].(map[string]interface{}); ok {
+		for k := range set {
+			lk := strings.ToLower(k)
+			if inSet(eff.DeniedCols, lk) {
+				return nil, fmt.Errorf("write to denied column %q is not permitted", k)
+			}
+			if len(eff.AllowedCols) > 0 && !inSet(eff.AllowedCols, lk) {
+				delete(set, k)
+			}
+		}
+		upd["$set"] = set
+	}
+	return json.Marshal(upd)
+}
+
+func isEmptyFilter(f json.RawMessage) bool {
+	var m map[string]interface{}
+	if err := json.Unmarshal(f, &m); err != nil {
+		return true
+	}
+	return len(m) == 0
+}
+
+// ---- MongoDB writes -------------------------------------------------------
+
+type mongoWriteIn struct {
+	Op         string          `json:"op"` // insert | update | delete
+	Collection string          `json:"collection"`
+	Document   json.RawMessage `json:"document"`
+	Documents  json.RawMessage `json:"documents"`
+	Filter     json.RawMessage `json:"filter"`
+	Update     json.RawMessage `json:"update"`
+	Multi      bool            `json:"multi"`
+}
+
+func governMongoWrite(raw json.RawMessage, perms map[string]*store.TableEffective, allowNoWhere bool) (*NoSQLWriteGov, error) {
+	var w mongoWriteIn
+	if err := json.Unmarshal(raw, &w); err != nil {
+		return nil, fmt.Errorf("invalid mongo write: %w", err)
+	}
+	if w.Collection == "" {
+		return nil, fmt.Errorf("mongo write requires 'collection'")
+	}
+	eff := perms[strings.ToLower(w.Collection)]
+	if eff == nil {
+		return nil, fmt.Errorf("access denied to collection %q (no permission granted)", w.Collection)
+	}
+	switch w.Op {
+	case "insert":
+		if !eff.Ops["INSERT"] {
+			return nil, fmt.Errorf("INSERT denied on collection %q", w.Collection)
+		}
+		out := map[string]interface{}{"op": "insert", "collection": w.Collection}
+		if len(w.Document) > 0 {
+			proj, err := projectWriteFields(w.Document, eff)
+			if err != nil {
+				return nil, err
+			}
+			out["document"] = json.RawMessage(proj)
+		} else if len(w.Documents) > 0 {
+			var docs []json.RawMessage
+			if err := json.Unmarshal(w.Documents, &docs); err != nil {
+				return nil, fmt.Errorf("invalid mongo documents: %w", err)
+			}
+			projDocs := make([]json.RawMessage, 0, len(docs))
+			for _, d := range docs {
+				p, err := projectWriteFields(d, eff)
+				if err != nil {
+					return nil, err
+				}
+				projDocs = append(projDocs, json.RawMessage(p))
+			}
+			b, _ := json.Marshal(projDocs)
+			out["documents"] = json.RawMessage(b)
+		} else {
+			return nil, fmt.Errorf("mongo insert requires 'document' or 'documents'")
+		}
+		b, _ := json.Marshal(out)
+		return &NoSQLWriteGov{Payload: datasource.WritePayload{Raw: b}, Op: "insert"}, nil
+	case "update":
+		if !eff.Ops["UPDATE"] {
+			return nil, fmt.Errorf("UPDATE denied on collection %q", w.Collection)
+		}
+		merged, err := mergeMongoFilter(w.Filter, eff.RowPolicies)
+		if err != nil {
+			return nil, err
+		}
+		if isEmptyFilter(merged) && !allowNoWhere {
+			return nil, fmt.Errorf("UPDATE without a row-bounding filter is not permitted (set allow_no_where_writes to override)")
+		}
+		proj, err := projectUpdateFields(w.Update, eff)
+		if err != nil {
+			return nil, err
+		}
+		out := map[string]interface{}{"op": "update", "collection": w.Collection, "filter": json.RawMessage(merged), "update": json.RawMessage(proj), "multi": w.Multi}
+		b, _ := json.Marshal(out)
+		return &NoSQLWriteGov{
+			Payload:      datasource.WritePayload{Raw: b},
+			CountPayload: datasource.QueryPayload{Raw: mustJSON(map[string]interface{}{"collection": w.Collection, "filter": json.RawMessage(merged)})},
+			Op:           "update",
+		}, nil
+	case "delete":
+		if !eff.Ops["DELETE"] {
+			return nil, fmt.Errorf("DELETE denied on collection %q", w.Collection)
+		}
+		merged, err := mergeMongoFilter(w.Filter, eff.RowPolicies)
+		if err != nil {
+			return nil, err
+		}
+		if isEmptyFilter(merged) && !allowNoWhere {
+			return nil, fmt.Errorf("DELETE without a row-bounding filter is not permitted (set allow_no_where_writes to override)")
+		}
+		out := map[string]interface{}{"op": "delete", "collection": w.Collection, "filter": json.RawMessage(merged), "multi": w.Multi}
+		b, _ := json.Marshal(out)
+		return &NoSQLWriteGov{
+			Payload:      datasource.WritePayload{Raw: b},
+			CountPayload: datasource.QueryPayload{Raw: mustJSON(map[string]interface{}{"collection": w.Collection, "filter": json.RawMessage(merged)})},
+			Op:           "delete",
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported mongo op %q", w.Op)
+	}
+}
+
+// ---- Elasticsearch writes -------------------------------------------------
+
+type esWriteIn struct {
+	Op       string          `json:"op"` // index | updateByQuery | deleteByQuery
+	Index    string          `json:"index"`
+	ID       string          `json:"id"`
+	Document json.RawMessage `json:"document"`
+	Query    json.RawMessage `json:"query"`
+	Script   json.RawMessage `json:"script"`
+}
+
+func governESWrite(raw json.RawMessage, perms map[string]*store.TableEffective, allowNoWhere bool) (*NoSQLWriteGov, error) {
+	var w esWriteIn
+	if err := json.Unmarshal(raw, &w); err != nil {
+		return nil, fmt.Errorf("invalid elasticsearch write: %w", err)
+	}
+	if w.Index == "" {
+		return nil, fmt.Errorf("elasticsearch write requires 'index'")
+	}
+	eff := perms[strings.ToLower(w.Index)]
+	if eff == nil {
+		return nil, fmt.Errorf("access denied to index %q (no permission granted)", w.Index)
+	}
+	switch w.Op {
+	case "index":
+		if !eff.Ops["INSERT"] && !eff.Ops["UPDATE"] {
+			return nil, fmt.Errorf("INSERT/UPDATE denied on index %q", w.Index)
+		}
+		proj, err := projectWriteFields(w.Document, eff)
+		if err != nil {
+			return nil, err
+		}
+		out := map[string]interface{}{"op": "index", "index": w.Index, "document": json.RawMessage(proj)}
+		if w.ID != "" {
+			out["id"] = w.ID
+		}
+		if len(w.Script) > 0 {
+			out["script"] = json.RawMessage(w.Script)
+		}
+		b, _ := json.Marshal(out)
+		return &NoSQLWriteGov{Payload: datasource.WritePayload{Raw: b}, Op: "index"}, nil
+	case "updateByQuery":
+		if !eff.Ops["UPDATE"] {
+			return nil, fmt.Errorf("UPDATE denied on index %q", w.Index)
+		}
+		merged, err := mergeESQuery(w.Query, eff.RowPolicies)
+		if err != nil {
+			return nil, err
+		}
+		if isEmptyFilter(merged) && !allowNoWhere {
+			return nil, fmt.Errorf("updateByQuery without a row-bounding query is not permitted (set allow_no_where_writes to override)")
+		}
+		out := map[string]interface{}{"op": "updateByQuery", "index": w.Index, "query": json.RawMessage(merged)}
+		if len(w.Script) > 0 {
+			out["script"] = json.RawMessage(w.Script)
+		}
+		b, _ := json.Marshal(out)
+		return &NoSQLWriteGov{
+			Payload:      datasource.WritePayload{Raw: b},
+			CountPayload: datasource.QueryPayload{Raw: mustJSON(map[string]interface{}{"index": w.Index, "query": json.RawMessage(merged)})},
+			Op:           "updateByQuery",
+		}, nil
+	case "deleteByQuery":
+		if !eff.Ops["DELETE"] {
+			return nil, fmt.Errorf("DELETE denied on index %q", w.Index)
+		}
+		merged, err := mergeESQuery(w.Query, eff.RowPolicies)
+		if err != nil {
+			return nil, err
+		}
+		if isEmptyFilter(merged) && !allowNoWhere {
+			return nil, fmt.Errorf("deleteByQuery without a row-bounding query is not permitted (set allow_no_where_writes to override)")
+		}
+		out := map[string]interface{}{"op": "deleteByQuery", "index": w.Index, "query": json.RawMessage(merged)}
+		b, _ := json.Marshal(out)
+		return &NoSQLWriteGov{
+			Payload:      datasource.WritePayload{Raw: b},
+			CountPayload: datasource.QueryPayload{Raw: mustJSON(map[string]interface{}{"index": w.Index, "query": json.RawMessage(merged)})},
+			Op:           "deleteByQuery",
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported elasticsearch op %q", w.Op)
+	}
+}
+
+func mustJSON(v interface{}) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return json.RawMessage("{}")
+	}
+	return b
+}

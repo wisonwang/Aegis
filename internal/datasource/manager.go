@@ -19,10 +19,19 @@ type Manager struct {
 	store *store.Store
 	mu    sync.RWMutex
 	pools map[string]*sql.DB
+	// connectorFn builds the Connector for a NoSQL datasource type. It is
+	// overridable by tests to inject a fake backend without a live Mongo/ES.
+	connectorFn func(string) (Connector, error)
 }
 
 func NewManager(s *store.Store) *Manager {
-	return &Manager{store: s, pools: map[string]*sql.DB{}}
+	return &Manager{store: s, pools: map[string]*sql.DB{}, connectorFn: newConnector}
+}
+
+// SetConnectorFunc overrides the connector factory. Used by tests to inject a
+// fake NoSQL backend.
+func (m *Manager) SetConnectorFunc(fn func(string) (Connector, error)) {
+	m.connectorFn = fn
 }
 
 // Get returns a pooled *sql.DB connection for a SQL-driver datasource, opening
@@ -176,7 +185,7 @@ func (m *Manager) DescribeTable(ds *store.DataSource, table string) ([]ColumnMet
 
 // NoSQLExec runs a governed NoSQL query via the matching Connector.
 func (m *Manager) NoSQLExec(ctx context.Context, ds *store.DataSource, payload QueryPayload) (*RawResult, int64, error) {
-	c, err := newConnector(ds.Type)
+	c, err := m.connectorFn(ds.Type)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -188,9 +197,37 @@ func (m *Manager) NoSQLExec(ctx context.Context, ds *store.DataSource, payload Q
 	return sess.Exec(ctx, payload)
 }
 
+// NoSQLWrite runs a governed NoSQL write via the matching Connector.
+func (m *Manager) NoSQLWrite(ctx context.Context, ds *store.DataSource, payload WritePayload) (int64, error) {
+	c, err := m.connectorFn(ds.Type)
+	if err != nil {
+		return 0, err
+	}
+	sess, err := c.Open(ds)
+	if err != nil {
+		return 0, err
+	}
+	defer sess.Close()
+	return sess.Write(ctx, payload)
+}
+
+// NoSQLCount returns the number of documents matching a governed filter.
+func (m *Manager) NoSQLCount(ctx context.Context, ds *store.DataSource, payload QueryPayload) (int64, error) {
+	c, err := m.connectorFn(ds.Type)
+	if err != nil {
+		return 0, err
+	}
+	sess, err := c.Open(ds)
+	if err != nil {
+		return 0, err
+	}
+	defer sess.Close()
+	return sess.Count(ctx, payload)
+}
+
 // NoSQLListTables lists collections/indices of a NoSQL backend.
 func (m *Manager) NoSQLListTables(ctx context.Context, ds *store.DataSource) ([]string, error) {
-	c, err := newConnector(ds.Type)
+	c, err := m.connectorFn(ds.Type)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +241,7 @@ func (m *Manager) NoSQLListTables(ctx context.Context, ds *store.DataSource) ([]
 
 // NoSQLDescribeTable returns field metadata for a collection/index.
 func (m *Manager) NoSQLDescribeTable(ctx context.Context, ds *store.DataSource, name string) ([]ColumnMeta, error) {
-	c, err := newConnector(ds.Type)
+	c, err := m.connectorFn(ds.Type)
 	if err != nil {
 		return nil, err
 	}

@@ -343,9 +343,47 @@ curl -X POST localhost:8080/admin/api/datasources -H "Authorization: Bearer $ADM
 
 > 说明：权限引擎基于 MySQL/SQLite 语法解析，对标准 PostgreSQL 查询同样适用；PostgreSQL 专有语法（如 `RETURNING`）在行级重写场景下可能受限。
 
+### NoSQL 数据源（MongoDB / Elasticsearch / Trino）
+
+Aegis 同样能代理文档/搜索类与联邦查询引擎，治理语义与 SQL 完全一致（表权限、行策略、列 allow/deny、值脱敏、写入护栏）：
+
+- **MongoDB**（`type: mongo`，DSN `mongodb://user:pass@host:27017/db`）—— 集合即「表」，文档字段即「列」。
+- **Elasticsearch**（`type: es`，DSN `http://host:9200`，可选的 `user:pass@`）—— 索引即「表」，字段即「列」。
+- **Trino / Presto**（`type: trino` / `presto`，DSN `http://host:8080?catalog=x&schema=y`）—— 走标准 ANSI-SQL，复用 `permission.Rewrite` 治理管线（无需额外依赖，纯 `/v1/statement` REST 轮询）。
+
+**查询格式（DataAPI `POST /api/v1/query` 的 `query` 字段为后端原生 JSON）**
+
+Mongo 读（find）：
+
+```json
+{"collection":"orders","filter":{"status":"open"},"projection":{"status":1,"amount":1},"sort":{"amount":-1},"limit":10}
+```
+
+Mongo 写（insert / update / delete，按 `op` 区分）：
+
+```json
+{"op":"insert","collection":"orders","document":{"status":"open","amount":99,"customer":"acme"}}
+{"op":"update","collection":"orders","filter":{"_id":"..."},"update":{"$set":{"amount":10}}}
+{"op":"delete","collection":"orders","filter":{"_id":"..."}}
+```
+
+Elasticsearch 读（search）/ 写（index / updateByQuery / deleteByQuery）同理，字段为 `index` / `query` / `_source` / `document` / `script` / `op`。
+
+**治理如何作用于 NoSQL**
+
+- **表权限**：集合/索引名即「表」，未授权的集合直接拒绝；`INSERT/UPDATE/DELETE` 需对应授权。
+- **行策略**：作为 Mongo 的 `$and` 过滤、ES 的 `bool.must` 查询自动注入（与 SQL 派生表等价）。
+- **列权限**：Mongo `projection`、ES `_source` 的 `includes/excludes` 在查询层执行（所以连接的是真实后端）；**写入**时若触碰 `denied` 列直接拒绝，非授权列自动剔除。
+- **值脱敏**：结果层与 SQL 走同一套 `applyMask`，列保留但 PII 被变换。
+- **写入护栏**：无 `WHERE/过滤` 的 update/delete 默认拒绝（由 `allow_no_where_writes` 放宽）；当 `max_affected_rows>0` 时，写前会先 `Count` 预检影响行数，超额拒绝。
+
+> 管理端注册 NoSQL 数据源同样在线生效；`type` 必须是 `mongo`/`es`/`trino`/`presto` 之一，非法类型会被拒绝。
+
 ## 已知边界（MVP）
 
 - 行级策略目前作用于顶层 `FROM/JOIN` 表；嵌套子查询内部的表暂未递归注入（多表 JOIN 顶层表已覆盖常见场景）。
+- NoSQL（Mongo/ES）写入已支持 `insert/update/delete`，治理与 SQL 对齐；**数据集（Dataset）对 NoSQL 目前为只读视图**（写操作仍走底层集合）。
+- ES 写入的字段级治理仅覆盖顶层字段（嵌套对象字段暂不在列权限范围内）。
 - 列级治理在结果层按列名执行（单表查询精确；多表同名列取并集白名单）。
 - `INSERT` 行级策略未注入（仅校验表级 INSERT 权限）。
 

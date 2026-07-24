@@ -35,6 +35,13 @@ type Session interface {
 	// Exec runs a governed query and returns normalised rows plus affected rows
 	// (0 when the backend does not report them, e.g. search/read APIs).
 	Exec(ctx context.Context, payload QueryPayload) (*RawResult, int64, error)
+	// Write runs a governed write (insert/update/delete) and returns affected
+	// rows (0 when the backend does not report them precisely).
+	Write(ctx context.Context, payload WritePayload) (int64, error)
+	// Count returns the number of documents/rows matching a governed read
+	// filter. The proxy uses it to enforce the affected-rows guard before a
+	// write. The payload carries the same filter shape as Exec.
+	Count(ctx context.Context, payload QueryPayload) (int64, error)
 	// ListCollections returns the physical collections/indices of the backend.
 	ListCollections(ctx context.Context) ([]string, error)
 	// DescribeCollection returns column-like metadata for a collection/index.
@@ -42,9 +49,34 @@ type Session interface {
 	Close() error
 }
 
+// IsNoSQLWriteOp reports whether the top-level "op" of a NoSQL write payload is
+// a mutating operation. Read ops (find/search) are handled by Exec, not Write.
+func IsNoSQLWriteOp(raw json.RawMessage) bool {
+	var head struct {
+		Op string `json:"op"`
+	}
+	if err := json.Unmarshal(raw, &head); err != nil {
+		return false
+	}
+	switch head.Op {
+	case "insert", "insertMany", "update", "updateMany", "delete", "deleteMany",
+		"index", "updateByQuery", "deleteByQuery":
+		return true
+	}
+	return false
+}
+
 // QueryPayload carries a backend-specific query. For Mongo it is a JSON document
 // describing collection/filter/projection/...; for ES it is a JSON search body.
 type QueryPayload struct {
+	Raw json.RawMessage
+}
+
+// WritePayload carries a backend-specific write operation. For Mongo it is a
+// JSON document describing op/collection/document/filter/update/...; for ES it
+// is op/index/document/query/script/.... The proxy applies table/column/row
+// governance BEFORE calling Write, so the connector only runs the governed op.
+type WritePayload struct {
 	Raw json.RawMessage
 }
 
@@ -124,6 +156,16 @@ func NormalizeType(t string) string {
 // KnownTypes lists every datasource type Aegis can register.
 func KnownTypes() []string {
 	return []string{"mysql", "postgres", "sqlite", "starrocks", "clickhouse", "trino", "presto", "mongo", "es"}
+}
+
+// IsKnownType reports whether t is a supported datasource type (after alias
+// normalisation). Used to reject typo'd or unsupported types at registration.
+func IsKnownType(t string) bool {
+	_, ok := map[string]bool{
+		"mysql": true, "postgres": true, "sqlite": true, "starrocks": true,
+		"clickhouse": true, "trino": true, "presto": true, "mongo": true, "es": true,
+	}[NormalizeType(t)]
+	return ok
 }
 
 // ---- helpers ----------------------------------------------------------------
