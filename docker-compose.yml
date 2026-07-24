@@ -1,0 +1,12 @@
+services:
+  aegis:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./aegis.db:/app/aegis.db
+    environment:
+      - AEGIS_JWT_SECRET=change-me
+      - AEGIS_MCP_API_KEY=mcp-demo-key
+    restart: unless-stopped

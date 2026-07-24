@@ -1,0 +1,20 @@
+{
+  "listen_addr": ":8080",
+  "jwt_secret": "please-change-me-in-production",
+  "jwt_expiry": "24h",
+  "db_path": "aegis.db",
+  "data_dir": "./data",
+  "seed_demo": true,
+  "mcp": {
+    "enabled": true,
+    "path": "/mcp",
+    "api_key": "mcp-demo-key",
+    "require_auth": true
+  },
+  "limits": {
+    "max_rows": 1000,
+    "query_timeout": "30s",
+    "rate_per_min": 120,
+    "admin_exempt": true
+  }
+}

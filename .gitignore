@@ -1,0 +1,13 @@
+# build artifacts
+/aegis
+/datahub
+/data/
+*.db
+*.db-journal
+dist/
+
+# local agent memory (project-private, do not publish)
+.workbuddy/
+
+# local config overrides (keep placeholders out of VCS if desired)
+# config.json

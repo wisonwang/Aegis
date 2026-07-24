@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aegis 项目 PRD 蓝图 v0.2</title>
+<style>
+  :root{
+    --blue:#185FA5; --teal:#0F6E56; --purple:#534AB7; --amber:#854F0B; --green:#3B6D11; --coral:#993C1D;
+    --ink:#1f2937; --muted:#5f5e5a; --line:#e5e7eb; --bg:#f7f8fa; --card:#ffffff;
+    --red:#b91c1c; --red-bg:#fef2f2; --green-bg:#f0fdf4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--ink);line-height:1.7;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px 80px}
+  header.hero{background:linear-gradient(0deg,#ffffff,#f2f6fc);border-bottom:1px solid var(--line);padding:56px 24px 44px;text-align:center}
+  header.hero h1{font-size:30px;font-weight:600;letter-spacing:.5px}
+  header.hero p{color:var(--muted);margin-top:10px;font-size:15px}
+  .tagrow{margin-top:20px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+  .tag{background:#eef3fb;color:var(--blue);border:1px solid #d7e3f4;padding:5px 14px;border-radius:999px;font-size:13px}
+  section{margin-top:48px}
+  h2{font-size:21px;font-weight:600;display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  h2 .bar{width:4px;height:22px;border-radius:3px;background:var(--blue)}
+  h3{font-size:16px;font-weight:600;margin:22px 0 10px;color:var(--ink)}
+  .lead{color:var(--muted);font-size:14px;margin-bottom:18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 24px;margin-bottom:16px}
+  .grid{display:grid;gap:16px}
+  .grid.c2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  .grid.c3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+  .grid.c4{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+  .pill{display:inline-block;font-size:12px;padding:2px 10px;border-radius:6px;font-weight:500}
+  .ok{background:#eaf3de;color:var(--green);border:1px solid #cfe3b0}
+  .todo{background:#faece7;color:var(--coral);border:1px solid #f3cabd}
+  .next{background:#eef3fb;color:var(--blue);border:1px solid #d7e3f4}
+  .p0tag{background:var(--blue);color:#fff;border:none}
+  .p1tag{background:var(--purple);color:#fff;border:none}
+  ul.clean{list-style:none}
+  ul.clean li{padding:8px 0 8px 26px;position:relative;border-bottom:1px dashed var(--line);font-size:14px}
+  ul.clean li:last-child{border-bottom:none}
+  ul.clean li::before{content:"";position:absolute;left:6px;top:15px;width:8px;height:8px;border-radius:50%;background:var(--blue)}
+  ul.clean li.muted::before{background:#cbd5e1}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:8px}
+  th,td{border:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top}
+  th{background:#f3f5f8;font-weight:600}
+  td .phase{font-weight:600}
+  .p1{color:var(--blue)}.p2{color:var(--teal)}.p3{color:var(--amber)}.p4{color:var(--purple)}.p5{color:var(--green)}
+  .metric{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .metric .n{font-size:26px;font-weight:600;color:var(--blue)}
+  .metric .l{color:var(--muted);font-size:13px;margin-top:4px}
+  .callout{background:#fff8ec;border:1px solid #f3d9a8;border-radius:12px;padding:16px 20px;font-size:14px;color:#633806}
+  .callout.blue{background:#eef3fb;border-color:#d7e3f4;color:#173a5e}
+  .footnote{color:var(--muted);font-size:12.5px;margin-top:60px;border-top:1px solid var(--line);padding-top:18px}
+  code{background:#eef1f4;padding:1px 6px;border-radius:5px;font-size:12.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .risk{background:var(--red-bg);border:1px solid #fecaca;border-radius:12px;padding:14px 18px}
+  .risk h4{font-size:14px;color:var(--red);margin-bottom:4px}
+  .value{background:var(--green-bg);border:1px solid #bbf7d0;border-radius:12px;padding:14px 18px}
+  .value h4{font-size:14px;color:var(--green);margin-bottom:4px}
+  .risk p,.value p{font-size:13.5px;color:#374151;margin:0}
+  .scene{border-radius:12px;padding:16px 20px;border:1px solid var(--line)}
+  .scene b{display:block;font-size:15px;margin-bottom:6px}
+  .scene span{font-size:13.5px;color:#334155}
+  .s1{background:#eff6ff}.s2{background:#fff7ed}.s3{background:#f0fdfa}.s4{background:#faf5ff}
+  .arch{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;overflow-x:auto}
+  .arch svg{display:block;margin:0 auto;max-width:100%}
+</style>
+</head>
+<body>
+<header class="hero">
+  <h1>Aegis · 数据库代理治理平台</h1>
+  <p>项目 PRD 蓝图（Blueprint v0.2）— 集中治理数据服务，安全供给应用与 AI Agent</p>
+  <div class="tagrow">
+    <span class="tag">Golang 单二进制</span>
+    <span class="tag">表 / 行 / 列三级治理</span>
+    <span class="tag">全量审计</span>
+    <span class="tag">DataAPI（REST）</span>
+    <span class="tag">MCP for AI Agent</span>
+    <span class="tag">MySQL 已接入</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- 愿景 -->
+  <section>
+    <h2><span class="bar"></span>一、产品愿景与定位</h2>
+    <p class="lead">Aegis 是介于业务应用 / AI Agent 与后端数据库之间的「数据服务网关」。</p>
+    <div class="grid c3">
+      <div class="card">
+        <h3>隔离账号</h3>
+        <p class="lead" style="margin:0">后端数据库仅持有受限服务账号；应用与 Agent 只持有平台签发的 JWT / API Key，真实凭据永不外泄。</p>
+      </div>
+      <div class="card">
+        <h3>集中治理</h3>
+        <p class="lead" style="margin:0">表级授权、行级策略、列级脱敏在统一控制面配置，默认拒绝，按角色×数据源×表授权。</p>
+      </div>
+      <div class="card">
+        <h3>安全供给</h3>
+        <p class="lead" style="margin:0">对外提供 REST DataAPI 与 MCP 服务，让 AI Agent 像调用工具一样安全取数。</p>
+      </div>
+    </div>
+    <div class="callout">
+      <strong>核心价值：</strong>把「谁能看什么数据」从散落在各业务代码、各数据库账号的隐式规则，收口为平台上的显式策略，使数据访问<b>可审计、可收敛、可供给 AI</b>。
+    </div>
+  </section>
+
+  <!-- AI 必要性 -->
+  <section>
+    <h2><span class="bar"></span>二、企业 AI 应用建设：项目必要性论证</h2>
+    <p class="lead">AI 应用与传统应用的本质差异：<b>数据访问的发起者从「确定性代码」变成「概率性模型」</b>。SQL 由 LLM 现场生成——不可评审、不可穷举、可被提示词注入操纵。「应用持代码内控权限」的模式失效，治理必须下沉到数据访问层。</p>
+    <div class="callout" style="margin-bottom:18px">
+      <strong>一句话必要性：</strong>没有治理代理层的 AI 应用，等价于给一个「不可控的实习生」发放生产数据库 root 密码。Aegis 把它换成「带工牌、有权限边界、全程录像」的受控访问。
+    </div>
+    <h3>五大风险 × 平台对策</h3>
+    <div class="grid c2">
+      <div class="risk"><h4>风险 1 · 凭据失控</h4><p>提示词注入可诱导 Agent 执行任意工具调用，直连数据库时一次注入即交出整库；凭据随代码仓库、日志扩散。</p></div>
+      <div class="value"><h4>对策 · 账号隔离 <span class="pill ok">已落地</span></h4><p>AI 侧只持平台 JWT / MCP API Key（可吊销、轮换、缩权）；后端使用受限服务账号（如 <code>aegis_svc</code> 仅授 <code>dh_demo.*</code>），root 永不出平台。</p></div>
+      <div class="risk"><h4>风险 2 · 权限语义缺失</h4><p>DB 原生账号只有「库/表」粒度，表达不了「租户 A 的 Agent 只能查租户 A 的数据」；为每个业务身份建 DB 账号运维上不可行。</p></div>
+      <div class="value"><h4>对策 · 三级治理 <span class="pill ok">已落地</span></h4><p>角色×数据源×表授权（默认拒绝）；行策略 <code>tenant_id = :tenant</code> 由 JWT 属性代入并注入为派生表；列级脱敏结果层强制执行，一处配置、全渠道一致。</p></div>
+      <div class="risk"><h4>风险 3 · 幻觉 SQL 无兜底</h4><p>NL2SQL 可能生成无 WHERE 的 DELETE、笛卡尔积 JOIN、越权查询；提示词约束对被注入或幻觉中的模型没有强制力。</p></div>
+      <div class="value"><h4>对策 · 解析级强制校验 <span class="pill ok">已落地</span></h4><p>SQL 先经语法树解析→表级校验→行策略重写→列脱敏，治理发生在<b>引擎层而非提示词层</b>；语句类型白名单，DDL 天然被拒。</p></div>
+      <div class="risk"><h4>风险 4 · 合规不可追溯</h4><p>数安法 / 个保法 / 等保 2.0 要求访问留痕。AI 访问高频、机器化，若无法回答「哪个 Agent 何时查了哪些数据」，泄露事件责任无法界定。</p></div>
+      <div class="value"><h4>对策 · 全量审计 <span class="pill ok">已落地</span></h4><p><code>audit_logs</code> 对 ok/denied/error 三态全留痕：用户、渠道（dataapi/mcp）、原始与重写后 SQL、行数、耗时；管理台可多维过滤检索。</p></div>
+      <div class="risk"><h4>风险 5 · 重复建设</h4><p>多个 AI 项目各自接数据、各写权限与脱敏逻辑，成本翻倍、口径不一，安全水位取决于最薄弱的项目。</p></div>
+      <div class="value"><h4>对策 · 统一供给 <span class="pill ok">已落地</span></h4><p>DataAPI 服务传统应用，MCP 服务 AI Agent，共享同一治理引擎与审计流水；新应用接入 = 发 Key + 配权限，分钟级完成。</p></div>
+    </div>
+    <h3>典型 AI 场景映射</h3>
+    <div class="grid c2">
+      <div class="scene s1"><b>📊 智能问数 / ChatBI</b><span>自然语言 → LLM 生成 SQL → <b>必须经 Aegis 强制治理后执行</b>。行策略保证「问自己能看的数」，列脱敏保证敏感字段不进对话上下文。</span></div>
+      <div class="scene s2"><b>🤖 Agent 工作流</b><span>报表生成、对账、运营巡检等多步骤 Agent 经 MCP 取数；API Key 映射低权身份，限流与行数上限防失控循环拖垮生产库。</span></div>
+      <div class="scene s3"><b>📚 知识库 RAG 增强</b><span>RAG 实时补充结构化数据（库存、订单状态）走受治理的 DataAPI，避免向量库之外再开「裸连」通道。</span></div>
+      <div class="scene s4"><b>💻 员工 Copilot</b><span>按登录者身份（JWT attrs）取数，同一问题不同人得到各自权限内的答案——权限跟人走，而非跟应用走。</span></div>
+    </div>
+  </section>
+
+  <!-- 平台架构 -->
+  <section>
+    <h2><span class="bar"></span>三、平台架构（v0.2 现状）</h2>
+    <p class="lead">五层架构：接入方 → 接入/API 层 → 治理层（核心）→ 控制面 / 执行层 → 真实数据库。所有请求无论来自应用还是 AI Agent，都汇入同一条治理链路。</p>
+    <div class="arch">
+      <svg viewBox="0 0 980 640" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,'PingFang SC',sans-serif">
+        <!-- 接入方 -->
+        <rect x="60" y="20" width="400" height="80" rx="12" fill="#eff6ff" stroke="#bfdbfe"/>
+        <text x="260" y="48" text-anchor="middle" font-size="15" font-weight="600" fill="#1d4ed8">业务应用 / 数据产品</text>
+        <text x="260" y="74" text-anchor="middle" font-size="12.5" fill="#3b5f8a">REST + JWT（登录签发，含 roles / attrs）</text>
+        <rect x="520" y="20" width="400" height="80" rx="12" fill="#faf5ff" stroke="#e9d5ff"/>
+        <text x="720" y="48" text-anchor="middle" font-size="15" font-weight="600" fill="#7e22ce">AI Agent（ChatBI / 工作流 / Copilot）</text>
+        <text x="720" y="74" text-anchor="middle" font-size="12.5" fill="#6b4a8f">MCP Streamable HTTP · API Key / Bearer</text>
+        <line x1="260" y1="100" x2="260" y2="132" stroke="#94a3b8" stroke-width="2" marker-end="url(#ar)"/>
+        <line x1="720" y1="100" x2="720" y2="132" stroke="#94a3b8" stroke-width="2" marker-end="url(#ar)"/>
+        <defs><marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#94a3b8"/></marker></defs>
+        <!-- API 层 -->
+        <rect x="60" y="136" width="860" height="72" rx="12" fill="#ffffff" stroke="#e5e7eb"/>
+        <text x="90" y="166" font-size="14" font-weight="600" fill="#1f2937">接入 / API 层</text>
+        <rect x="240" y="150" width="240" height="44" rx="8" fill="#eef3fb" stroke="#d7e3f4"/>
+        <text x="360" y="177" text-anchor="middle" font-size="13" fill="#185FA5">DataAPI · /api/v1/query 等</text>
+        <rect x="520" y="150" width="270" height="44" rx="8" fill="#f3ecfd" stroke="#ddd0f5"/>
+        <text x="655" y="177" text-anchor="middle" font-size="13" fill="#534AB7">MCP · list / describe / query 工具</text>
+        <line x1="490" y1="208" x2="490" y2="240" stroke="#94a3b8" stroke-width="2" marker-end="url(#ar)"/>
+        <!-- 治理层 -->
+        <rect x="60" y="244" width="860" height="120" rx="12" fill="#fffaf0" stroke="#f3d9a8"/>
+        <text x="90" y="274" font-size="14" font-weight="600" fill="#854F0B">治理层（核心 · internal/permission）</text>
+        <rect x="90" y="290" width="185" height="56" rx="8" fill="#ffffff" stroke="#e8d8b0"/>
+        <text x="182" y="313" text-anchor="middle" font-size="12.5" fill="#1f2937">① SQL 语法树解析</text>
+        <text x="182" y="333" text-anchor="middle" font-size="11.5" fill="#5f5e5a">Vitess sqlparser</text>
+        <rect x="295" y="290" width="185" height="56" rx="8" fill="#ffffff" stroke="#e8d8b0"/>
+        <text x="387" y="313" text-anchor="middle" font-size="12.5" fill="#1f2937">② 表级校验 · 默认拒绝</text>
+        <text x="387" y="333" text-anchor="middle" font-size="11.5" fill="#5f5e5a">角色×数据源×表×操作</text>
+        <rect x="500" y="290" width="195" height="56" rx="8" fill="#ffffff" stroke="#e8d8b0"/>
+        <text x="597" y="313" text-anchor="middle" font-size="12.5" fill="#1f2937">③ 行策略注入（派生表）</text>
+        <text x="597" y="333" text-anchor="middle" font-size="11.5" fill="#5f5e5a">:attr 代入 · MySQL 别名兼容</text>
+        <rect x="715" y="290" width="175" height="56" rx="8" fill="#ffffff" stroke="#e8d8b0"/>
+        <text x="802" y="313" text-anchor="middle" font-size="12.5" fill="#1f2937">④ 结果层列脱敏</text>
+        <text x="802" y="333" text-anchor="middle" font-size="11.5" fill="#5f5e5a">denied / allowed cols</text>
+        <line x1="270" y1="364" x2="270" y2="396" stroke="#94a3b8" stroke-width="2" marker-end="url(#ar)"/>
+        <line x1="700" y1="364" x2="700" y2="396" stroke="#94a3b8" stroke-width="2" marker-end="url(#ar)"/>
+        <!-- 控制面 + 执行层 -->
+        <rect x="60" y="400" width="420" height="120" rx="12" fill="#f0fdfa" stroke="#b6e5da"/>
+        <text x="90" y="430" font-size="14" font-weight="600" fill="#0F6E56">控制面（SQLite · internal/store）</text>
+        <text x="90" y="456" font-size="12.5" fill="#2d5c50">用户 / 角色 · 数据源注册 · 表/行/列策略</text>
+        <text x="90" y="478" font-size="12.5" fill="#2d5c50">审计日志 audit_logs（ok / denied / error 全留痕）</text>
+        <text x="90" y="500" font-size="12.5" fill="#2d5c50">后台管理 UI（内嵌 /admin/，含审计页）</text>
+        <rect x="520" y="400" width="400" height="120" rx="12" fill="#ffffff" stroke="#e5e7eb"/>
+        <text x="550" y="430" font-size="14" font-weight="600" fill="#1f2937">执行层（internal/proxy + datasource）</text>
+        <text x="550" y="456" font-size="12.5" fill="#5f5e5a">连接池只持受限服务账号 · 渠道标注 WithChannel</text>
+        <text x="550" y="478" font-size="12.5" fill="#5f5e5a">Query / Exec 分流 · 执行后写审计（best-effort）</text>
+        <line x1="720" y1="520" x2="720" y2="552" stroke="#94a3b8" stroke-width="2" marker-end="url(#ar)"/>
+        <!-- 真实 DB -->
+        <rect x="520" y="556" width="400" height="64" rx="12" fill="#f3f5f8" stroke="#d8dde5"/>
+        <text x="720" y="582" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1f2937">真实数据库</text>
+        <text x="720" y="604" text-anchor="middle" font-size="12" fill="#5f5e5a">MySQL ✅（aegis_svc 受限账号） · SQLite ✅ · PostgreSQL（待接）</text>
+        <text x="270" y="590" text-anchor="middle" font-size="12" fill="#0F6E56">策略与审计均落控制面，权限聚合供治理层实时取用</text>
+      </svg>
+    </div>
+    <div class="grid c3" style="margin-top:16px">
+      <div class="card"><h3>internal/permission</h3><p class="lead" style="margin:0">权限引擎：解析→校验→重写→脱敏，治理语义唯一实现点</p></div>
+      <div class="card"><h3>internal/proxy</h3><p class="lead" style="margin:0">执行层：经引擎重写后执行，全路径审计埋点（成功/拒绝/失败）</p></div>
+      <div class="card"><h3>internal/mcp + api</h3><p class="lead" style="margin:0">双协议供给：REST DataAPI 与 MCP 共享同一治理与审计链路</p></div>
+    </div>
+  </section>
+
+  <!-- 治理模型 -->
+  <section>
+    <h2><span class="bar"></span>四、治理模型（已落地）</h2>
+    <div class="grid c2">
+      <div class="card">
+        <h3>认证模型</h3>
+        <ul class="clean">
+          <li>Bearer JWT：登录后签发，声明 <code>roles</code> 与 <code>attrs</code>（行策略占位符来源）</li>
+          <li>静态 API Key：MCP 客户端使用，映射到服务账号（继承某角色治理语义）</li>
+          <li>内置 <code>admin</code> 超级角色：旁路治理，用于运维与全量审计</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>三级治理语义</h3>
+        <ul class="clean">
+          <li><b>表级：</b>角色×数据源×表 授权 SELECT/INSERT/UPDATE/DELETE，<b>默认拒绝</b></li>
+          <li><b>行级：</b>谓词 <code>tenant_id = :tenant</code> 由 JWT attrs 代入，注入为派生表（MySQL 下自动补别名）</li>
+          <li><b>列级：</b>结果层按 <code>denied_cols</code>（deny 优先）脱敏 / 仅放行 <code>allowed_cols</code></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 当前能力现状 -->
+  <section>
+    <h2><span class="bar"></span>五、当前能力现状（v0.2）</h2>
+    <p class="lead">以下能力已实现并完成端到端验证（含真实 MySQL 数据源）。</p>
+    <div class="grid c2">
+      <div class="card">
+        <h3>已实现 · 核心</h3>
+        <ul class="clean">
+          <li><span class="pill ok">已验证</span> 集中权限 + 后端账号隔离（受限服务账号 <code>aegis_svc</code>，root 不进平台）</li>
+          <li><span class="pill ok">已验证</span> 表 / 行 / 列三级治理引擎（SQL 解析重写 + 结果脱敏）</li>
+          <li><span class="pill ok">已验证</span> 真实 MySQL 8.0 数据源在线注册与治理（含 JOIN 双表行策略）</li>
+          <li><span class="pill ok">已验证</span> 全量审计：ok/denied/error 三态、dataapi/mcp 双渠道留痕 + 管理台检索</li>
+          <li><span class="pill ok">已验证</span> REST DataAPI：login / query / list datasources / describe table</li>
+          <li><span class="pill ok">已验证</span> MCP Streamable HTTP：list_datasources / list_tables / describe_table / query</li>
+          <li><span class="pill ok">已验证</span> 后台管理 UI（用户/角色/数据源/权限/策略 CRUD + 审计日志页）</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>已知边界（生产化前需补强）</h3>
+        <ul class="clean">
+          <li class="muted">行策略注入作用于顶层 FROM/JOIN，<b>未递归</b>进入嵌套子查询内部</li>
+          <li class="muted">列脱敏在结果层按列名执行，依赖查询返回原始列名</li>
+          <li class="muted">控制面为单文件 SQLite，未做多节点高可用</li>
+          <li class="muted">写操作行级约束仍依赖后端 RLS 兜底（平台层对写操作仅做无 WHERE 拦截与影响行数上限）</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 路线图 -->
+  <section>
+    <h2><span class="bar"></span>六、演进路线图（五阶段）</h2>
+    <p class="lead">从「基础稳固」起步，逐阶段向生产可用、企业治理、AI 增强、平台化演进。</p>
+
+    <div class="card">
+      <h3><span class="p1">阶段 1 · 基础稳固</span> <span class="pill ok">已完成</span></h3>
+      <p class="lead" style="margin:6px 0 0">三级治理 + 双协议供给 + 可管理后台，端到端验证通过。</p>
+    </div>
+
+    <div class="card">
+      <h3><span class="p2">阶段 2 · 生产化加固</span> <span class="pill next">进行中</span></h3>
+      <ul class="clean">
+        <li><span class="pill ok">已完成</span> 真实数据源接入：MySQL 8.0 在线注册 + 受限服务账号 + 全链路治理验证</li>
+        <li><span class="pill ok">已完成</span> 请求审计日志：谁、何时、何身份、原始/重写 SQL、行数、耗时、渠道</li>
+        <li>边界防护：按身份 / 数据源限流、查询行数上限、超时熔断（→ 第七章 P0-②）</li>
+        <li>PostgreSQL 端到端验证；数据库原生 RLS 双层加固（弥补嵌套子查询边界）</li>
+        <li>可观测性：Prometheus 指标、结构化日志、就绪 / 存活探针</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3><span class="p3">阶段 3 · 企业治理</span> <span class="pill todo">规划中</span></h3>
+      <ul class="clean">
+        <li>统一身份：SSO / OIDC / LDAP 接入，企业用户与平台角色映射</li>
+        <li>脱敏算法库：哈希、掩码、Tokenization、格式保留加密（列级精细化）</li>
+        <li>权限审批流：授权申请 — 审批 — 生效 — 回收闭环</li>
+        <li>数据分类分级：按敏感级别自动推荐默认脱敏策略</li>
+        <li>多租户隔离：组织 / 项目维度的工作区与配额</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3><span class="p4">阶段 4 · AI 增强</span> <span class="pill todo">规划中</span></h3>
+      <ul class="clean">
+        <li>MCP 能力扩展：<code>resources</code>（表 schema 语义卡片）、<code>prompts</code>（安全取数模板）</li>
+        <li>NL2SQL 安全网关：自然语言 → SQL → 治理强制校验 → 执行，端到端内置</li>
+        <li>查询血缘与成本：EXPLAIN 预估扫描行数 / 影响范围，给 Agent 风险提示</li>
+        <li>语义指标层与向量检索集成：结构化 + 语义混合检索作为统一 DataAPI</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3><span class="p5">阶段 5 · 平台化</span> <span class="pill todo">远期</span></h3>
+      <ul class="clean">
+        <li>多实例集群：控制面与工作节点分离，水平扩展</li>
+        <li>插件市场：自定义连接器、脱敏算法、策略源（如 K8s CRD）</li>
+        <li>OpenAPI / SDK：自动生成各语言客户端与文档</li>
+        <li>治理即代码：策略以声明式文件纳入版本管理</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- AI 功能扩充 -->
+  <section>
+    <h2><span class="bar"></span>七、面向 AI 场景的功能扩充规划</h2>
+    <p class="lead">四个扩充方向按优先级展开，均在现有单二进制架构内演进、不引入新组件。①② 为阶段 3/4 前置项。</p>
+
+      <h3><span class="pill p0tag">P0</span> ① AI 数据供给增强</h3>
+      <table>
+        <tr><th style="width:190px">功能</th><th>说明</th><th style="width:90px">状态</th></tr>
+        <tr><td>MCP resources / prompts</td><td>数据源目录、表结构语义卡片作为 resources 暴露；提供「如何安全查询」的 prompts 模板</td><td>已落地</td></tr>
+        <tr><td>Schema 语义描述</td><td>表/列业务含义注释（「amount = 含税订单金额」）随 <code>describe_table</code> 下发，提升 NL2SQL 准确率</td><td>已落地</td></tr>
+        <tr><td>NL2SQL 安全网关</td><td>「自然语言 → SQL → 治理校验 → 执行」端到端接口，企业无需在每个应用重复实现</td><td>规划</td></tr>
+        <tr><td>语义指标层</td><td>统一定义核心指标（GMV、活跃用户）的计算 SQL，AI 引用指标而非现场编 SQL，根治口径漂移</td><td>远期</td></tr>
+      </table>
+
+      <h3><span class="pill p0tag">P0</span> ② AI 行为治理</h3>
+      <table>
+        <tr><th style="width:190px">功能</th><th>说明</th><th style="width:90px">状态</th></tr>
+        <tr><td>结果行数上限</td><td>按角色配置 max_rows，超限截断并审计标记，防全表拖库进 LLM 上下文</td><td>已落地</td></tr>
+        <tr><td>查询超时熔断</td><td>按数据源配置执行超时，慢查询主动取消，保护生产库</td><td>已落地</td></tr>
+        <tr><td>限流与配额</td><td>按用户/Key 配置 QPS 与日查询量，防 Agent 失控循环</td><td>已落地</td></tr>
+        <tr><td>高危语句拦截</td><td>无 WHERE 的 UPDATE/DELETE 直接拒绝（可配置豁免）；单表写执行前 SELECT COUNT(*) 预检影响行数，超 max_affected_rows 拒绝</td><td>已落地</td></tr>
+        <tr><td>查询成本预估</td><td>执行前 EXPLAIN，预估扫描行数超阈值拒绝并提示优化</td><td>远期</td></tr>
+      </table>
+
+    <h3><span class="pill p1tag">P1</span> ③ 安全合规升级</h3>
+    <table>
+      <tr><th style="width:190px">功能</th><th>说明</th><th style="width:90px">状态</th></tr>
+      <tr><td>动态脱敏</td><td>掩码显示（<code>138****0001</code>、邮箱域保留）替代整列剔除，兼顾可用性与安全</td><td>规划</td></tr>
+      <tr><td>分级分类标签</td><td>列打 PII/敏感/内部/公开 标签，策略按标签批量下发，对齐数据安全分级要求</td><td>规划</td></tr>
+      <tr><td>审计升级</td><td>关联 AI 会话 ID（一次对话多条查询串联）；异常行为告警（高频 denied、深夜批量导出）</td><td>规划</td></tr>
+      <tr><td>身份体系对接</td><td>SSO / LDAP / OAuth2 统一身份；API Key 到期与轮换机制</td><td>规划</td></tr>
+    </table>
+
+    <h3><span class="pill p1tag">P1</span> ④ 平台化与生态</h3>
+    <table>
+      <tr><th style="width:190px">功能</th><th>说明</th><th style="width:90px">状态</th></tr>
+      <tr><td>多数据源扩展</td><td>PostgreSQL（驱动已内置，待端到端验证）；达梦、OceanBase、TiDB 等信创/分布式库</td><td>部分具备</td></tr>
+      <tr><td>读写分离路由</td><td>AI 查询默认路由只读副本，与交易流量物理隔离</td><td>规划</td></tr>
+      <tr><td>低代码 DataAPI</td><td>SQL 模板 + 参数定义一键发布为受治理的 REST 接口</td><td>规划</td></tr>
+      <tr><td>云原生部署</td><td>K8s Helm Chart、多副本（控制面迁 PostgreSQL）、Prometheus、OpenTelemetry</td><td>规划</td></tr>
+    </table>
+
+    <div class="callout blue" style="margin-top:16px">
+      <strong>实施节奏建议：</strong>近期先做 ② 的行数上限 + 超时 + 限流（改动集中在 proxy 层，是 AI 上生产的硬前提），再做 ① 的 MCP resources + Schema 语义描述；中期推进 ③ 动态脱敏与分级分类、④ PostgreSQL 与读写分离；远期落地 NL2SQL 网关与语义指标层，把平台从「安全通道」升级为「AI 数据服务中台」。P0 两组合计 6–8 个功能点，完成后即可支撑 ChatBI 与 Agent 工作流安全上生产。
+    </div>
+  </section>
+
+  <!-- 能力矩阵 -->
+  <section>
+    <h2><span class="bar"></span>八、能力演进矩阵</h2>
+    <table>
+      <thead>
+        <tr><th>能力域</th><th><span class="phase p1">阶段1</span></th><th><span class="phase p2">阶段2</span></th><th><span class="phase p3">阶段3</span></th><th><span class="phase p4">阶段4</span></th><th><span class="phase p5">阶段5</span></th></tr>
+      </thead>
+      <tbody>
+        <tr><td>表/行/列治理</td><td>基础 ✅</td><td>RLS 加固</td><td>分类分级</td><td>NL 校验</td><td>声明式</td></tr>
+        <tr><td>数据源接入</td><td>SQLite ✅</td><td>MySQL ✅ / PG</td><td>信创库</td><td>向量源</td><td>插件源</td></tr>
+        <tr><td>协议供给</td><td>REST+MCP ✅</td><td>限流/行数上限</td><td>审批流</td><td>resources/prompts</td><td>SDK/OpenAPI</td></tr>
+        <tr><td>身份体系</td><td>JWT/Key ✅</td><td>审计日志 ✅</td><td>SSO/LDAP</td><td>会话关联审计</td><td>联邦身份</td></tr>
+        <tr><td>脱敏能力</td><td>列隐藏 ✅</td><td>结果校验</td><td>动态掩码/算法库</td><td>智能推荐</td><td>策略市场</td></tr>
+        <tr><td>高可用</td><td>单实例</td><td>探针/指标</td><td>容灾</td><td>—</td><td>集群</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 技术栈 -->
+  <section>
+    <h2><span class="bar"></span>九、技术栈蓝图</h2>
+    <div class="grid c4">
+      <div class="card"><h3>语言 / 运行时</h3><p class="lead" style="margin:0">Golang 单二进制；零外部依赖即可运行</p></div>
+      <div class="card"><h3>控制面存储</h3><p class="lead" style="margin:0">SQLite（modernc，纯 Go）；可平滑替换为 PostgreSQL</p></div>
+      <div class="card"><h3>SQL 解析</h3><p class="lead" style="margin:0">Vitess sqlparser 分支：解析、重写、注入行策略</p></div>
+      <div class="card"><h3>数据源驱动</h3><p class="lead" style="margin:0">go-sql-driver/mysql、lib/pq、modernc/sqlite</p></div>
+    </div>
+  </section>
+
+  <!-- 度量 -->
+  <section>
+    <h2><span class="bar"></span>十、关键度量指标</h2>
+    <div class="grid c4">
+      <div class="metric"><div class="n">100%</div><div class="l">默认拒绝覆盖率（无授权即拒绝）</div></div>
+      <div class="metric"><div class="n">3 级</div><div class="l">治理粒度（表 / 行 / 列）</div></div>
+      <div class="metric"><div class="n">3 态</div><div class="l">审计留痕（ok / denied / error）</div></div>
+      <div class="metric"><div class="n">2</div><div class="l">对外协议（REST DataAPI / MCP）</div></div>
+    </div>
+    <div class="callout" style="margin-top:16px">
+      <strong>建议补充的运营指标：</strong>策略命中率、被拒绝查询占比、平均治理重写耗时、各数据源查询 P95 延迟、AI 渠道（mcp）查询占比与截断率。应在阶段 2 的「可观测性」中落地。
+    </div>
+  </section>
+
+  <!-- 风险 -->
+  <section>
+    <h2><span class="bar"></span>十一、风险与边界</h2>
+    <div class="grid c2">
+      <div class="card">
+        <h3>治理完整性</h3>
+        <p class="lead" style="margin:0">嵌套子查询行策略不递归、非 SELECT 写操作的行约束，是主要治理盲区。建议以数据库原生 RLS + 写操作校验兜底。</p>
+      </div>
+      <div class="card">
+        <h3>可用性与性能</h3>
+        <p class="lead" style="margin:0">每次查询经 SQL 解析与重写有少量开销；单实例 SQLite 控制面是单点。阶段 2/5 分别补强。</p>
+      </div>
+      <div class="card">
+        <h3>凭证与密钥</h3>
+        <p class="lead" style="margin:0">JWT 签名密钥、数据源密码需纳入密钥管理（KMS / Vault），避免明文落盘。</p>
+      </div>
+      <div class="card">
+        <h3>AI 特有风险</h3>
+        <p class="lead" style="margin:0">Agent 失控循环拖垮生产库、全表结果进入 LLM 上下文造成二次泄露——需 P0-② 行为治理（限流 / 行数上限 / 超时）落地后方可上生产。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 下一步 -->
+  <section>
+    <h2><span class="bar"></span>十二、建议的下一步</h2>
+    <ul class="clean">
+      <li><b>已完成（P0-②）：</b>结果行数上限 + 查询超时 + 限流配额 + 写操作无 WHERE 拦截与影响行数上限——proxy 层集中实现，AI 上生产硬前提已满足</li>
+      <li><b>已完成（P0-①）：</b>MCP resources + Schema 语义描述，直接提升 Agent 取数体验与 NL2SQL 准确率</li>
+      <li><b>短期：</b>PostgreSQL 端到端验证；可观测性（Prometheus 指标、结构化日志、探针）</li>
+      <li><b>中期：</b>动态脱敏、分级分类标签、SSO；审计关联 AI 会话 ID 与异常告警</li>
+      <li><b>远期：</b>NL2SQL 安全网关 + 语义指标层，升级为「AI 数据服务中台」</li>
+    </ul>
+  </section>
+
+  <p class="footnote">
+    Aegis 项目 PRD 蓝图 v0.2 · 更新于 2026-07-23 · 已合并「企业 AI 应用建设场景」必要性论证与功能扩充规划（原 AI-SCENARIO.html 专项文档）。
+    当前版本为单二进制 Golang 实现，三级治理 / 审计 / 真实 MySQL 已端到端验证。文档与代码同源维护于 <code>/Users/vincent/workspace/fosun/datahub</code>。
+  </p>
+</div>
+</body>
+</html>

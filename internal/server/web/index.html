@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aegis · 数据库代理治理平台</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Aegis <span>数据库代理治理平台</span></div>
+    <div id="userbox" class="userbox"></div>
+  </header>
+
+  <div id="login" class="login-wrap hidden">
+    <form class="login-card" id="loginForm">
+      <h2>登录</h2>
+      <input id="username" placeholder="用户名" autocomplete="username" />
+      <input id="password" type="password" placeholder="密码" autocomplete="current-password" />
+      <button type="submit">登录</button>
+      <div id="loginError" class="error"></div>
+      <div class="hint">演示账号：admin / admin123 ，analyst / analyst123</div>
+    </form>
+  </div>
+
+  <main id="app" class="app hidden">
+    <nav class="tabs">
+      <button class="tab active" data-tab="query">数据查询</button>
+      <button class="tab" data-tab="users">用户</button>
+      <button class="tab" data-tab="roles">角色</button>
+      <button class="tab" data-tab="ds">数据源</button>
+      <button class="tab" data-tab="gov">权限治理</button>
+      <button class="tab" data-tab="audit">审计日志</button>
+    </nav>
+
+    <section id="tab-query" class="panel active">
+      <div class="row">
+        <select id="qDs"></select>
+        <button id="qTables">列出表</button>
+        <button id="qRun">执行查询</button>
+      </div>
+      <textarea id="qSql" rows="6" placeholder="SELECT * FROM orders"></textarea>
+      <div id="qResult" class="result"></div>
+    </section>
+
+    <section id="tab-users" class="panel">
+      <div class="row">
+        <input id="uName" placeholder="用户名" />
+        <input id="uDisp" placeholder="显示名" />
+        <input id="uPass" type="password" placeholder="密码" />
+        <input id="uAttrs" placeholder='属性JSON, 如 {"tenant":"acme"}' />
+        <button id="uCreate">创建用户</button>
+      </div>
+      <table id="usersTable" class="grid"></table>
+    </section>
+
+    <section id="tab-roles" class="panel">
+      <div class="row">
+        <input id="rName" placeholder="角色名" />
+        <input id="rDesc" placeholder="描述" />
+        <button id="rCreate">创建角色</button>
+      </div>
+      <table id="rolesTable" class="grid"></table>
+    </section>
+
+    <section id="tab-ds" class="panel">
+      <div class="row">
+        <input id="dsName" placeholder="名称" />
+        <input id="dsType" placeholder="类型: mysql|postgres|sqlite" />
+        <input id="dsDSN" placeholder="连接串 DSN" style="flex:2" />
+        <button id="dsCreate">创建数据源</button>
+      </div>
+      <table id="dsTable" class="grid"></table>
+    </section>
+
+    <section id="tab-gov" class="panel">
+      <div class="row">
+        <select id="gDs"></select>
+        <select id="gTable"></select>
+        <button id="gLoad">加载治理</button>
+      </div>
+      <div class="gov-grid">
+        <div>
+          <h3>表权限</h3>
+          <div class="row">
+            <select id="gRole"></select>
+            <input id="gOps" placeholder="SELECT,INSERT" />
+            <input id="gDenied" placeholder='拒绝列JSON ["col"]' />
+            <button id="gAddPerm">添加</button>
+          </div>
+          <table id="permTable" class="grid"></table>
+        </div>
+        <div>
+          <h3>行级策略</h3>
+          <div class="row">
+            <select id="gPolicyRole"></select>
+            <input id="gPred" placeholder="tenant_id = :tenant" style="flex:2" />
+            <input id="gPrio" placeholder="优先级" />
+            <button id="gAddPolicy">添加</button>
+          </div>
+          <table id="policyTable" class="grid"></table>
+        </div>
+      </div>
+    </section>
+    <section id="tab-audit" class="panel">
+      <div id="auditStats" class="stat-row"></div>
+      <div class="row">
+        <input id="aUser" placeholder="按用户过滤" />
+        <select id="aStatus">
+          <option value="">全部状态</option>
+          <option value="ok">ok</option>
+          <option value="denied">denied</option>
+          <option value="error">error</option>
+        </select>
+        <select id="aChannel">
+          <option value="">全部渠道</option>
+          <option value="dataapi">dataapi</option>
+          <option value="mcp">mcp</option>
+        </select>
+        <button id="aLoad">查询</button>
+        <button id="aPrev">上一页</button>
+        <button id="aNext">下一页</button>
+        <span id="aPageInfo" class="hint"></span>
+      </div>
+      <table id="auditTable" class="grid"></table>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
