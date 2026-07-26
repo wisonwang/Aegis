@@ -2,13 +2,11 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/wisonwang/aegis/internal/auth"
 	"github.com/wisonwang/aegis/internal/config"
 	"github.com/wisonwang/aegis/internal/store"
@@ -100,81 +98,18 @@ func (h *OIDCHandler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-provision or link user
-	u, err := h.Store.GetUserByExternalID(identity.Subject)
+	// Auto-provision or link user, then issue a JWT.
+	attrs := map[string]string{"oidc_issuer": h.Cfg.OIDC.Issuer}
+	if identity.Email != "" {
+		attrs["email"] = identity.Email
+	}
+	mappedRoles := identity.ResolveRoles(h.Cfg.OIDC.ClaimMappings)
+	u, err := provisionOrLinkExternalUser(h.Store, identity.Subject, identity.Username(), identity.DisplayName(), attrs, mappedRoles)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, "user provisioning failed")
 		return
 	}
-	if u == nil {
-		// First time: create user
-		attrs := map[string]string{"oidc_issuer": h.Cfg.OIDC.Issuer}
-		if identity.Email != "" {
-			attrs["email"] = identity.Email
-		}
-		u = &store.User{
-			ID:           uuid.NewString(),
-			Username:     identity.Username(),
-			DisplayName:  identity.DisplayName(),
-			ExternalID:   sql.NullString{String: identity.Subject, Valid: true},
-			Status:       "active",
-			Attributes:   mustJSON(attrs),
-			CreatedAt:    time.Now(),
-		}
-		if err := h.Store.CreateUser(u); err != nil {
-			writeError(w, http.StatusInternalServerError, "user provisioning failed")
-			return
-		}
-		// Map claims to roles
-		mappedRoles := identity.ResolveRoles(h.Cfg.OIDC.ClaimMappings)
-		for _, roleName := range mappedRoles {
-			role, err := h.Store.GetRole(roleName)
-			if err != nil {
-				continue
-			}
-			if role == nil {
-				// Auto-create role if mapped but not present
-				role = &store.Role{ID: uuid.NewString(), Name: roleName}
-				_ = h.Store.CreateRole(role)
-			}
-			_ = h.Store.AddUserRole(u.ID, role.ID)
-		}
-	} else {
-		// Existing user: sync display name if changed
-		if identity.DisplayName() != "" && u.DisplayName != identity.DisplayName() {
-			u.DisplayName = identity.DisplayName()
-			_ = h.Store.UpdateUser(u)
-		}
-	}
-
-	// Resolve roles
-	roles, err := h.Store.ListRolesForUser(u.ID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	roleNames := make([]string, 0, len(roles))
-	for _, r := range roles {
-		roleNames = append(roleNames, r.Name)
-	}
-	userAttrs, _ := h.Store.UserAttributes(u.ID)
-	claims := &auth.Claims{
-		UserID:      u.ID,
-		Username:    u.Username,
-		DisplayName: u.DisplayName,
-		Roles:       roleNames,
-		Attributes:  userAttrs,
-	}
-	tok, err := auth.GenerateToken(claims, h.Cfg.JWTSecret, h.Cfg.JWTExpiry)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "token generation failed")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, loginResponse{
-		Token: tok,
-		User:  toMe(u, roleNames, userAttrs),
-	})
+	issueTokenForUser(w, h.Store, h.Cfg, u)
 }
 
 func mustJSON(v map[string]string) string {

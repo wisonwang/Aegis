@@ -8,13 +8,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wisonwang/aegis/internal/api"
 	"github.com/wisonwang/aegis/internal/alerting"
+	"github.com/wisonwang/aegis/internal/api"
 	"github.com/wisonwang/aegis/internal/config"
 	"github.com/wisonwang/aegis/internal/datasource"
 	"github.com/wisonwang/aegis/internal/logging"
-	"github.com/wisonwang/aegis/internal/metrics"
 	"github.com/wisonwang/aegis/internal/mcp"
+	"github.com/wisonwang/aegis/internal/metrics"
 	"github.com/wisonwang/aegis/internal/proxy"
 	"github.com/wisonwang/aegis/internal/store"
 	"github.com/wisonwang/aegis/internal/version"
@@ -90,8 +90,14 @@ func Run(cfg *config.Config) error {
 		logging.With("error", err.Error()).Warn("oidc init failed")
 	}
 
+	// LDAP handler (nil when disabled)
+	ldapH, err := api.NewLDAPHandler(st, cfg)
+	if err != nil {
+		logging.With("error", err.Error()).Warn("ldap init failed")
+	}
+
 	mux := http.NewServeMux()
-	registerRoutes(mux, h, st, px, cfg, oidcH)
+	registerRoutes(mux, h, st, px, cfg, oidcH, ldapH)
 
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -108,7 +114,7 @@ func Run(cfg *config.Config) error {
 	return srv.ListenAndServe()
 }
 
-func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *proxy.Proxy, cfg *config.Config, oidcH *api.OIDCHandler) {
+func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *proxy.Proxy, cfg *config.Config, oidcH *api.OIDCHandler, ldapH *api.LDAPHandler) {
 	// ---- Health probes ----
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		api.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -127,6 +133,11 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 	if oidcH != nil {
 		mux.HandleFunc("GET /api/v1/auth/oidc/login", oidcH.OIDCLogin)
 		mux.HandleFunc("GET /api/v1/auth/oidc/callback", oidcH.OIDCCallback)
+	}
+
+	// ---- LDAP login flow (optional, password-based directory SSO) ----
+	if ldapH != nil {
+		mux.HandleFunc("POST /api/v1/auth/ldap/login", ldapH.LDAPLogin)
 	}
 
 	// ---- DataAPI (requires authentication) ----

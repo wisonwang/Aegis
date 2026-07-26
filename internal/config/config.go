@@ -11,16 +11,17 @@ import (
 // It is loaded from a JSON file (default ./config.json) with optional
 // environment overrides (AEGIS_*).
 type Config struct {
-	ListenAddr string    `json:"listen_addr"` // HTTP listen address, e.g. ":8080"
-	JWTSecret  string    `json:"jwt_secret"`  // HMAC secret for token signing
-	JWTExpiry  string    `json:"jwt_expiry"`  // token TTL, e.g. "24h"
-	DBPath     string    `json:"db_path"`     // SQLite path for the control plane store
-	DataDir    string    `json:"data_dir"`    // directory for demo/seeded database files
-	SeedDemo   bool      `json:"seed_demo"`   // seed demo datasource + users on first run
+	ListenAddr string         `json:"listen_addr"` // HTTP listen address, e.g. ":8080"
+	JWTSecret  string         `json:"jwt_secret"`  // HMAC secret for token signing
+	JWTExpiry  string         `json:"jwt_expiry"`  // token TTL, e.g. "24h"
+	DBPath     string         `json:"db_path"`     // SQLite path for the control plane store
+	DataDir    string         `json:"data_dir"`    // directory for demo/seeded database files
+	SeedDemo   bool           `json:"seed_demo"`   // seed demo datasource + users on first run
 	MCP        MCPConfig      `json:"mcp"`
 	Limits     Limits         `json:"limits"`
 	Alerting   AlertingConfig `json:"alerting"`
 	OIDC       OIDCConfig     `json:"oidc"`
+	LDAP       LDAPConfig     `json:"ldap"`
 	Logging    LoggingConfig  `json:"logging"`
 	MaskSecret string         `json:"mask_secret"` // server key for keyed masking (tokenize/fpe); source from KMS in prod
 }
@@ -45,13 +46,14 @@ type OIDCConfig struct {
 	Scopes        []string          `json:"scopes"`         // additional scopes beyond openid,profile,email
 	ClaimMappings map[string]string `json:"claim_mappings"` // map OIDC claim values to platform roles, e.g. {"admins":"admin","analysts":"analyst"}
 }
+
 // limiting. Zero values fall back to platform defaults; admin can be exempted.
 type Limits struct {
-	MaxRows         int    `json:"max_rows"`          // max result rows per query (0 = default 1000)
-	QueryTimeout    string `json:"query_timeout"`     // per-query timeout, e.g. "30s" (0/"" = default 30s)
-	RatePerMin      int    `json:"rate_per_min"`      // max queries per principal per minute (0 = default 120)
-	AdminExempt     bool   `json:"admin_exempt"`      // admin bypasses limits (default true via Default())
-	MaxAffectedRows int    `json:"max_affected_rows"` // max rows a single UPDATE/DELETE may touch (0 = no cap)
+	MaxRows         int    `json:"max_rows"`              // max result rows per query (0 = default 1000)
+	QueryTimeout    string `json:"query_timeout"`         // per-query timeout, e.g. "30s" (0/"" = default 30s)
+	RatePerMin      int    `json:"rate_per_min"`          // max queries per principal per minute (0 = default 120)
+	AdminExempt     bool   `json:"admin_exempt"`          // admin bypasses limits (default true via Default())
+	MaxAffectedRows int    `json:"max_affected_rows"`     // max rows a single UPDATE/DELETE may touch (0 = no cap)
 	AllowNoWhere    bool   `json:"allow_no_where_writes"` // permit UPDATE/DELETE without WHERE (unsafe; default false => blocked)
 }
 
@@ -60,14 +62,36 @@ type Limits struct {
 // Zero values fall back to safe defaults; thresholds can also be set via the
 // AEGIS_ALERT_* environment variables.
 type AlertingConfig struct {
-	DeniedCount   int    `json:"denied_count"`    // denied queries within window to trip (0 = default 10)
+	DeniedCount   int    `json:"denied_count"`      // denied queries within window to trip (0 = default 10)
 	DeniedWindow  int    `json:"denied_window_sec"` // sliding window in seconds (0 = default 60)
-	BulkRows      int    `json:"bulk_rows"`       // single-query rows >= this trips bulk_export (0 = default 5000)
-	OffHoursOn    bool   `json:"off_hours_on"`    // enable the off-hours access rule (default false)
-	OffHoursStart int    `json:"off_hours_start"` // inclusive local hour, e.g. 0
-	OffHoursEnd   int    `json:"off_hours_end"`   // exclusive local hour, e.g. 6
-	Cooldown      int    `json:"cooldown_sec"`    // min seconds between repeated alerts of the same rule (0 = default 300)
-	Webhook       string `json:"webhook"`         // optional URL to POST raised alerts to
+	BulkRows      int    `json:"bulk_rows"`         // single-query rows >= this trips bulk_export (0 = default 5000)
+	OffHoursOn    bool   `json:"off_hours_on"`      // enable the off-hours access rule (default false)
+	OffHoursStart int    `json:"off_hours_start"`   // inclusive local hour, e.g. 0
+	OffHoursEnd   int    `json:"off_hours_end"`     // exclusive local hour, e.g. 6
+	Cooldown      int    `json:"cooldown_sec"`      // min seconds between repeated alerts of the same rule (0 = default 300)
+	Webhook       string `json:"webhook"`           // optional URL to POST raised alerts to
+}
+
+// LDAPConfig configures password-based directory (LDAP / Active Directory)
+// single sign-on. When Enabled, the platform authenticates users against an
+// external directory and auto-provisions them on first login, mapping group
+// memberships to platform roles via ClaimMappings.
+type LDAPConfig struct {
+	Enabled       bool              `json:"enabled"`         // enable LDAP login flow
+	URL           string            `json:"url"`             // directory URL, e.g. "ldap://dc1.example.com:389" or "ldaps://dc1.example.com:636"
+	BindDN        string            `json:"bind_dn"`         // service account DN used to search (leave empty for anonymous bind)
+	BindPassword  string            `json:"bind_password"`   // service account password
+	BaseDN        string            `json:"base_dn"`         // search base, e.g. "dc=example,dc=com"
+	UserFilter    string            `json:"user_filter"`     // search filter with %s for the login name, e.g. "(uid=%s)" or "(sAMAccountName=%s)"
+	UserAttr      string            `json:"user_attr"`       // attribute used as local username, e.g. "uid" (falls back to user DN)
+	DisplayAttr   string            `json:"display_attr"`    // attribute used as display name, e.g. "displayName"
+	EmailAttr     string            `json:"email_attr"`      // attribute carrying the email, e.g. "mail"
+	GroupBaseDN   string            `json:"group_base_dn"`   // search base for groups, e.g. "ou=groups,dc=example,dc=com"
+	GroupFilter   string            `json:"group_filter"`    // group filter with %d for the user DN, e.g. "(member=%d)"
+	GroupNameAttr string            `json:"group_name_attr"` // attribute holding the group name, e.g. "cn"
+	ClaimMappings map[string]string `json:"claim_mappings"`  // map directory group values to platform roles, e.g. {"aegis-admins":"admin","aegis-analysts":"analyst"}
+	DefaultRoles  []string          `json:"default_roles"`   // roles granted to every LDAP-authenticated user
+	SkipTLSVerify bool              `json:"skip_tls_verify"` // insecure: skip TLS cert verification (dev only)
 }
 
 // MCPConfig configures the Model Context Protocol endpoint used by AI agents.
@@ -244,5 +268,45 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("AEGIS_MASK_SECRET"); v != "" {
 		cfg.MaskSecret = v
+	}
+	// LDAP environment overrides
+	if v := os.Getenv("AEGIS_LDAP_ENABLED"); v != "" {
+		cfg.LDAP.Enabled = v == "true" || v == "1"
+	}
+	if v := os.Getenv("AEGIS_LDAP_URL"); v != "" {
+		cfg.LDAP.URL = v
+	}
+	if v := os.Getenv("AEGIS_LDAP_BIND_DN"); v != "" {
+		cfg.LDAP.BindDN = v
+	}
+	if v := os.Getenv("AEGIS_LDAP_BIND_PASSWORD"); v != "" {
+		cfg.LDAP.BindPassword = v
+	}
+	if v := os.Getenv("AEGIS_LDAP_BASE_DN"); v != "" {
+		cfg.LDAP.BaseDN = v
+	}
+	if v := os.Getenv("AEGIS_LDAP_USER_FILTER"); v != "" {
+		cfg.LDAP.UserFilter = v
+	}
+	if v := os.Getenv("AEGIS_LDAP_USER_ATTR"); v != "" {
+		cfg.LDAP.UserAttr = v
+	}
+	if v := os.Getenv("AEGIS_LDAP_DISPLAY_ATTR"); v != "" {
+		cfg.LDAP.DisplayAttr = v
+	}
+	if v := os.Getenv("AEGIS_LDAP_EMAIL_ATTR"); v != "" {
+		cfg.LDAP.EmailAttr = v
+	}
+	if v := os.Getenv("AEGIS_LDAP_GROUP_BASE_DN"); v != "" {
+		cfg.LDAP.GroupBaseDN = v
+	}
+	if v := os.Getenv("AEGIS_LDAP_GROUP_FILTER"); v != "" {
+		cfg.LDAP.GroupFilter = v
+	}
+	if v := os.Getenv("AEGIS_LDAP_GROUP_NAME_ATTR"); v != "" {
+		cfg.LDAP.GroupNameAttr = v
+	}
+	if v := os.Getenv("AEGIS_LDAP_SKIP_TLS_VERIFY"); v != "" {
+		cfg.LDAP.SkipTLSVerify = v == "true" || v == "1"
 	}
 }

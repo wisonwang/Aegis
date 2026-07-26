@@ -477,6 +477,77 @@ open http://localhost:8080/api/v1/auth/oidc/login
 
 ---
 
+## 目录（LDAP / Active Directory）身份对接
+
+Aegis 支持通过 **LDAP / Active Directory** 做基于密码的目录单点登录。启用后，平台用户的认证由企业目录（如 OpenLDAP、FreeIPA、Microsoft AD）完成，登录成功后平台按目录中的**组（group）成员关系**自动映射平台角色并签发 JWT。适合尚未部署 OIDC、或以 AD 为主身份源的企业。
+
+### 配置
+
+在 `config.json` 的 `ldap` 段填写目录信息（全部支持环境变量覆盖，前缀 `AEGIS_LDAP_*`）：
+
+```json
+{
+  "ldap": {
+    "enabled": true,
+    "url": "ldap://dc1.example.com:389",
+    "bind_dn": "cn=aegis-svc,ou=service,dc=example,dc=com",
+    "bind_password": "<service-account-password>",
+    "base_dn": "dc=example,dc=com",
+    "user_filter": "(uid=%s)",
+    "user_attr": "uid",
+    "display_attr": "displayName",
+    "email_attr": "mail",
+    "group_base_dn": "ou=groups,dc=example,dc=com",
+    "group_filter": "(member=%d)",
+    "group_name_attr": "cn",
+    "claim_mappings": {
+      "aegis-admins": "admin",
+      "aegis-analysts": "analyst"
+    },
+    "default_roles": ["analyst"],
+    "skip_tls_verify": false
+  }
+}
+```
+
+| 配置项 | 环境变量 | 说明 |
+| --- | --- | --- |
+| `enabled` | `AEGIS_LDAP_ENABLED` | 是否启用 LDAP 登录 |
+| `url` | `AEGIS_LDAP_URL` | 目录地址，如 `ldap://host:389` 或 `ldaps://host:636` |
+| `bind_dn` / `bind_password` | `AEGIS_LDAP_BIND_DN` / `AEGIS_LDAP_BIND_PASSWORD` | 用于检索用户的服务账号（匿名绑定可留空） |
+| `base_dn` | `AEGIS_LDAP_BASE_DN` | 用户检索基，如 `dc=example,dc=com` |
+| `user_filter` | `AEGIS_LDAP_USER_FILTER` | 用户检索过滤器，`%s` 为登录名，如 `(uid=%s)` 或 `(sAMAccountName=%s)` |
+| `user_attr` | `AEGIS_LDAP_USER_ATTR` | 用作平台用户名的属性（缺省回退为用户 DN） |
+| `display_attr` | `AEGIS_LDAP_DISPLAY_ATTR` | 展示名属性，如 `displayName` |
+| `email_attr` | `AEGIS_LDAP_EMAIL_ATTR` | 邮箱属性，如 `mail` |
+| `group_base_dn` | `AEGIS_LDAP_GROUP_BASE_DN` | 组检索基 |
+| `group_filter` | `AEGIS_LDAP_GROUP_FILTER` | 组过滤器，`%d` 为用户 DN，如 `(member=%d)` 或 `(memberOf=%d)` |
+| `group_name_attr` | `AEGIS_LDAP_GROUP_NAME_ATTR` | 组名属性，如 `cn` |
+| `claim_mappings` | — | 将目录组值映射到平台角色，如 `{"aegis-admins":"admin"}` |
+| `default_roles` | — | 所有 LDAP 登录用户都授予的角色 |
+| `skip_tls_verify` | `AEGIS_LDAP_SKIP_TLS_VERIFY` | 跳过 TLS 证书校验（仅开发环境） |
+
+### 登录流程
+
+```bash
+# 应用 / Agent 用目录凭据直接换取平台 JWT
+curl -X POST http://localhost:8080/api/v1/auth/ldap/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"<directory-password>"}'
+# => { "token": "<aegis-jwt>", "user": { "username":"alice", "roles":["analyst"], ... } }
+```
+
+**认证过程**（三步绑定）：
+1. （可选）用服务账号 `bind_dn` 绑定目录，以便检索用户；
+2. 按 `user_filter` 检索用户条目、解析其 DN；
+3. **以用户 DN + 输入密码绑定目录**——这是真正的凭证校验，失败即返回 401。
+
+随后按 `claim_mappings` 把组映射为平台角色（缺失的角色会自动创建），自动创建或关联用户，签发 JWT。
+
+**用户生命周期**：与 OIDC 一致——首次登录根据目录 DN 自动建号（external_id 为 `ldap:<DN>`），再次登录按 DN 关联、同步展示名；LDAP 用户无本地密码。
+
+---
+
 ## 可观测性（Observability）
 
 ### 健康探针
