@@ -220,7 +220,7 @@
         <!-- 真实 DB -->
         <rect x="520" y="556" width="400" height="64" rx="12" fill="#f3f5f8" stroke="#d8dde5"/>
         <text x="720" y="582" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1f2937">真实数据库</text>
-        <text x="720" y="604" text-anchor="middle" font-size="12" fill="#5f5e5a">MySQL ✅（aegis_svc 受限账号） · SQLite ✅ · PostgreSQL（待接）</text>
+        <text x="720" y="604" text-anchor="middle" font-size="12" fill="#5f5e5a">MySQL ✅（aegis_svc 受限账号） · SQLite ✅ · PostgreSQL ✅（live 端到端验证）</text>
         <text x="270" y="590" text-anchor="middle" font-size="12" fill="#0F6E56">策略与审计均落控制面，权限聚合供治理层实时取用</text>
       </svg>
     </div>
@@ -307,7 +307,8 @@
         <li><span class="pill ok">已完成</span> 边界防护：按身份 / 数据源限流、查询行数上限、超时熔断</li>
         <li><span class="pill ok">已完成</span> 可观测性：Prometheus 指标、健康探针（liveness / readiness）</li>
         <li><span class="pill ok">已完成</span> 结构化日志：标准库 log/slog 实现（JSON / 文本），覆盖 HTTP 访问日志（含 req_id 关联）+ 治理决策事件（denied/error 结构化告警）+ 启动/运行时事件</li>
-        <li>PostgreSQL 端到端验证；数据库原生 RLS 双层加固（弥补嵌套子查询边界）</li>
+        <li><span class="pill ok">已完成</span> PostgreSQL 端到端验证：lib/pq 驱动内置，live 集成测试覆盖默认拒绝 / 行策略(:attr) / 列脱敏 / admin 旁路 / ListTables 治理</li>
+        <li>数据库原生 RLS 双层加固（弥补嵌套子查询边界）— 待做</li>
       </ul>
     </div>
 
