@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/wisonwang/aegis/internal/alerting"
 	"github.com/wisonwang/aegis/internal/auth"
 	"github.com/wisonwang/aegis/internal/datasource"
+	"github.com/wisonwang/aegis/internal/logging"
 	"github.com/wisonwang/aegis/internal/metrics"
 	"github.com/wisonwang/aegis/internal/permission"
 	"github.com/wisonwang/aegis/internal/store"
@@ -117,6 +119,41 @@ func (p *Proxy) audit(ctx context.Context, dsID string, claims *auth.Claims, sql
 	if p.detector != nil {
 		p.detector.Observe(claims.Username, claims.IsAdmin(), ch, status, rowCount, time.Now())
 	}
+	// Structured signal for operators / SIEM: every non-ok governed outcome
+	// is emitted as a discrete "governance decision" event carrying the
+	// principal, channel, datasource and (truncated) attempted SQL so a
+	// security team can alert on probing without scraping the audit table.
+	if status != "ok" {
+		logging.WithCtx(ctx,
+			"datasource", dsID,
+			"datasource_name", dsName,
+			"channel", ch,
+			"user", claims.Username,
+		).Log(ctx, decisionLevel(status), "governance decision",
+			"decision", status,
+			"reason", errMsg,
+			"sql_original", truncate(sqlText, 2000),
+			"sql_rewritten", truncate(rewritten, 2000),
+		)
+	}
+}
+
+// decisionLevel maps a governance status to a slog level: errors are
+// operational failures, denials are policy events worth flagging.
+func decisionLevel(status string) slog.Level {
+	if status == "error" {
+		return slog.LevelError
+	}
+	return slog.LevelWarn
+}
+
+// truncate keeps attempted-SQL fields in the log from blowing up on very
+// large statements while preserving enough context for investigation.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "...(truncated)"
 }
 
 // Execute runs a statement under the principal's permissions and returns a

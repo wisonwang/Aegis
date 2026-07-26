@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -115,7 +116,7 @@ func (h *OIDCHandler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 			ID:           uuid.NewString(),
 			Username:     identity.Username(),
 			DisplayName:  identity.DisplayName(),
-			ExternalID:   identity.Subject,
+			ExternalID:   sql.NullString{String: identity.Subject, Valid: true},
 			Status:       "active",
 			Attributes:   mustJSON(attrs),
 			CreatedAt:    time.Now(),

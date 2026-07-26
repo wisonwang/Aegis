@@ -21,6 +21,16 @@ type Config struct {
 	Limits     Limits         `json:"limits"`
 	Alerting   AlertingConfig `json:"alerting"`
 	OIDC       OIDCConfig     `json:"oidc"`
+	Logging    LoggingConfig  `json:"logging"`
+	MaskSecret string         `json:"mask_secret"` // server key for keyed masking (tokenize/fpe); source from KMS in prod
+}
+
+// LoggingConfig selects the structured-log output format and minimum level.
+// Zero values fall back to safe defaults; both fields can also be set via
+// the AEGIS_LOG_FORMAT / AEGIS_LOG_LEVEL environment variables.
+type LoggingConfig struct {
+	Format string `json:"format"` // "json" (default) or "text"
+	Level  string `json:"level"`  // "debug" | "info" (default) | "warn" | "error"
 }
 
 // OIDCConfig configures OpenID Connect single sign-on. When Enabled, the
@@ -126,6 +136,10 @@ func Default() *Config {
 		OIDC: OIDCConfig{
 			Scopes: []string{"profile", "email"},
 		},
+		Logging: LoggingConfig{
+			Format: "json",
+			Level:  "info",
+		},
 	}
 }
 
@@ -220,5 +234,15 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("AEGIS_OIDC_REDIRECT_URL"); v != "" {
 		cfg.OIDC.RedirectURL = v
+	}
+	// Logging overrides
+	if v := os.Getenv("AEGIS_LOG_FORMAT"); v != "" {
+		cfg.Logging.Format = v
+	}
+	if v := os.Getenv("AEGIS_LOG_LEVEL"); v != "" {
+		cfg.Logging.Level = v
+	}
+	if v := os.Getenv("AEGIS_MASK_SECRET"); v != "" {
+		cfg.MaskSecret = v
 	}
 }

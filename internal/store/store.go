@@ -18,7 +18,7 @@ type User struct {
 	Username     string    `json:"username"`
 	DisplayName  string    `json:"display_name"`
 	PasswordHash string    `json:"-"`
-	ExternalID   string    `json:"external_id"` // OIDC subject / SSO identity
+	ExternalID   sql.NullString `json:"-"` // OIDC subject / SSO identity; nullable (NULL for local users)
 	Status       string    `json:"status"`      // active | disabled
 	Attributes   string    `json:"attributes"`  // JSON object, e.g. {"tenant":"acme"}
 	CreatedAt    time.Time `json:"created_at"`
@@ -203,10 +203,19 @@ func (s *Store) CreateUser(u *User) error {
 	if u.CreatedAt.IsZero() {
 		u.CreatedAt = time.Now()
 	}
+	// external_id is UNIQUE: non-SSO users have no external identity, so
+	// bind NULL (which UNIQUE permits many of) instead of an empty string
+	// (which would collide on the second local user and silently drop the row).
+	var extID interface{}
+	if u.ExternalID.Valid {
+		extID = u.ExternalID.String
+	} else {
+		extID = nil
+	}
 	_, err := s.db.Exec(
 		`INSERT INTO users (id,username,display_name,password_hash,external_id,status,attributes,created_at)
 		 VALUES (?,?,?,?,?,?,?,?)`,
-		u.ID, u.Username, u.DisplayName, u.PasswordHash, u.ExternalID, u.Status, u.Attributes, u.CreatedAt)
+		u.ID, u.Username, u.DisplayName, u.PasswordHash, extID, u.Status, u.Attributes, u.CreatedAt)
 	return err
 }
 

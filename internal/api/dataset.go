@@ -385,7 +385,7 @@ func (h *Handler) AdminUpsertDatasetMask(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if !validMaskStrategy(req.Strategy) {
-		writeError(w, http.StatusBadRequest, "unsupported mask strategy (phone|email|card|hash|redact|partial)")
+		writeError(w, http.StatusBadRequest, "unsupported mask strategy (phone|email|card|hash|redact|partial|tokenize|fpe)")
 		return
 	}
 	role, err := h.Store.GetRole(req.Role)

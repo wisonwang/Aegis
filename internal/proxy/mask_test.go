@@ -1,10 +1,16 @@
 package proxy
 
 import (
+	"os"
 	"testing"
 
 	"github.com/wisonwang/aegis/internal/store"
 )
+
+func TestMain(m *testing.M) {
+	SetMaskKey("unit-test-secret")
+	os.Exit(m.Run())
+}
 
 func TestApplyMask(t *testing.T) {
 	cases := []struct {
@@ -56,5 +62,66 @@ func TestColumnActions(t *testing.T) {
 	}
 	if !actions[2].keep || actions[2].mask == nil || actions[2].mask.Strategy != "phone" {
 		t.Errorf("phone should be kept and masked, got %+v", actions[2])
+	}
+}
+
+func TestTokenize(t *testing.T) {
+	SetMaskKey("unit-test-secret")
+	a := tokenize("alice@example.com")
+	// deterministic per (input, key)
+	if b := tokenize("alice@example.com"); a != b {
+		t.Fatalf("tokenize not deterministic: %q vs %q", a, b)
+	}
+	if len(a) != fpeTokenLen {
+		t.Fatalf("token length = %d, want %d", len(a), fpeTokenLen)
+	}
+	if a == "alice@example.com" {
+		t.Fatal("tokenize must not echo the input")
+	}
+	if tokenize("bob@example.com") == a {
+		t.Fatal("different inputs produced identical tokens")
+	}
+	// key rotation changes the token
+	SetMaskKey("other-secret")
+	if tokenize("alice@example.com") == a {
+		t.Fatal("token should change when the key changes")
+	}
+	SetMaskKey("unit-test-secret")
+}
+
+func TestFPE(t *testing.T) {
+	SetMaskKey("unit-test-secret")
+	digits := "4111111111111111"
+	out := fpe(digits)
+	if len(out) != len(digits) {
+		t.Fatalf("fpe changed length: %q (len %d)", out, len(out))
+	}
+	if !isAllDigits(out) {
+		t.Fatalf("fpe output not all digits: %q", out)
+	}
+	if out == digits {
+		t.Fatal("fpe must transform the input")
+	}
+	if fpe(digits) != out {
+		t.Fatal("fpe not deterministic")
+	}
+	if fpe("4111111111111112") == out {
+		t.Fatal("fpe collided for different inputs")
+	}
+	// non-digit input falls back to tokenize (opaque, fixed length)
+	nd := fpe("abc-def")
+	if len(nd) != fpeTokenLen {
+		t.Fatalf("non-digit fpe fallback length = %d, want %d", len(nd), fpeTokenLen)
+	}
+	// round-trip decryption restores the original value
+	if got := FpeDecrypt(out); got != digits {
+		t.Fatalf("FpeDecrypt(%q) = %q, want %q", out, got, digits)
+	}
+	// single digit edge case
+	if got := fpe("7"); got == "7" || !isAllDigits(got) || len(got) != 1 {
+		t.Fatalf("fpe single digit = %q", got)
+	}
+	if FpeDecrypt(fpe("7")) != "7" {
+		t.Fatal("single-digit fpe round-trip failed")
 	}
 }

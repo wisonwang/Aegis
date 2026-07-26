@@ -238,8 +238,12 @@ curl -s localhost:8080/api/v1/datasets/<dataset-id>/query -H "Authorization: Bea
 | `partial` | 保留首尾各 N 位（`keep`，默认 2） | `Acme Corp` → `Ac*****rp` |
 | `hash` | SHA-256 截断 16 位（不可逆） | `secret` → `2bb80d537b1da3e3` |
 | `redact` | 常量 `***` | 任意值 → `***` |
+| `tokenize` | **确定性 HMAC 假名**（密钥相关，可跨表关联/聚合） | `alice@example.com` → `aZ3k...`（24 位不透明令牌，相同输入稳定同值） |
+| `fpe` | **格式保留加密**（仅纯数字 PII，保长保型，密钥可还原） | `4111111111111111` → `7f2c...`（仍是 16 位数字，非数字回退 `tokenize`） |
 
 掩码在结果层对单元格执行，`admin` 角色与无掩码规则的角色不受影响；MCP `get_catalog` 的语义卡片会标注被掩码列（`masked: <策略>`），让 Agent 知道自己拿到的字段是脱敏值。
+
+> **密钥策略（`tokenize` / `fpe`）**：这两种策略是**确定性、密钥相关**的——相同的输入在相同的 `AEGIS_MASK_SECRET` 下总是得到相同输出，因此脱敏后的值仍能做 `JOIN` / 去重 / 聚合，而原始 PII 不会离开平台。`fpe` 还可用 `proxy.FpeDecrypt`（或未来管理端「再识别」工具）在持有密钥时还原。生产环境**务必通过 `AEGIS_MASK_SECRET` 注入密钥**（建议来自 KMS / Vault），未配置时回退到不安全的开发默认值并在启动日志告警；密钥一旦轮换，已落库的脱敏值需按新密钥重算。
 
 <!-- 管理 API（仅管理员）：
 GET  /admin/api/datasources/{id}/masks
@@ -499,6 +503,43 @@ readinessProbe:
     port: 8080
   initialDelaySeconds: 3
   periodSeconds: 5
+```
+
+### 结构化日志（Structured Logging）
+
+Aegis 用标准库 `log/slog` 输出结构化日志（**零额外依赖**，保持单二进制），便于接入 Loki / ELK / 云日志服务做检索与告警。格式与级别在 `config.json` 的 `logging` 段配置：
+
+```json
+{
+  "logging": {
+    "format": "json",   // "json"（默认）或 "text"
+    "level":  "info"     // "debug" | "info"（默认） | "warn" | "error"
+  }
+}
+```
+
+| 配置项 | 环境变量 | 说明 |
+| --- | --- | --- |
+| `format` | `AEGIS_LOG_FORMAT` | 输出格式：`json` 或 `text`（`text` 便于本地肉眼看） |
+| `level` | `AEGIS_LOG_LEVEL` | 最低输出级别：低于该级别的记录被丢弃 |
+
+### 脱敏密钥（`tokenize` / `fpe`）
+
+| 配置项 | 环境变量 | 说明 |
+| --- | --- | --- |
+| `mask_secret` | `AEGIS_MASK_SECRET` | 密钥化脱敏策略（`tokenize` 确定性假名、`fpe` 格式保留加密）的服务器密钥；生产环境务必注入（建议来自 KMS / Vault），未配置回退不安全开发默认值并告警 |
+
+日志覆盖三类高价值信号：
+
+- **HTTP 访问日志**：每个请求一行，携带 `req_id`（从 `X-Request-Id` 头透传，缺失则自动生成 UUID）、`method` / `path` / `status` / `duration_ms` / `bytes` / `remote`；级别随状态码升降（5xx→`ERROR`、4xx→`WARN`、其余→`INFO`）。`/api/v1/health`、`/api/v1/ready`、`/metrics` 探针路径默认跳过，避免刷屏。
+- **治理决策事件**：每次被拒绝（`denied`）或执行失败（`error`）的受治理查询，额外输出一条 `msg="governance decision"` 结构化事件，含 `user` / `channel` / `datasource` / `decision` / `reason` 以及（截断至 2000 字符的）原始与重写 SQL——安全团队无需扫审计表即可对「探测 / 越权」直接告警。
+- **启动与运行时事件**：启动监听、演示租户播种失败、OIDC 初始化失败等均结构化输出。
+
+JSON 示例（一行一事件）：
+
+```json
+{"time":"2026-07-26T23:00:00+08:00","level":"WARN","msg":"governance decision","req_id":"c1f0...","user":"analyst","channel":"dataapi","datasource":"mysql-local","decision":"denied","reason":"table 'secret' not authorized for role analyst","sql_original":"SELECT * FROM secret","sql_rewritten":""}
+{"time":"2026-07-26T23:00:01+08:00","level":"INFO","msg":"http request","req_id":"c1f0...","method":"POST","path":"/api/v1/query","status":403,"duration_ms":2,"bytes":98,"remote":"127.0.0.1:51234"}
 ```
 
 ### Prometheus 指标

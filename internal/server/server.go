@@ -5,7 +5,6 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
-	"log"
 	"net/http"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/wisonwang/aegis/internal/alerting"
 	"github.com/wisonwang/aegis/internal/config"
 	"github.com/wisonwang/aegis/internal/datasource"
+	"github.com/wisonwang/aegis/internal/logging"
 	"github.com/wisonwang/aegis/internal/metrics"
 	"github.com/wisonwang/aegis/internal/mcp"
 	"github.com/wisonwang/aegis/internal/proxy"
@@ -26,6 +26,10 @@ var webFS embed.FS
 // Run starts the Aegis platform: it opens the control-plane store, seeds a
 // demo tenant when empty, and serves the DataAPI, admin API/UI and MCP endpoint.
 func Run(cfg *config.Config) error {
+	// Install the structured logger first so every subsequent record (store
+	// open, seed, route serving) is emitted in the chosen format/level.
+	logging.Init(logging.Config{Format: cfg.Logging.Format, Level: cfg.Logging.Level})
+
 	st, err := store.Open(cfg.DBPath)
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
@@ -34,7 +38,7 @@ func Run(cfg *config.Config) error {
 
 	if cfg.SeedDemo {
 		if err := seedIfEmpty(st, cfg); err != nil {
-			log.Printf("warn: demo seed failed: %v", err)
+			logging.With("error", err.Error()).Warn("demo seed failed")
 		}
 	}
 
@@ -56,6 +60,14 @@ func Run(cfg *config.Config) error {
 	dm := datasource.NewManager(st)
 	px := proxy.New(st, dm)
 	px.SetGuard(proxy.NewGuard(cfg.Limits))
+
+	// Install the masking key for keyed strategies (tokenize / fpe). Without a
+	// configured secret the proxy uses an insecure development default, which
+	// would let anyone with the binary reverse masked values.
+	proxy.SetMaskKey(cfg.MaskSecret)
+	if cfg.MaskSecret == "" {
+		logging.With("component", "mask").Warn("AEGIS_MASK_SECRET not set; keyed masking (tokenize/fpe) uses an insecure development default")
+	}
 	// Anomaly detection: observe the audit stream and persist security alerts.
 	det := alerting.New(alerting.Config{
 		DeniedCount:   cfg.Alerting.DeniedCount,
@@ -75,7 +87,7 @@ func Run(cfg *config.Config) error {
 	// OIDC handler (nil when disabled)
 	oidcH, err := api.NewOIDCHandler(context.Background(), st, cfg)
 	if err != nil {
-		log.Printf("warn: oidc init failed: %v", err)
+		logging.With("error", err.Error()).Warn("oidc init failed")
 	}
 
 	mux := http.NewServeMux()
@@ -90,8 +102,9 @@ func Run(cfg *config.Config) error {
 		http.Redirect(w, r, "/admin/", http.StatusFound)
 	})
 
-	log.Printf("aegis listening on %s  (admin UI: /admin/, mcp: %s)", cfg.ListenAddr, cfg.MCP.Path)
-	srv := &http.Server{Addr: cfg.ListenAddr, Handler: mux}
+	logging.With("addr", cfg.ListenAddr, "admin", "/admin/", "mcp", cfg.MCP.Path).
+		Info("aegis listening")
+	srv := &http.Server{Addr: cfg.ListenAddr, Handler: logging.Middleware(mux)}
 	return srv.ListenAndServe()
 }
 
