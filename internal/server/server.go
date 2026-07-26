@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -71,8 +72,14 @@ func Run(cfg *config.Config) error {
 	px.SetDetector(det)
 	h := &api.Handler{Store: st, Proxy: px, DS: dm, Cfg: cfg}
 
+	// OIDC handler (nil when disabled)
+	oidcH, err := api.NewOIDCHandler(context.Background(), st, cfg)
+	if err != nil {
+		log.Printf("warn: oidc init failed: %v", err)
+	}
+
 	mux := http.NewServeMux()
-	registerRoutes(mux, h, st, px, cfg)
+	registerRoutes(mux, h, st, px, cfg, oidcH)
 
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -88,13 +95,29 @@ func Run(cfg *config.Config) error {
 	return srv.ListenAndServe()
 }
 
-func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *proxy.Proxy, cfg *config.Config) {
-	// ---- DataAPI (requires authentication) ----
-	mux.HandleFunc("POST /api/v1/login", h.Login)
+func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *proxy.Proxy, cfg *config.Config, oidcH *api.OIDCHandler) {
+	// ---- Health probes ----
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		api.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	mux.HandleFunc("GET /api/v1/ready", func(w http.ResponseWriter, r *http.Request) {
+		// Readiness: ensure the control-plane store is reachable.
+		if _, err := st.ListDataSources(); err != nil {
+			api.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not ready", "reason": err.Error()})
+			return
+		}
+		api.WriteJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	})
 	mux.Handle("GET /metrics", metrics.Handler())
+
+	// ---- OIDC login flow (optional) ----
+	if oidcH != nil {
+		mux.HandleFunc("GET /api/v1/auth/oidc/login", oidcH.OIDCLogin)
+		mux.HandleFunc("GET /api/v1/auth/oidc/callback", oidcH.OIDCCallback)
+	}
+
+	// ---- DataAPI (requires authentication) ----
+	mux.HandleFunc("POST /api/v1/login", h.Login)
 	mux.HandleFunc("GET /api/v1/me", api.Authenticate(cfg, h.Me))
 	mux.HandleFunc("POST /api/v1/query", api.Authenticate(cfg, h.Query))
 	mux.HandleFunc("GET /api/v1/datasources", api.Authenticate(cfg, h.ListDataSources))

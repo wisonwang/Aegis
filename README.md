@@ -34,7 +34,7 @@ Aegis 在应用（或 AI Agent）与后端数据库之间插入一个**代理层
 
 ### 为什么 AI 场景必须有这一层
 
-AI 应用（ChatBI / Agent 工作流 / RAG / Copilot）的 SQL 由 LLM 现场生成——不可评审、不可穷举、可被提示词注入操纵，「应用层代码内控权限」在 AI 场景下失效。Aegis 把治理下沉到数据访问层：凭据隔离、三级权限、解析级 SQL 强制校验、全量审计、统一供给，五大风险逐一兜底。完整论证与面向 AI 的功能扩充规划（MCP resources / NL2SQL 网关 / 行数上限 / 限流 / 动态脱敏等）见 **[BLUEPRINT.html](BLUEPRINT.html)**（项目 PRD 蓝图 v0.2，含平台架构图）。
+AI 应用（ChatBI / Agent 工作流 / RAG / Copilot）的 SQL 由 LLM 现场生成——不可评审、不可穷举、可被提示词注入操纵，「应用层代码内控权限」在 AI 场景下失效。Aegis 把治理下沉到数据访问层：凭据隔离、三级权限、解析级 SQL 强制校验、全量审计、统一供给，五大风险逐一兜底。完整论证与面向 AI 的功能扩充规划（MCP resources / NL2SQL 网关 / 行数上限 / 限流 / 动态脱敏等）见 **[BLUEPRINT.html](BLUEPRINT.html)**（项目 PRD 蓝图 v0.3，含平台架构图）。
 
 ---
 
@@ -329,11 +329,11 @@ cmd/aegis/main.go          # 入口
 internal/
   config/                    # 配置加载
   store/                     # 控制面存储(SQLite) + 权限聚合
-  auth/                      # JWT / bcrypt / 身份声明
+  auth/                      # JWT / bcrypt / OIDC / 身份声明
   datasource/                # 数据源连接池(MySQL/PostgreSQL/SQLite)
   permission/                # 权限引擎：SQL 解析 + 表/行/列治理重写
   proxy/                     # 代理执行层：经权限引擎执行并脱敏
-  api/                       # DataAPI(REST) + 后台管理 API
+  api/                       # DataAPI(REST) + 后台管理 API + OIDC 回调
   mcp/                       # MCP JSON-RPC 服务
   server/                    # 路由装配 + 演示租户播种 + 内嵌 Web UI
 internal/server/web/         # 后台管理前端(原生 HTML/JS)
@@ -414,7 +414,94 @@ Elasticsearch 读（search）/ 写（index / updateByQuery / deleteByQuery）同
 
 ---
 
+## SSO / OIDC 身份对接
+
+Aegis 支持通过 **OpenID Connect** 接入外部身份提供商（IdP），实现单点登录与企业身份统一管理。启用后，平台不再自行管理密码，而是把认证委托给 OIDC IdP（如 Google Workspace、Azure AD、Okta、Keycloak、Authing 等）。
+
+### 配置
+
+在 `config.json` 的 `oidc` 段填写 IdP 信息（全部支持环境变量覆盖）：
+
+```json
+{
+  "oidc": {
+    "enabled": true,
+    "issuer": "https://accounts.google.com",
+    "client_id": "<your-client-id>",
+    "client_secret": "<your-client-secret>",
+    "redirect_url": "http://localhost:8080/api/v1/auth/oidc/callback",
+    "scopes": ["profile", "email"],
+    "claim_mappings": {
+      "admins": "admin",
+      "analysts": "analyst"
+    }
+  }
+}
+```
+
+| 配置项 | 环境变量 | 说明 |
+| --- | --- | --- |
+| `enabled` | `AEGIS_OIDC_ENABLED` | 是否启用 OIDC |
+| `issuer` | `AEGIS_OIDC_ISSUER` | IdP issuer URL，自动发现 `.well-known/openid-configuration` |
+| `client_id` | `AEGIS_OIDC_CLIENT_ID` | OAuth2 client id |
+| `client_secret` | `AEGIS_OIDC_CLIENT_SECRET` | OAuth2 client secret |
+| `redirect_url` | `AEGIS_OIDC_REDIRECT_URL` | 回调地址，必须在 IdP 中注册 |
+| `scopes` | — | 额外 scope，默认含 `openid` + `profile` + `email` |
+| `claim_mappings` | — | 将 IdP claim 值映射到平台角色，如 `{"admins":"admin"}` |
+
+### 登录流程
+
+```bash
+# 1. 浏览器访问登录入口，自动重定向到 IdP
+open http://localhost:8080/api/v1/auth/oidc/login
+
+# 2. 用户在 IdP 完成认证后，IdP 重定向回 callback
+#    平台验证 ID Token，自动创建或关联用户，返回平台 JWT
+```
+
+**用户生命周期**：
+- **首次登录（auto-provisioning）**：平台根据 `sub` 自动创建用户，用户名取 `email`，display_name 取 `name`；`claim_mappings` 自动分配角色（若角色不存在则自动创建）。
+- **再次登录**：根据 `sub` 关联已有用户，同步 display_name。
+- **密码字段为空**：OIDC 用户无本地密码，只能通过 IdP 登录。
+
+### 安全细节
+
+- **PKCE**：授权码流程强制使用 PKCE（S256），防 authorization code 拦截攻击。
+- **Nonce**：强制验证 ID Token 的 `nonce`，防重放。
+- **State**：10 分钟有效期的 cookie 携带 state，回调时严格校验，防 CSRF。
+- **Cookie**：`HttpOnly` + `SameSite=Lax`，生产环境建议开启 HTTPS 并将 `Secure` 设为 `true`。
+
+---
+
 ## 可观测性（Observability）
+
+### 健康探针
+
+Aegis 提供两个标准探针端点，便于 K8s / 负载均衡器做健康检查：
+
+| 端点 | 用途 | 响应 |
+| --- | --- | --- |
+| `GET /api/v1/health` | **Liveness**（存活） | 始终返回 `{"status":"ok"}`（200），进程活着即通过 |
+| `GET /api/v1/ready` | **Readiness**（就绪） | 检查控制面 store 是否可达；就绪返回 `{"status":"ready"}`（200），否则 503 |
+
+K8s 探针配置示例：
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /api/v1/health
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /api/v1/ready
+    port: 8080
+  initialDelaySeconds: 3
+  periodSeconds: 5
+```
+
+### Prometheus 指标
 
 Aegis 在 `GET /metrics` 暴露 Prometheus 格式指标，可直接被 Prometheus / Grafana 抓取，用于监控网关的治理流量、延迟与数据供给量。
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Aegis 项目 PRD 蓝图 v0.2</title>
+<title>Aegis 项目 PRD 蓝图 v0.3</title>
 <style>
   :root{
     --blue:#185FA5; --teal:#0F6E56; --purple:#534AB7; --amber:#854F0B; --green:#3B6D11; --coral:#993C1D;
@@ -68,7 +68,7 @@
 <body>
 <header class="hero">
   <h1>Aegis · 数据库代理治理平台</h1>
-  <p>项目 PRD 蓝图（Blueprint v0.2）— 集中治理数据服务，安全供给应用与 AI Agent</p>
+  <p>项目 PRD 蓝图（Blueprint v0.3）— 集中治理数据服务，安全供给应用与 AI Agent</p>
   <div class="tagrow">
     <span class="tag">Golang 单二进制</span>
     <span class="tag">表 / 行 / 列三级治理</span>
@@ -77,6 +77,7 @@
     <span class="tag">DataAPI（REST）</span>
     <span class="tag">MCP for AI Agent</span>
     <span class="tag">MySQL 已接入</span>
+    <span class="tag">SSO / OIDC</span>
   </div>
 </header>
 
@@ -270,7 +271,9 @@
           <li><span class="pill ok">已验证</span> 异常行为告警：高频 denied / 批量导出 / 非工作时段检测，控制面 <code>security_alerts</code> 落库 + 管理台「安全告警」页 + 可选 Webhook</li>
           <li><span class="pill ok">已验证</span> REST DataAPI：login / query / list datasources / describe table</li>
           <li><span class="pill ok">已验证</span> MCP Streamable HTTP：list_datasources / list_tables / describe_table / query</li>
-          <li><span class="pill ok">已验证</span> 后台管理 UI（用户/角色/数据源/权限/策略 CRUD + 审计日志页）</li>
+          <li><span class="pill ok">已验证</span> 后台管理 UI（用户/角色/数据源/权限/策略 CRUD + 审计日志页 + 安全告警页）</li>
+          <li><span class="pill ok">已验证</span> SSO / OIDC 身份对接：OAuth2 授权码 + PKCE，用户 auto-provisioning，claim→角色自动映射</li>
+          <li><span class="pill ok">已验证</span> 健康探针：liveness（/api/v1/health）与 readiness（/api/v1/ready，检查 store 可用性）</li>
         </ul>
       </div>
       <div class="card">
@@ -300,7 +303,8 @@
       <ul class="clean">
         <li><span class="pill ok">已完成</span> 真实数据源接入：MySQL 8.0 在线注册 + 受限服务账号 + 全链路治理验证</li>
         <li><span class="pill ok">已完成</span> 请求审计日志：谁、何时、何身份、原始/重写 SQL、行数、耗时、渠道</li>
-        <li>边界防护：按身份 / 数据源限流、查询行数上限、超时熔断（→ 第七章 P0-②）</li>
+        <li><span class="pill ok">已完成</span> 边界防护：按身份 / 数据源限流、查询行数上限、超时熔断</li>
+        <li><span class="pill ok">已完成</span> 可观测性：Prometheus 指标、健康探针（liveness / readiness）</li>
         <li>PostgreSQL 端到端验证；数据库原生 RLS 双层加固（弥补嵌套子查询边界）</li>
         <li>可观测性：Prometheus 指标、结构化日志、就绪 / 存活探针</li>
       </ul>
@@ -309,7 +313,8 @@
     <div class="card">
       <h3><span class="p3">阶段 3 · 企业治理</span> <span class="pill todo">规划中</span></h3>
       <ul class="clean">
-        <li>统一身份：SSO / OIDC / LDAP 接入，企业用户与平台角色映射</li>
+        <li><span class="pill ok">已完成</span> 统一身份：SSO / OIDC 接入，OAuth2 授权码流程 + PKCE，用户 auto-provisioning，claim→角色自动映射</li>
+        <li>LDAP 接入，企业用户与平台角色映射</li>
         <li>脱敏算法库：哈希、掩码、Tokenization、格式保留加密（列级精细化）</li>
         <li>权限审批流：授权申请 — 审批 — 生效 — 回收闭环</li>
         <li>数据分类分级：按敏感级别自动推荐默认脱敏策略</li>
@@ -371,7 +376,7 @@
         <tr><td>数据集管理（Data Products）</td><td>在数据源之上固化「查询 → 受治理的数据产品」：发布/下架生命周期、稳定字段契约、按名称供 Agent 消费；治理复用同一套表/行/列引擎（<code>table_name = 数据集名</code>），无需新建权限模型</td><td>已落地</td></tr>
         <tr><td>分级分类标签</td><td>列打 PII/敏感/内部/公开 标签，随语义目录与 MCP 卡片透出，并在 nl2sql 提示词中标注敏感列处理规则，对齐数据安全分级要求</td><td>已落地</td></tr>
         <tr><td>审计升级</td><td>关联 AI 会话 ID（一次对话多条查询串联，已落地）；异常行为告警（高频 denied / 批量导出 / 非工作时段，控制面 <code>security_alerts</code> 落库 + 管理台检索标记 + 可选 Webhook）</td><td>已落地</td></tr>
-        <tr><td>身份体系对接</td><td>SSO / LDAP / OAuth2 统一身份；API Key 到期与轮换机制</td><td>规划</td></tr>
+        <tr><td>身份体系对接</td><td>SSO / OIDC 统一身份（OAuth2 授权码 + PKCE + auto-provisioning + claim→角色映射）；API Key 到期与轮换机制；LDAP 待接</td><td>部分落地</td></tr>
       </table>
 
     <h3><span class="pill p1tag">P1</span> ④ 平台化与生态</h3>
@@ -399,9 +404,9 @@
         <tr><td>表/行/列治理</td><td>基础 ✅</td><td>RLS 加固</td><td>分类分级</td><td>NL 校验</td><td>声明式</td></tr>
         <tr><td>数据源接入</td><td>SQLite ✅</td><td>MySQL ✅ / PG</td><td>信创库</td><td>向量源</td><td>插件源</td></tr>
         <tr><td>协议供给</td><td>REST+MCP ✅</td><td>限流/行数上限</td><td>审批流</td><td>resources/prompts</td><td>SDK/OpenAPI</td></tr>
-        <tr><td>身份体系</td><td>JWT/Key ✅</td><td>审计日志 ✅</td><td>SSO/LDAP</td><td>会话关联审计</td><td>联邦身份</td></tr>
+        <tr><td>身份体系</td><td>JWT/Key ✅</td><td>审计日志 ✅</td><td>SSO/OIDC ✅</td><td>LDAP / 会话关联审计</td><td>联邦身份</td></tr>
         <tr><td>脱敏能力</td><td>列隐藏 ✅</td><td>结果校验</td><td>动态掩码/算法库</td><td>智能推荐</td><td>策略市场</td></tr>
-        <tr><td>高可用</td><td>单实例</td><td>探针/指标</td><td>容灾</td><td>—</td><td>集群</td></tr>
+        <tr><td>高可用 / 可观测性</td><td>单实例</td><td>探针/指标 ✅</td><td>容灾</td><td>—</td><td>集群</td></tr>
       </tbody>
     </table>
   </section>
@@ -462,15 +467,15 @@
       <li><b>已完成（P0-①）：</b>MCP resources + Schema 语义描述，直接提升 Agent 取数体验与 NL2SQL 准确率</li>
       <li><b>已完成（P1-③）：</b>数据分级分类标签（PII / 敏感 / 内部 / 公开）随 Schema 语义卡片与 MCP 目录透出，并在 nl2sql 提示词中标注敏感列处理规则</li>
       <li><b>已完成（楔子策略首役 · 本轮）：</b>审计关联 AI 会话 ID（会话级串联，强化「全程录像」卖点）+ 异常行为告警（高频 denied / 批量导出 / 非工作时段 → 控制面 <code>security_alerts</code> 落库、管理台可检索标记、可选 Webhook）。下一步把 MCP 治理能力整理为开发者叙事（README / 落地页），启动 OSS 采用率验证。</li>
-      <li><b>短期：</b>SSO / OIDC / LDAP 身份对接；PostgreSQL 端到端验证；可观测性（Prometheus 指标、结构化日志、探针）</li>
+      <li><b>已完成（企业门槛 · 本轮）：</b>SSO / OIDC 身份对接——OAuth2 授权码流程 + PKCE，用户 auto-provisioning，claim→角色自动映射；健康探针增强（/api/v1/ready 就绪检查）</li>
+      <li><b>短期：</b>PostgreSQL 端到端验证；可观测性（结构化日志、探针）；LDAP 身份对接</li>
       <li><b>中期：</b>NL2SQL 安全网关 + 语义指标层；脱敏算法库（Tokenization / 格式保留加密）；多租户工作区（企业版前置）</li>
       <li><b>远期：</b>集群化 + 插件市场 + 治理即代码，升级为「AI 数据服务中台」</li>
     </ul>
   </section>
 
   <p class="footnote">
-    Aegis 项目 PRD 蓝图 v0.2 · 更新于 2026-07-24 · 已合并「企业 AI 应用建设场景」必要性论证、功能扩充规划（原 AI-SCENARIO.html 专项文档），并新增「市场定位与竞争策略（2026-07 复盘）」：定位为<strong>自托管、治理默认开启的 AI 数据网关</strong>，以「轻量 + AI 原生」楔子切入，优先 OSS 采用率。
-    当前版本为单二进制 Golang 实现，三级治理 / 审计 / 真实 MySQL 已端到端验证。文档与代码同源维护于本仓库（模块 <code>github.com/wisonwang/aegis</code>）。
+    Aegis 项目 PRD 蓝图 v0.3 · 更新于 2026-07-26 · 已合并「企业 AI 应用建设场景」必要性论证、功能扩充规划（原 AI-SCENARIO.html 专项文档），新增「市场定位与竞争策略（2026-07 复盘）」，并新增 <strong>SSO/OIDC 身份对接</strong> 与<strong>健康探针增强</strong>。当前版本为单二进制 Golang 实现，三级治理 / 审计 / OIDC / 真实 MySQL 已端到端验证。文档与代码同源维护于本仓库（模块 <code>github.com/wisonwang/aegis</code>）。
   </p>
 </div>
 </body>

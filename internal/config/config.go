@@ -17,12 +17,24 @@ type Config struct {
 	DBPath     string    `json:"db_path"`     // SQLite path for the control plane store
 	DataDir    string    `json:"data_dir"`    // directory for demo/seeded database files
 	SeedDemo   bool      `json:"seed_demo"`   // seed demo datasource + users on first run
-	MCP        MCPConfig     `json:"mcp"`
-	Limits     Limits        `json:"limits"`
+	MCP        MCPConfig      `json:"mcp"`
+	Limits     Limits         `json:"limits"`
 	Alerting   AlertingConfig `json:"alerting"`
+	OIDC       OIDCConfig     `json:"oidc"`
 }
 
-// Limits governs AI/agent query behavior: result caps, timeouts and rate
+// OIDCConfig configures OpenID Connect single sign-on. When Enabled, the
+// platform delegates authentication to an external IdP and auto-provisions
+// users on first login.
+type OIDCConfig struct {
+	Enabled       bool              `json:"enabled"`        // enable OIDC login flow
+	Issuer        string            `json:"issuer"`         // IdP issuer URL, e.g. "https://accounts.google.com"
+	ClientID      string            `json:"client_id"`      // OAuth2 client id
+	ClientSecret  string            `json:"client_secret"`  // OAuth2 client secret
+	RedirectURL   string            `json:"redirect_url"`   // callback URL registered with the IdP, e.g. "http://localhost:8080/api/v1/auth/oidc/callback"
+	Scopes        []string          `json:"scopes"`         // additional scopes beyond openid,profile,email
+	ClaimMappings map[string]string `json:"claim_mappings"` // map OIDC claim values to platform roles, e.g. {"admins":"admin","analysts":"analyst"}
+}
 // limiting. Zero values fall back to platform defaults; admin can be exempted.
 type Limits struct {
 	MaxRows         int    `json:"max_rows"`          // max result rows per query (0 = default 1000)
@@ -111,6 +123,9 @@ func Default() *Config {
 			OffHoursEnd:   6,
 			Cooldown:      300,
 		},
+		OIDC: OIDCConfig{
+			Scopes: []string{"profile", "email"},
+		},
 	}
 }
 
@@ -189,5 +204,21 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("AEGIS_ALERT_WEBHOOK"); v != "" {
 		cfg.Alerting.Webhook = v
+	}
+	// OIDC environment overrides
+	if v := os.Getenv("AEGIS_OIDC_ENABLED"); v != "" {
+		cfg.OIDC.Enabled = v == "true" || v == "1"
+	}
+	if v := os.Getenv("AEGIS_OIDC_ISSUER"); v != "" {
+		cfg.OIDC.Issuer = v
+	}
+	if v := os.Getenv("AEGIS_OIDC_CLIENT_ID"); v != "" {
+		cfg.OIDC.ClientID = v
+	}
+	if v := os.Getenv("AEGIS_OIDC_CLIENT_SECRET"); v != "" {
+		cfg.OIDC.ClientSecret = v
+	}
+	if v := os.Getenv("AEGIS_OIDC_REDIRECT_URL"); v != "" {
+		cfg.OIDC.RedirectURL = v
 	}
 }

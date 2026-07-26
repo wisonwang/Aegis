@@ -14,13 +14,14 @@ import (
 // Models ---------------------------------------------------------------------
 
 type User struct {
-	ID          string    `json:"id"`
-	Username    string    `json:"username"`
-	DisplayName string    `json:"display_name"`
-	PasswordHash string   `json:"-"`
-	Status      string    `json:"status"` // active | disabled
-	Attributes  string    `json:"attributes"` // JSON object, e.g. {"tenant":"acme"}
-	CreatedAt   time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	Username     string    `json:"username"`
+	DisplayName  string    `json:"display_name"`
+	PasswordHash string    `json:"-"`
+	ExternalID   string    `json:"external_id"` // OIDC subject / SSO identity
+	Status       string    `json:"status"`      // active | disabled
+	Attributes   string    `json:"attributes"`  // JSON object, e.g. {"tenant":"acme"}
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type Role struct {
@@ -119,8 +120,8 @@ func (s *Store) migrate() error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS users (
 			id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL,
-			display_name TEXT, password_hash TEXT, status TEXT,
-			attributes TEXT, created_at DATETIME)`,
+			display_name TEXT, password_hash TEXT, external_id TEXT UNIQUE,
+			status TEXT, attributes TEXT, created_at DATETIME)`,
 		`CREATE TABLE IF NOT EXISTS roles (
 			id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, description TEXT)`,
 		`CREATE TABLE IF NOT EXISTS user_roles (
@@ -174,7 +175,11 @@ func (s *Store) migrate() error {
 	// already present, which we safely ignore.
 	if _, err := s.db.Exec(`ALTER TABLE audit_logs ADD COLUMN session_id TEXT`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column") {
-			// Non-fatal: a different open failure should not block startup.
+			_ = err
+		}
+	}
+	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN external_id TEXT UNIQUE`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
 			_ = err
 		}
 	}
@@ -199,18 +204,36 @@ func (s *Store) CreateUser(u *User) error {
 		u.CreatedAt = time.Now()
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO users (id,username,display_name,password_hash,status,attributes,created_at)
-		 VALUES (?,?,?,?,?,?,?)`,
-		u.ID, u.Username, u.DisplayName, u.PasswordHash, u.Status, u.Attributes, u.CreatedAt)
+		`INSERT INTO users (id,username,display_name,password_hash,external_id,status,attributes,created_at)
+		 VALUES (?,?,?,?,?,?,?,?)`,
+		u.ID, u.Username, u.DisplayName, u.PasswordHash, u.ExternalID, u.Status, u.Attributes, u.CreatedAt)
 	return err
 }
 
 func (s *Store) GetUserByUsername(username string) (*User, error) {
 	u := &User{}
 	err := s.db.QueryRow(
-		`SELECT id,username,display_name,password_hash,status,attributes,created_at
+		`SELECT id,username,display_name,password_hash,external_id,status,attributes,created_at
 		 FROM users WHERE username=?`, username).
-		Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.Status, &u.Attributes, &u.CreatedAt)
+		Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.ExternalID, &u.Status, &u.Attributes, &u.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+func (s *Store) GetUserByExternalID(externalID string) (*User, error) {
+	if externalID == "" {
+		return nil, nil
+	}
+	u := &User{}
+	err := s.db.QueryRow(
+		`SELECT id,username,display_name,password_hash,external_id,status,attributes,created_at
+		 FROM users WHERE external_id=?`, externalID).
+		Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.ExternalID, &u.Status, &u.Attributes, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -223,9 +246,9 @@ func (s *Store) GetUserByUsername(username string) (*User, error) {
 func (s *Store) GetUser(id string) (*User, error) {
 	u := &User{}
 	err := s.db.QueryRow(
-		`SELECT id,username,display_name,password_hash,status,attributes,created_at
+		`SELECT id,username,display_name,password_hash,external_id,status,attributes,created_at
 		 FROM users WHERE id=?`, id).
-		Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.Status, &u.Attributes, &u.CreatedAt)
+		Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.ExternalID, &u.Status, &u.Attributes, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -237,7 +260,7 @@ func (s *Store) GetUser(id string) (*User, error) {
 
 func (s *Store) ListUsers() ([]*User, error) {
 	rows, err := s.db.Query(
-		`SELECT id,username,display_name,password_hash,status,attributes,created_at
+		`SELECT id,username,display_name,password_hash,external_id,status,attributes,created_at
 		 FROM users ORDER BY username`)
 	if err != nil {
 		return nil, err
@@ -246,7 +269,7 @@ func (s *Store) ListUsers() ([]*User, error) {
 	var out []*User
 	for rows.Next() {
 		u := &User{}
-		if err := rows.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.Status, &u.Attributes, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.ExternalID, &u.Status, &u.Attributes, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
