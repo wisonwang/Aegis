@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Aegis 项目 PRD 蓝图 v0.7</title>
+<title>Aegis 项目 PRD 蓝图 v0.8</title>
 <style>
   :root{
     --blue:#185FA5; --teal:#0F6E56; --purple:#534AB7; --amber:#854F0B; --green:#3B6D11; --coral:#993C1D;
@@ -320,9 +320,9 @@
         <li><span class="pill ok">已完成</span> 统一身份：SSO / OIDC 接入，OAuth2 授权码流程 + PKCE，用户 auto-provisioning，claim→角色自动映射</li>
         <li><span class="pill ok">已完成</span> LDAP / Active Directory 接入：基于密码的目录单点登录，三步绑定（服务账号检索 → 解析用户 DN → 用户 DN 绑定校验），组（group）→ 角色自动映射，用户 auto-provisioning；<code>Directory</code> 接口抽象使逻辑可无服务单测</li>
         <li><span class="pill ok">已完成</span> 脱敏算法库：哈希（hash）、掩码（phone/email/card/partial/redact）、<b>Tokenization</b>（确定性 HMAC 假名，脱敏后仍可关联/聚合）与 <b>格式保留加密 FPE</b>（对卡号/证件号等纯数字 PII 保长保型，密钥可经 <code>FpeDecrypt</code> 还原）；密钥经 <code>AEGIS_MASK_SECRET</code> 注入，未配置时回退开发默认值并告警</li>
-        <li>权限审批流：授权申请 — 审批 — 生效 — 回收闭环</li>
-        <li>数据分类分级：按敏感级别自动推荐默认脱敏策略</li>
-        <li>多租户隔离：组织 / 项目维度的工作区与配额</li>
+      <li>权限审批流：授权申请 — 审批 — 生效 — 回收闭环</li>
+      <li><span class="pill ok">已完成</span> 数据分类分级自动推荐默认脱敏：基于列分类（level + 标签 + 列名）自动推导默认脱敏策略（phone/email/card/fpe/partial/tokenize），并提供 <code>POST /admin/api/datasources/{id}/masks/recommend</code> 一键预览 / 落地（按指定角色或全量非 admin 角色）；全新安装自动为 analyst 角色套用推荐脱敏，列治理开箱可见</li>
+      <li>多租户隔离：组织 / 项目维度的工作区与配额</li>
       </ul>
     </div>
 
@@ -379,6 +379,7 @@
         <tr><td>动态脱敏</td><td>掩码显示（<code>138****0001</code>、邮箱域保留）替代整列剔除，兼顾可用性与安全；新增 <b>Tokenization</b>（确定性 HMAC 假名，可跨表关联分析）与 <b>格式保留加密 FPE</b>（卡号/证件号等纯数字 PII 保长保型，密钥可还原）</td><td>已落地</td></tr>
         <tr><td>数据集管理（Data Products）</td><td>在数据源之上固化「查询 → 受治理的数据产品」：发布/下架生命周期、稳定字段契约、按名称供 Agent 消费；治理复用同一套表/行/列引擎（<code>table_name = 数据集名</code>），无需新建权限模型</td><td>已落地</td></tr>
         <tr><td>分级分类标签</td><td>列打 PII/敏感/内部/公开 标签，随语义目录与 MCP 卡片透出，并在 nl2sql 提示词中标注敏感列处理规则，对齐数据安全分级要求</td><td>已落地</td></tr>
+        <tr><td>脱敏策略自动推荐</td><td>基于列分类（level + 标签 + 列名）推荐默认脱敏策略（phone/email/card/fpe/partial/tokenize），<code>POST .../masks/recommend</code> 一键预览并落地到角色，降低逐列手工配置成本；全新安装自动为 analyst 套用</td><td>已落地</td></tr>
         <tr><td>审计升级</td><td>关联 AI 会话 ID（一次对话多条查询串联，已落地）；异常行为告警（高频 denied / 批量导出 / 非工作时段，控制面 <code>security_alerts</code> 落库 + 管理台检索标记 + 可选 Webhook）</td><td>已落地</td></tr>
         <tr><td>身份体系对接</td><td>SSO / OIDC 统一身份（OAuth2 授权码 + PKCE + auto-provisioning + claim→角色映射）；LDAP / AD 基于密码目录单点登录（三步绑定 + 组→角色映射 + auto-provisioning）；API Key 到期与轮换机制</td><td>已落地</td></tr>
       </table>
@@ -405,7 +406,7 @@
         <tr><th>能力域</th><th><span class="phase p1">阶段1</span></th><th><span class="phase p2">阶段2</span></th><th><span class="phase p3">阶段3</span></th><th><span class="phase p4">阶段4</span></th><th><span class="phase p5">阶段5</span></th></tr>
       </thead>
       <tbody>
-        <tr><td>表/行/列治理</td><td>基础 ✅</td><td>RLS 加固 ✅</td><td>分类分级</td><td>NL 校验</td><td>声明式</td></tr>
+        <tr><td>表/行/列治理</td><td>基础 ✅</td><td>RLS 加固 ✅</td><td>分类分级 ✅</td><td>NL 校验</td><td>声明式</td></tr>
         <tr><td>数据源接入</td><td>SQLite ✅</td><td>MySQL ✅ / PG</td><td>信创库</td><td>向量源</td><td>插件源</td></tr>
         <tr><td>协议供给</td><td>REST+MCP ✅</td><td>限流/行数上限</td><td>审批流</td><td>resources/prompts</td><td>SDK/OpenAPI</td></tr>
         <tr><td>身份体系</td><td>JWT/Key ✅</td><td>审计日志 ✅</td><td>SSO/OIDC ✅</td><td>LDAP / 会话关联审计</td><td>联邦身份</td></tr>
@@ -480,7 +481,7 @@
   </section>
 
   <p class="footnote">
-    Aegis 项目 PRD 蓝图 v0.7 · 更新于 2026-07-27 · 已合并「企业 AI 应用建设场景」必要性论证、功能扩充规划（原 AI-SCENARIO.html 专项文档），新增「市场定位与竞争策略（2026-07 复盘）」、<strong>SSO/OIDC 身份对接</strong>、<strong>健康探针增强</strong>、<strong>结构化日志（标准库 log/slog，JSON/文本，含访问日志与治理决策事件）</strong>、<strong>脱敏算法库（Tokenization 确定性假名 + 格式保留加密 FPE）</strong>，以及本轮 <strong>LDAP / Active Directory 身份对接</strong>（基于密码的目录单点登录，三步绑定校验 + 组→角色自动映射 + auto-provisioning，与 OIDC 共用同一外部身份供给链路）。密钥经 <code>AEGIS_MASK_SECRET</code> 注入。当前版本为单二进制 Golang 实现，三级治理 / 审计 / OIDC / LDAP / 真实 MySQL 已端到端验证。文档与代码同源维护于本仓库（模块 <code>github.com/wisonwang/aegis</code>）。
+    Aegis 项目 PRD 蓝图 v0.8 · 更新于 2026-07-27 · 已合并「企业 AI 应用建设场景」必要性论证、功能扩充规划（原 AI-SCENARIO.html 专项文档），新增「市场定位与竞争策略（2026-07 复盘）」、<strong>SSO/OIDC 身份对接</strong>、<strong>健康探针增强</strong>、<strong>结构化日志（标准库 log/slog，JSON/文本，含访问日志与治理决策事件）</strong>、<strong>脱敏算法库（Tokenization 确定性假名 + 格式保留加密 FPE）</strong>、<strong>LDAP / Active Directory 身份对接</strong>，以及本轮 <strong>数据分类分级自动推荐默认脱敏</strong>（基于列分类 level + 标签 + 列名推导默认脱敏策略，提供 <code>POST .../masks/recommend</code> 一键预览 / 落地，全新安装自动为 analyst 套用）。另含阶段2 <strong>RLS 双层加固</strong>（行策略递归注入任意深度嵌套子查询）。密钥经 <code>AEGIS_MASK_SECRET</code> 注入。当前版本为单二进制 Golang 实现，三级治理 / 审计 / OIDC / LDAP / 真实 MySQL / PostgreSQL 已端到端验证。文档与代码同源维护于本仓库（模块 <code>github.com/wisonwang/aegis</code>）。
   </p>
 </div>
 </body>

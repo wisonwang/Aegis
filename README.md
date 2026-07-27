@@ -249,6 +249,7 @@ curl -s localhost:8080/api/v1/datasets/<dataset-id>/query -H "Authorization: Bea
 GET  /admin/api/datasources/{id}/masks
 POST /admin/api/datasources/{id}/masks   {role, table, column, strategy, keep?}
 DELETE /admin/api/datasources/{id}/masks/{mask}
+POST /admin/api/datasources/{id}/masks/recommend   {role?, table?, apply_to_all_roles?, apply?}  # 按分类推荐脱敏，apply=true 落地
 -->
 
 ### 数据分级分类（Data Classification）
@@ -263,6 +264,38 @@ DELETE /admin/api/datasources/{id}/masks/{mask}
 
 - MCP `get_catalog` / `resources/read` 的语义卡片会标注 `[class: <level>] [tags: ...]`；
 - `nl2sql` 提示词据此注入敏感列处理规则（优先聚合而非逐条列举个人记录、不回显原始 PII 值、保留平台已施加的掩码）。
+
+### 脱敏策略自动推荐（Auto-Recommend）
+
+配置逐列脱敏很繁琐。**自动推荐**把「分类一次」变成「掩码自动就位」：基于列的分类（`level` + `tags` + 列名）推导默认脱敏策略，无需手工逐列指定。
+
+推荐优先级（精确标签 > 级别 + 列名启发 > 级别兜底）：
+
+| 输入 | 推荐策略 |
+| --- | --- |
+| 标签 `pii:phone` / `pii:mobile` | `phone` |
+| 标签 `pii:email` | `email` |
+| 标签 `pii:card` / `pii:bank` / `pii:account` | `card` |
+| 标签 `pii:idcard` / `pii:ssn` | `fpe` |
+| 标签 `pii:name` | `partial`（`keep=1`） |
+| 级别 `pii`/`restricted` + 列名含 phone/email/card/idcard/name | 对应策略（证件号 → `fpe`） |
+| 级别 `pii`/`restricted` 且无更精确特征 | `tokenize`（确定性假名，可关联） |
+| 级别 `confidential` 或标签含 `financial`/`money` | `partial`（`keep=2`，保留量级） |
+| 级别 `public`/`internal` | 无需脱敏 |
+
+管理端点（仅管理员）：
+
+```http
+# 预览：返回每个分类列的推荐策略，不落库
+POST /admin/api/datasources/{id}/masks/recommend
+{}
+
+# 落地：为指定角色应用推荐脱敏（也可 apply_to_all_roles 应用到全部非 admin 角色）
+POST /admin/api/datasources/{id}/masks/recommend
+{"apply": true, "role": "analyst"}
+```
+
+`admin` 角色绕过掩码，因此落地默认排除 `admin`。全新安装会自动为 `analyst` 角色套用演示数据的推荐脱敏，列治理开箱可见。
 
 > 分级分类通过后台 API 维护（仅 admin）：`GET/POST /admin/api/datasources/{id}/classifications`、`DELETE .../classifications/{cls}`。演示数据源已内置示例：`customers.name/phone/email = pii`、`orders.amount = confidential`。
 

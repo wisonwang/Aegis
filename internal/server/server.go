@@ -198,6 +198,7 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 	mux.HandleFunc("GET /admin/api/datasources/{id}/masks", a(h.AdminListMasks))
 	mux.HandleFunc("POST /admin/api/datasources/{id}/masks", a(h.AdminUpsertMask))
 	mux.HandleFunc("DELETE /admin/api/datasources/{id}/masks/{mask}", a(h.AdminDeleteMask))
+	mux.HandleFunc("POST /admin/api/datasources/{id}/masks/recommend", a(h.AdminRecommendMasks))
 
 	// ---- Data classification (PII / sensitivity tags) ----
 	mux.HandleFunc("GET /admin/api/datasources/{id}/classifications", a(h.AdminListClassifications))

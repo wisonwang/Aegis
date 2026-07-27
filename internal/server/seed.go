@@ -9,6 +9,7 @@ import (
 
 	"github.com/wisonwang/aegis/internal/auth"
 	"github.com/wisonwang/aegis/internal/config"
+	"github.com/wisonwang/aegis/internal/proxy"
 	"github.com/wisonwang/aegis/internal/store"
 	_ "modernc.org/sqlite"
 )
@@ -95,6 +96,12 @@ func seedIfEmpty(st *store.Store, cfg *config.Config) error {
 	// columns demand care (a metadata layer, independent of per-role masks).
 	seedClassifications(st, dsID)
 
+	// Auto-apply the recommended masking rules for the analyst role so a fresh
+	// install already demonstrates column-level governance end-to-end. admin
+	// bypasses masks, so we target the least-privilege analyst role. Any rule
+	// already set manually above (phone/email) is a no-op upsert.
+	seedRecommendedMasks(st, dsID, analyst.ID)
+
 	// Dataset management demo: a curated, governed "paid orders" data product
 	// over the demo source. The analyst may consume it; a row policy scopes it
 	// to the caller's tenant, mirroring how a platform team would publish a
@@ -163,6 +170,33 @@ func seedClassifications(st *store.Store, dsID string) {
 	up("orders", "amount", "confidential", []string{"financial", "money"})
 	// The published dataset inherits the same sensitivity for its amount column.
 	up("paid_orders", "amount", "confidential", []string{"financial", "money"})
+}
+
+// seedRecommendedMasks turns the demo classifications into concrete masking
+// rules for the given role, demonstrating the "classify once, mask automatically"
+// workflow. It is idempotent against rules set manually elsewhere. Only runs on
+// a fresh seed, so existing control planes are never mutated.
+func seedRecommendedMasks(st *store.Store, dsID, roleID string) {
+	if roleID == "" {
+		return
+	}
+	cls, err := st.ListClassifications(dsID, "")
+	if err != nil {
+		return
+	}
+	for _, c := range cls {
+		if c.ColumnName == "" {
+			continue
+		}
+		strategy, keep, _, ok := proxy.RecommendMask(*c)
+		if !ok {
+			continue
+		}
+		_ = st.UpsertColumnMask(&store.ColumnMask{
+			RoleID: roleID, DataSourceID: dsID, TableName: c.TableName,
+			ColumnName: c.ColumnName, Strategy: strategy, Keep: keep,
+		})
+	}
 }
 
 // seedSemantics attaches business descriptions, synonyms and examples to the
