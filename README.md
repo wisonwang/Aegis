@@ -214,6 +214,38 @@ curl -s -X POST localhost:8080/mcp -H "Authorization: Bearer <token>" \
 
 ---
 
+## 语义指标层（Curated Metrics）
+
+把常用的业务指标（如「各地区客户数」「月度 GMV」）预定义为**受治理的模板**，让 Agent 用 `run_metric("monthly_revenue")` 而非每次手写 SQL。指标只放宽「怎么问」，治理从不绕过。
+
+- 指标由管理员在后台或 `POST /admin/api/datasources/{id}/metrics` 定义：`sql_template` 中用 `:param` 占位，并声明每个参数的类型（`string`/`number`/`date`/`bool`/`enum`）、是否必填、枚举值。
+- 运行阶段：调用方传入的参数被**类型校验 + 枚举白名单 + 单引号转义**后，安全地渲染进 SQL 模板（注入-proof），再原样送回 `Proxy.Execute` —— 表/行/列治理、脱敏、行为限流、审计全部生效。
+- **血缘（Lineage）**：每次运行都返回该指标涉及哪些表、哪些敏感列、最高敏感度（public/internal/confidential/restricted/pii）和是否含 PII，帮助 Agent 对敏感结果谨慎处理、不回显原始 PII。
+
+### DataAPI 调用
+
+```bash
+# 列出某数据源的可用指标
+curl -s localhost:8080/api/v1/datasources/demo/metrics -H "Authorization: Bearer <token>"
+
+# 运行指标（参数通过 params 传入；返回治理后的结果与血缘）
+curl -s -X POST localhost:8080/api/v1/datasources/demo/metrics/customer_count/run \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"params":{}}'
+# 返回 { sql, lineage:{tables,columns,max_sensitivity,has_pii}, query_result(已脱敏), session_id }
+```
+
+### MCP 工具 `list_metrics` / `run_metric`
+
+```bash
+curl -s -X POST localhost:8080/mcp -H "Authorization: Bearer <token>" \
+  -d '{"jsonrpc":"2.0","id":8,"method":"tools/call",
+       "params":{"name":"run_metric",
+                 "arguments":{"datasource":"demo","metric":"customer_count","params":{}}}}'
+```
+
+---
+
 ## 数据集管理（Data Products）
 
 在「数据库连接（数据源）」之上，Aegis 提供**数据集（Dataset）**这一受治理的「数据产品」层：把一条查询固化成稳定的、可发布的、带契约的数据集，供 AI Agent 按名称消费，而无需接触底层物理表。

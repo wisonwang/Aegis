@@ -160,6 +160,8 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 	mux.HandleFunc("GET /api/v1/datasources/{id}/tables", api.Authenticate(cfg, h.ListTables))
 	mux.HandleFunc("GET /api/v1/datasources/{id}/tables/{table}", api.Authenticate(cfg, h.DescribeTable))
 	mux.HandleFunc("GET /api/v1/datasources/{id}/catalog", api.Authenticate(cfg, h.Catalog))
+	mux.HandleFunc("GET /api/v1/datasources/{id}/metrics", api.Authenticate(cfg, h.ListMetrics))
+	mux.HandleFunc("POST /api/v1/datasources/{id}/metrics/{name}/run", api.Authenticate(cfg, h.RunMetric))
 	mux.HandleFunc("POST /api/v1/datasources/{id}/nl2sql", api.Authenticate(cfg, h.NL2SQL))
 
 	// ---- Datasets (agent-facing consumption) ----
@@ -215,6 +217,11 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 	mux.HandleFunc("GET /admin/api/datasources/{id}/semantics", a(h.AdminListSemantics))
 	mux.HandleFunc("POST /admin/api/datasources/{id}/semantics", a(h.AdminUpsertSemantic))
 	mux.HandleFunc("DELETE /admin/api/datasources/{id}/semantics/{sem}", a(h.AdminDeleteSemantic))
+
+	// ---- Curated metrics (semantic metric layer) ----
+	mux.HandleFunc("GET /admin/api/datasources/{id}/metrics", a(h.AdminListMetrics))
+	mux.HandleFunc("POST /admin/api/datasources/{id}/metrics", a(h.AdminUpsertMetric))
+	mux.HandleFunc("DELETE /admin/api/datasources/{id}/metrics/{mid}", a(h.AdminDeleteMetric))
 
 	// ---- Column masks (dynamic masking / PII supply) ----
 	mux.HandleFunc("GET /admin/api/datasources/{id}/masks", a(h.AdminListMasks))

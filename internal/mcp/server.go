@@ -301,6 +301,52 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 			return nil, err
 		}
 		payload = schema
+	case "list_metrics":
+		dsName, _ := args["datasource"].(string)
+		dsID, err := resolveDatasource(s.store, dsName)
+		if err != nil {
+			return nil, err
+		}
+		metrics, err := s.store.ListMetrics(dsID)
+		if err != nil {
+			return nil, err
+		}
+		payload = map[string]interface{}{"metrics": metrics}
+	case "run_metric":
+		dsName, _ := args["datasource"].(string)
+		metricName, _ := args["metric"].(string)
+		if metricName == "" {
+			return nil, fmt.Errorf("metric is required")
+		}
+		dsID, err := resolveDatasource(s.store, dsName)
+		if err != nil {
+			return nil, err
+		}
+		// Normalize params (JSON numbers arrive as float64; strings as string).
+		params := map[string]interface{}{}
+		if raw, ok := args["params"].(map[string]interface{}); ok {
+			params = raw
+		}
+		// Link every query an agent issues in one conversation (same as query/nl2sql).
+		sessionID, _ := args["session_id"].(string)
+		if sessionID == "" {
+			if h := r.Header.Get("Mcp-Session-Id"); h != "" {
+				sessionID = h
+			} else {
+				sessionID = uuid.NewString()
+			}
+		}
+		ctx := proxy.WithSession(proxy.WithChannel(r.Context(), "mcp"), sessionID)
+		res, err := s.proxy.ResolveMetric(ctx, dsID, claims, metricName, params)
+		if err != nil {
+			return nil, err
+		}
+		payload = map[string]interface{}{
+			"session_id":  sessionID,
+			"sql":         res.SQL,
+			"lineage":     res.Lineage,
+			"queryResult": res.QueryResult,
+		}
 	case "list_datasets":
 		datasets, err := s.proxy.ListDatasets(r.Context(), claims)
 		if err != nil {
@@ -496,7 +542,32 @@ func toolsList() []map[string]interface{} {
 					"sql_hint":   map[string]interface{}{"type": "string", "description": "optional hand-written SQL to prefer over free generation"},
 					"session_id": map[string]interface{}{"type": "string", "description": "optional id linking queries from one AI conversation; echoed back for threading"},
 				},
-				"required": []string{"datasource", "question"},
+			"required": []string{"datasource", "question"},
+		},
+		},
+		{
+			"name":        "list_metrics",
+			"description": "List the curated, governed metrics defined on a data source (e.g. monthly_revenue). Each metric carries its parameters, unit and business description. Prefer metrics over hand-written SQL when one fits the question; metrics still run through the full governance path.",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"datasource": map[string]interface{}{"type": "string", "description": "data source id or name"},
+				},
+				"required": []string{"datasource"},
+			},
+		},
+		{
+			"name":        "run_metric",
+			"description": "Run a curated metric with parameters. The metric SQL template is rendered with SQL-safe literals from params and executed through the governed path, so table/row/column governance, masking and audit all still apply. The result includes lineage (tables/PII touched) so you can handle sensitive output with care.",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"datasource": map[string]interface{}{"type": "string", "description": "data source id or name"},
+					"metric":     map[string]interface{}{"type": "string", "description": "metric name"},
+					"params":     map[string]interface{}{"type": "object", "description": "parameter name -> value, matching the metric's declared params"},
+					"session_id": map[string]interface{}{"type": "string", "description": "optional id linking queries from one AI conversation; echoed back for threading"},
+				},
+				"required": []string{"datasource", "metric"},
 			},
 		},
 	}

@@ -270,6 +270,68 @@ func (h *Handler) Catalog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, schema)
 }
 
+// metricRunRequest is the body for running a curated metric.
+type metricRunRequest struct {
+	Params    map[string]interface{} `json:"params"`     // parameter name -> value
+	SessionID string                 `json:"session_id"` // optional; links queries from one AI conversation
+}
+
+// ListMetrics returns the curated metric definitions registered on a
+// datasource. Any authenticated principal may list them; executing a metric is
+// still subject to table/row/column governance like any other query.
+func (h *Handler) ListMetrics(w http.ResponseWriter, r *http.Request) {
+	dsID, err := h.resolveDS(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "datasource not found")
+		return
+	}
+	metrics, err := h.Store.ListMetrics(dsID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"metrics": metrics})
+}
+
+// RunMetric resolves a curated metric with caller-supplied parameters and
+// returns the governed result plus lineage. The metric's SQL template is
+// rendered with SQL-safe literals and executed through the same governed path
+// as Query/NL2SQL, so governance and audit all still apply.
+func (h *Handler) RunMetric(w http.ResponseWriter, r *http.Request) {
+	dsID, err := h.resolveDS(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "datasource not found")
+		return
+	}
+	metricName := r.PathValue("name")
+	if metricName == "" {
+		writeError(w, http.StatusBadRequest, "metric name is required")
+		return
+	}
+	var req metricRunRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	c := claimsFromContext(r.Context())
+	sessionID := req.SessionID
+	if sessionID == "" {
+		sessionID = uuid.NewString()
+	}
+	ctx := proxy.WithSession(proxy.WithChannel(r.Context(), "dataapi"), sessionID)
+	res, err := h.Proxy.ResolveMetric(ctx, dsID, c, metricName, req.Params)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"sql":           res.SQL,
+		"lineage":      res.Lineage,
+		"query_result": res.QueryResult,
+		"session_id":   sessionID,
+	})
+}
+
 // resolveDS resolves a datasource id or name to its id.
 func (h *Handler) resolveDS(idOrName string) (string, error) {
 	if idOrName == "" {

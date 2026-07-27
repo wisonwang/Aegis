@@ -34,6 +34,7 @@
       <button class="tab" data-tab="alerts">安全告警</button>
       <button class="tab" data-tab="approvals">审批流</button>
       <button class="tab" data-tab="nl2sql">NL2SQL</button>
+      <button class="tab" data-tab="metrics">指标</button>
     </nav>
 
     <section id="tab-query" class="panel active">
@@ -193,6 +194,22 @@
       </div>
       <div id="nlGen" class="result"></div>
       <div id="nlResult" class="result"></div>
+    </section>
+
+    <section id="tab-metrics" class="panel">
+      <h3>语义指标层</h3>
+      <p class="hint">由管理员预定义的受治理业务指标（如「各地区客户数」）。运行指标时，参数被安全地渲染进 SQL 模板，并经由<strong>同一套受治理执行链路</strong>运行，同时返回<strong>血缘</strong>（涉及哪些表 / 是否含 PII）。</p>
+      <div class="row">
+        <select id="mtDs"></select>
+        <select id="mtName"></select>
+        <button id="mtLoad">加载指标</button>
+      </div>
+      <div id="mtParams" class="params"></div>
+      <div class="row">
+        <button id="mtRun">运行指标</button>
+      </div>
+      <div id="mtLineage" class="result"></div>
+      <div id="mtResult" class="result"></div>
     </section>
   </main>
 

@@ -172,6 +172,12 @@ func (s *Store) migrate() error {
 			created_at DATETIME, resolved_at DATETIME)`,
 		`CREATE INDEX IF NOT EXISTS idx_approval_status ON approval_requests(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_approval_applicant ON approval_requests(applicant_id)`,
+		`CREATE TABLE IF NOT EXISTS metric_definitions (
+			id TEXT PRIMARY KEY, datasource_id TEXT NOT NULL,
+			name TEXT NOT NULL, description TEXT, sql_template TEXT,
+			params TEXT, unit TEXT, created_at DATETIME, updated_at DATETIME)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_metrics_key
+			ON metric_definitions(datasource_id, name)`,
 	}
 	for _, st := range stmts {
 		if _, err := s.db.Exec(st); err != nil {

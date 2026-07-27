@@ -490,4 +490,80 @@ document.getElementById('nlRun').addEventListener('click', async () => {
 
 document.querySelector('[data-tab="nl2sql"]').addEventListener('click', loadNLDs);
 
+// ---- Semantic metric layer ----
+function loadMTDs() { loadDataSources('#mtDs'); loadMTMetrics(); }
+let mtMetrics = [];
+
+async function loadMTMetrics() {
+  const id = document.getElementById('mtDs').value;
+  const sel = document.getElementById('mtName');
+  sel.innerHTML = '<option value="">（选择指标）</option>';
+  if (!id) return;
+  try {
+    const data = await api('/api/v1/datasources/' + id + '/metrics');
+    mtMetrics = data.metrics || [];
+    for (const m of mtMetrics) {
+      const o = document.createElement('option');
+      o.value = m.name;
+      o.textContent = m.name + (m.description ? ' — ' + m.description : '') + (m.unit ? ' (' + m.unit + ')' : '');
+      sel.appendChild(o);
+    }
+  } catch (e) { sel.innerHTML = '<option value="">加载失败: ' + esc(e.message) + '</option>'; }
+}
+
+document.getElementById('mtLoad').addEventListener('click', loadMTMetrics);
+
+document.getElementById('mtName').addEventListener('change', () => {
+  const box = document.getElementById('mtParams');
+  const name = document.getElementById('mtName').value;
+  const m = mtMetrics.find(x => x.name === name);
+  if (!m) { box.innerHTML = ''; return; }
+  let html = '<div class="hint">参数：</div>';
+  for (const p of (m.params || [])) {
+    const req = p.required ? ' <span class="badge error">必填</span>' : '';
+    const en = (p.enum && p.enum.length) ? ' placeholder="' + p.enum.join('|') + '"' : '';
+    html += '<label>' + esc(p.name) + ' <small>' + esc(p.type) + '</small>' + req +
+      (p.description ? ' · ' + esc(p.description) : '') +
+      '<input data-param="' + esc(p.name) + '"' + en + '></label>';
+  }
+  box.innerHTML = html || '<div class="hint">该指标无参数</div>';
+});
+
+document.getElementById('mtRun').addEventListener('click', async () => {
+  const id = document.getElementById('mtDs').value;
+  const name = document.getElementById('mtName').value;
+  const linBox = document.getElementById('mtLineage');
+  const resBox = document.getElementById('mtResult');
+  if (!name) { resBox.innerHTML = '<div class="error">请先选择指标</div>'; return; }
+  const params = {};
+  document.querySelectorAll('#mtParams [data-param]').forEach(inp => {
+    const v = inp.value.trim();
+    if (v === '') return;
+    const p = (mtMetrics.find(x => x.name === name).params || []).find(q => q.name === inp.dataset.param);
+    params[inp.dataset.param] = p && p.type === 'number' ? Number(v) : v;
+  });
+  linBox.innerHTML = '运行中...'; resBox.innerHTML = '';
+  try {
+    const data = await api('/api/v1/datasources/' + id + '/metrics/' + encodeURIComponent(name) + '/run', {
+      method: 'POST',
+      body: JSON.stringify({ params }),
+    });
+    let html = '<div>执行 SQL: <code>' + esc(data.sql) + '</code></div>';
+    if (data.lineage) {
+      const l = data.lineage;
+      html += '<div class="hint">血缘：表 [' + (l.tables || []).map(esc).join(', ') + '] · 敏感度 <b>' + esc(l.max_sensitivity || 'public') + '</b>' +
+        (l.has_pii ? ' · <span class="badge error">含 PII</span>' : '') +
+        (l.columns && l.columns.length ? ' · 敏感列: ' + l.columns.map(esc).join(', ') : '') + '</div>';
+    }
+    if (data.query_result && data.query_result.rows) {
+      html += renderRows(data.query_result.columns, data.query_result.rows);
+    } else if (data.query_result) {
+      html += '<div>影响行数: ' + (data.query_result.affected_rows || 0) + '</div>';
+    }
+    linBox.innerHTML = html;
+  } catch (e) { linBox.innerHTML = '<div class="error">' + esc(e.message) + '</div>'; }
+});
+
+document.querySelector('[data-tab="metrics"]').addEventListener('click', loadMTDs);
+
 boot();
