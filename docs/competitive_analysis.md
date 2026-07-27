@@ -21,128 +21,20 @@ NL2SQL 模板）。 据 Bytebase（治理厂商）2026 年复盘：DB MCP
 
 ## 二、能力对比矩阵
 
-<table>
-<colgroup>
-<col />
-<col />
-<col />
-<col />
-<col />
-<col />
-</colgroup>
-<thead>
-<tr>
-<th>能力维度</th>
-<th>Aegis</th>
-<th>数据库 MCP Server<br />
-Google Toolbox / DBHub</th>
-<th>数据访问代理/治理<br />
-Satori / Cyral</th>
-<th>即时 API<br />
-Hasura / PostgREST</th>
-<th>NL2SQL / 语义层<br />
-Wren / Vanna / DB-GPT</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<th>后端凭证隔离（AI 不接触 DB 密码）</th>
-<td>✓代理持有连接池</td>
-<td>✓服务账号 / DSN</td>
-<td>✓</td>
-<td>△多依赖 DB 角色/直连</td>
-<td>△多数直连</td>
-</tr>
-<tr>
-<th>表级权限（默认拒绝）</th>
-<td>✓默认拒绝</td>
-<td>△tools.yaml 白名单</td>
-<td>✓</td>
-<td>✓Hasura RBAC</td>
-<td>✗下沉 DB</td>
-</tr>
-<tr>
-<th>行级策略（属性代入 / 派生表）</th>
-<td>✓:attr 动态注入</td>
-<td>△仅预定义工具内</td>
-<td>✓</td>
-<td>✓Hasura/RLS</td>
-<td>✗</td>
-</tr>
-<tr>
-<th>列级脱敏 / 掩码</th>
-<td>✓结果层 mask</td>
-<td>△角色列白名单</td>
-<td>✓</td>
-<td>✓Hasura 列权限</td>
-<td>✗</td>
-</tr>
-<tr>
-<th>MCP tools（执行查询）</th>
-<td>✓</td>
-<td>✓✓核心能力</td>
-<td>✗</td>
-<td>✗</td>
-<td>△</td>
-</tr>
-<tr>
-<th>MCP resources（模式语义卡片）</th>
-<td>✓带业务语义</td>
-<td>△部分支持</td>
-<td>✗</td>
-<td>✗</td>
-<td>△</td>
-</tr>
-<tr>
-<th>MCP prompts（NL2SQL 安全模板）</th>
-<td>✓</td>
-<td>✗</td>
-<td>✗</td>
-<td>✗</td>
-<td>✓NL2SQL 本身</td>
-</tr>
-<tr>
-<th>语义层供给（描述/同义词/示例）</th>
-<td>✓</td>
-<td>△</td>
-<td>✗</td>
-<td>✗</td>
-<td>✓语义建模</td>
-</tr>
-<tr>
-<th>多引擎覆盖</th>
-<td>△当前 MySQL/PG/SQLite</td>
-<td>✓✓最广</td>
-<td>✓✓</td>
-<td>△多 Postgres 系</td>
-<td>✓</td>
-</tr>
-<tr>
-<th>审计留痕</th>
-<td>✓ok/denied/error</td>
-<td>△</td>
-<td>✓</td>
-<td>△</td>
-<td>✗</td>
-</tr>
-<tr>
-<th>部署形态</th>
-<td>单 Go 二进制</td>
-<td>单二进制/容器</td>
-<td>平台/SaaS</td>
-<td>容器/云</td>
-<td>服务/框架</td>
-</tr>
-<tr>
-<th>开源</th>
-<td>✓（计划）</td>
-<td>✓</td>
-<td>✗商业</td>
-<td>✓</td>
-<td>✓</td>
-</tr>
-</tbody>
-</table>
+| 能力维度 | Aegis | 数据库 MCP Server<br>Google Toolbox / DBHub | 数据访问代理/治理<br>Satori / Cyral | 即时 API<br>Hasura / PostgREST | NL2SQL / 语义层<br>Wren / Vanna / DB-GPT |
+| --- | --- | --- | --- | --- | --- |
+| 后端凭证隔离（AI 不接触 DB 密码） | ✓代理持有连接池 | ✓服务账号 / DSN | ✓ | △多依赖 DB 角色/直连 | △多数直连 |
+| 表级权限（默认拒绝） | ✓默认拒绝 | △tools.yaml 白名单 | ✓ | ✓Hasura RBAC | ✗下沉 DB |
+| 行级策略（属性代入 / 派生表） | ✓:attr 动态注入 | △仅预定义工具内 | ✓ | ✓Hasura/RLS | ✗ |
+| 列级脱敏 / 掩码 | ✓结果层 mask | △角色列白名单 | ✓ | ✓Hasura 列权限 | ✗ |
+| MCP tools（执行查询） | ✓ | ✓✓核心能力 | ✗ | ✗ | △ |
+| MCP resources（模式语义卡片） | ✓带业务语义 | △部分支持 | ✗ | ✗ | △ |
+| MCP prompts（NL2SQL 安全模板） | ✓ | ✗ | ✗ | ✗ | ✓NL2SQL 本身 |
+| 语义层供给（描述/同义词/示例） | ✓ | △ | ✗ | ✗ | ✓语义建模 |
+| 多引擎覆盖 | △当前 MySQL/PG/SQLite | ✓✓最广 | ✓✓ | △多 Postgres 系 | ✓ |
+| 审计留痕 | ✓ok/denied/error | △ | ✓ | △ | ✗ |
+| 部署形态 | 单 Go 二进制 | 单二进制/容器 | 平台/SaaS | 容器/云 | 服务/框架 |
+| 开源 | ✓（计划） | ✓ | ✗商业 | ✓ | ✓ |
 
 图例：✓ 原生支持 · △ 部分/间接支持 · ✗ 不支持。
 
