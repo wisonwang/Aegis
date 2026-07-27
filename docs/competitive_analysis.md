@@ -1,15 +1,7 @@
-<div class="wrap">
-
 # Aegis 市场定位与竞品对比分析
-
-<div class="sub">
 
 数据库代理 + 三级治理 + 面向 AI Agent 的 MCP 语义供给网关 · 调研日期
 2026-07-24
-
-</div>
-
-<div class="card lead">
 
 **核心结论：**Aegis 定位于一个当前竞品**交集空白**的赛道——*AI
 数据供给网关*。 它把三类能力收进同一个开源 Go 二进制：① 数据库 **MCP
@@ -19,11 +11,7 @@ NL2SQL 模板）。 据 Bytebase（治理厂商）2026 年复盘：DB MCP
 服务器普遍"会说话的引擎多、做治理的少，二者兼得的几乎为零"。 Aegis
 正是"既能跨多引擎、又在代理层治理数据"的那一类，且以开源单二进制形态交付。
 
-</div>
-
 ## 一、定位图：Aegis 处于三类能力的交集
-
-<div class="card">
 
 ![竞争版图 Venn 图](pics/competitive-landscape.svg)
 
@@ -31,150 +19,141 @@ NL2SQL 模板）。 据 Bytebase（治理厂商）2026 年复盘：DB MCP
 并非任一圆的"加强版"，
 而是把三圆的能力正交组合后落在中心交集——这也是竞品清单里**没有直接对手**的原因。
 
-</div>
-
 ## 二、能力对比矩阵
 
-<div class="card">
-
-<table style="width:100%;">
+<table>
 <colgroup>
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
+<col />
+<col />
+<col />
+<col />
+<col />
+<col />
 </colgroup>
 <thead>
-<tr class="header">
+<tr>
 <th>能力维度</th>
 <th>Aegis</th>
 <th>数据库 MCP Server<br />
-<span class="tagline">Google Toolbox / DBHub</span></th>
+Google Toolbox / DBHub</th>
 <th>数据访问代理/治理<br />
-<span class="tagline">Satori / Cyral</span></th>
+Satori / Cyral</th>
 <th>即时 API<br />
-<span class="tagline">Hasura / PostgREST</span></th>
+Hasura / PostgREST</th>
 <th>NL2SQL / 语义层<br />
-<span class="tagline">Wren / Vanna / DB-GPT</span></th>
+Wren / Vanna / DB-GPT</th>
 </tr>
 </thead>
 <tbody>
-<tr class="odd">
+<tr>
 <th>后端凭证隔离（AI 不接触 DB 密码）</th>
-<td><span class="tag yes">✓</span><span class="tagline">代理持有连接池</span></td>
-<td><span class="tag yes">✓</span><span class="tagline">服务账号 / DSN</span></td>
-<td><span class="tag yes">✓</span></td>
-<td><span class="tag partial">△</span><span class="tagline">多依赖 DB 角色/直连</span></td>
-<td><span class="tag partial">△</span><span class="tagline">多数直连</span></td>
+<td>✓代理持有连接池</td>
+<td>✓服务账号 / DSN</td>
+<td>✓</td>
+<td>△多依赖 DB 角色/直连</td>
+<td>△多数直连</td>
 </tr>
-<tr class="even">
+<tr>
 <th>表级权限（默认拒绝）</th>
-<td><span class="tag yes">✓</span><span class="tagline">默认拒绝</span></td>
-<td><span class="tag partial">△</span><span class="tagline">tools.yaml 白名单</span></td>
-<td><span class="tag yes">✓</span></td>
-<td><span class="tag yes">✓</span><span class="tagline">Hasura RBAC</span></td>
-<td><span class="tag no">✗</span><span class="tagline">下沉 DB</span></td>
+<td>✓默认拒绝</td>
+<td>△tools.yaml 白名单</td>
+<td>✓</td>
+<td>✓Hasura RBAC</td>
+<td>✗下沉 DB</td>
 </tr>
-<tr class="odd">
+<tr>
 <th>行级策略（属性代入 / 派生表）</th>
-<td><span class="tag yes">✓</span><span class="tagline">:attr 动态注入</span></td>
-<td><span class="tag partial">△</span><span class="tagline">仅预定义工具内</span></td>
-<td><span class="tag yes">✓</span></td>
-<td><span class="tag yes">✓</span><span class="tagline">Hasura/RLS</span></td>
-<td><span class="tag no">✗</span></td>
+<td>✓:attr 动态注入</td>
+<td>△仅预定义工具内</td>
+<td>✓</td>
+<td>✓Hasura/RLS</td>
+<td>✗</td>
 </tr>
-<tr class="even">
+<tr>
 <th>列级脱敏 / 掩码</th>
-<td><span class="tag yes">✓</span><span class="tagline">结果层 mask</span></td>
-<td><span class="tag partial">△</span><span class="tagline">角色列白名单</span></td>
-<td><span class="tag yes">✓</span></td>
-<td><span class="tag yes">✓</span><span class="tagline">Hasura 列权限</span></td>
-<td><span class="tag no">✗</span></td>
+<td>✓结果层 mask</td>
+<td>△角色列白名单</td>
+<td>✓</td>
+<td>✓Hasura 列权限</td>
+<td>✗</td>
 </tr>
-<tr class="odd">
+<tr>
 <th>MCP tools（执行查询）</th>
-<td><span class="tag yes">✓</span></td>
-<td><span class="tag yes">✓✓</span><span class="tagline">核心能力</span></td>
-<td><span class="tag no">✗</span></td>
-<td><span class="tag no">✗</span></td>
-<td><span class="tag partial">△</span></td>
+<td>✓</td>
+<td>✓✓核心能力</td>
+<td>✗</td>
+<td>✗</td>
+<td>△</td>
 </tr>
-<tr class="even">
+<tr>
 <th>MCP resources（模式语义卡片）</th>
-<td><span class="tag yes">✓</span><span class="tagline">带业务语义</span></td>
-<td><span class="tag partial">△</span><span class="tagline">部分支持</span></td>
-<td><span class="tag no">✗</span></td>
-<td><span class="tag no">✗</span></td>
-<td><span class="tag partial">△</span></td>
+<td>✓带业务语义</td>
+<td>△部分支持</td>
+<td>✗</td>
+<td>✗</td>
+<td>△</td>
 </tr>
-<tr class="odd">
+<tr>
 <th>MCP prompts（NL2SQL 安全模板）</th>
-<td><span class="tag yes">✓</span></td>
-<td><span class="tag no">✗</span></td>
-<td><span class="tag no">✗</span></td>
-<td><span class="tag no">✗</span></td>
-<td><span class="tag yes">✓</span><span class="tagline">NL2SQL 本身</span></td>
+<td>✓</td>
+<td>✗</td>
+<td>✗</td>
+<td>✗</td>
+<td>✓NL2SQL 本身</td>
 </tr>
-<tr class="even">
+<tr>
 <th>语义层供给（描述/同义词/示例）</th>
-<td><span class="tag yes">✓</span></td>
-<td><span class="tag partial">△</span></td>
-<td><span class="tag no">✗</span></td>
-<td><span class="tag no">✗</span></td>
-<td><span class="tag yes">✓</span><span class="tagline">语义建模</span></td>
+<td>✓</td>
+<td>△</td>
+<td>✗</td>
+<td>✗</td>
+<td>✓语义建模</td>
 </tr>
-<tr class="odd">
+<tr>
 <th>多引擎覆盖</th>
-<td><span class="tag partial">△</span><span class="tagline">当前 MySQL/PG/SQLite</span></td>
-<td><span class="tag yes">✓✓</span><span class="tagline">最广</span></td>
-<td><span class="tag yes">✓✓</span></td>
-<td><span class="tag partial">△</span><span class="tagline">多 Postgres 系</span></td>
-<td><span class="tag yes">✓</span></td>
+<td>△当前 MySQL/PG/SQLite</td>
+<td>✓✓最广</td>
+<td>✓✓</td>
+<td>△多 Postgres 系</td>
+<td>✓</td>
 </tr>
-<tr class="even">
+<tr>
 <th>审计留痕</th>
-<td><span class="tag yes">✓</span><span class="tagline">ok/denied/error</span></td>
-<td><span class="tag partial">△</span></td>
-<td><span class="tag yes">✓</span></td>
-<td><span class="tag partial">△</span></td>
-<td><span class="tag no">✗</span></td>
+<td>✓ok/denied/error</td>
+<td>△</td>
+<td>✓</td>
+<td>△</td>
+<td>✗</td>
 </tr>
-<tr class="odd">
+<tr>
 <th>部署形态</th>
-<td><span class="tag yes">单 Go 二进制</span></td>
-<td><span class="tag yes">单二进制/容器</span></td>
-<td><span class="tag partial">平台/SaaS</span></td>
-<td><span class="tag yes">容器/云</span></td>
-<td><span class="tag partial">服务/框架</span></td>
+<td>单 Go 二进制</td>
+<td>单二进制/容器</td>
+<td>平台/SaaS</td>
+<td>容器/云</td>
+<td>服务/框架</td>
 </tr>
-<tr class="even">
+<tr>
 <th>开源</th>
-<td><span class="tag yes">✓（计划）</span></td>
-<td><span class="tag yes">✓</span></td>
-<td><span class="tag no">✗</span><span class="tagline">商业</span></td>
-<td><span class="tag yes">✓</span></td>
-<td><span class="tag yes">✓</span></td>
+<td>✓（计划）</td>
+<td>✓</td>
+<td>✗商业</td>
+<td>✓</td>
+<td>✓</td>
 </tr>
 </tbody>
 </table>
 
-图例：<span class="tag yes">✓</span> 原生支持 · <span
-class="tag partial">△</span> 部分/间接支持 · <span
-class="tag no">✗</span> 不支持。
-
-</div>
+图例：✓ 原生支持 · △ 部分/间接支持 · ✗ 不支持。
 
 ## 三、竞品 landscape 与逐类评估
 
 ### ① 数据库 MCP Server（AI 数据供给）
 
-代表：<span class="pill">Google MCP Toolbox（原 GenAI
-Toolbox）</span><span class="pill">DBHub（Bytebase）</span> <span
-class="pill">Postgres MCP Pro</span><span class="pill">MongoDB /
-Supabase / Neon / ClickHouse MCP</span><span class="pill">阿里云瑶池
-MCP</span>
+代表：Google MCP Toolbox（原 GenAI
+Toolbox）DBHub（Bytebase） Postgres MCP ProMongoDB /
+Supabase / Neon / ClickHouse MCP阿里云瑶池
+MCP
 
 -   **强项：**让 Agent 标准化连接数据库，工具定义清晰；Google Toolbox
     支持 `tools.yaml` 声明式白名单、IAM
@@ -190,8 +169,8 @@ MCP</span>
 
 ### ② 数据访问代理 / 治理平台
 
-代表：<span class="pill">Satori</span><span class="pill">Cyral（现
-Normalyze）</span><span class="pill">Varonis</span>
+代表：SatoriCyral（现
+Normalyze）Varonis
 
 -   **强项：**真正的"数据控制平面"，跨数据源统一策略、脱敏、审计，企业级发现与编排能力强。
 -   **弱点：**多为**商业 SaaS/平台**，部署重、成本高；**不为 AI
@@ -202,9 +181,7 @@ Normalyze）</span><span class="pill">Varonis</span>
 
 ### ③ 即时 REST / GraphQL API 生成器
 
-代表：<span class="pill">Hasura</span><span
-class="pill">PostgREST</span><span class="pill">Supabase</span><span
-class="pill">DreamFactory</span><span class="pill">Directus</span>
+代表：HasuraPostgRESTSupabaseDreamFactoryDirectus
 
 -   **强项：**Hasura 的 RBAC 其实**很细**——行列级 + 谓词下推（predicate
     pushdown）+ 列权限，且有成熟社区与实时订阅；PostgREST 把治理甩给
@@ -216,9 +193,7 @@ class="pill">DreamFactory</span><span class="pill">Directus</span>
 
 ### ④ NL2SQL / 语义层
 
-代表：<span class="pill">Wren AI</span><span
-class="pill">Vanna.ai</span><span class="pill">DB-GPT</span><span
-class="pill">Chat2DB</span><span class="pill">Dataherald</span>
+代表：Wren AIVanna.aiDB-GPTChat2DBDataherald
 
 -   **强项：**把自然语言转
     SQL，自带语义建模（指标/同义词/关系），显著提升准确性。
@@ -237,10 +212,6 @@ Acryl **DataHub**（知名数据目录 / metadata catalog 产品）的品牌与 
 
 ## 四、Aegis 优劣总结
 
-<div class="grid2">
-
-<div class="card pro">
-
 ### 优势 / 差异化
 
 -   **三位一体，单二进制：**代理隔离 + 三级治理 + MCP
@@ -251,10 +222,6 @@ Acryl **DataHub**（知名数据目录 / metadata catalog 产品）的品牌与 
     卡片，prompts 直接给 NL2SQL 安全模板，降低 LLM 幻觉与越权。
 -   **凭证不落 AI 侧：**后端账号集中管控，AI 只持 API Key / Bearer。
 -   **全量审计：**ok/denied/error 全留痕，合规友好。
-
-</div>
-
-<div class="card con">
 
 ### 劣势 / 风险
 
@@ -268,13 +235,7 @@ Acryl **DataHub**（知名数据目录 / metadata catalog 产品）的品牌与 
 -   **已完成更名：**由 DataHub 更名为 Aegis，规避与 Acryl
     DataHub（数据目录）混淆。
 
-</div>
-
-</div>
-
 ## 五、定位结论与建议
-
-<div class="card">
 
 **一句话定位：**Aegis 不是要取代上述任何一类，而是做*AI 数据供给网关*——
 把"治理后的、带业务语义的、可审计的"数据能力，以 MCP 标准化协议交给
@@ -293,16 +254,8 @@ Agent。这是当前竞品清单里的**交集空白**。
 -   **打透差异化卖点：**"开源 · 单二进制 · 默认拒绝的三级治理 + 面向 MCP
     Agent 的语义供给与全量审计"。
 
-</div>
-
-<div class="foot">
-
 资料来源：Bytebase《Top 3 Open Source Multi-Database MCP Servers in
 2026》、Google Codelabs《Deploy an Enterprise Governance-Aware Agent
 with MCP and Cloud Run》、 Google MCP Toolbox 官方文档、Hasura
 Authorization 文档、PostgREST Database Authorization 文档（均检索于
 2026-07-24）。 本报告为市场定位与竞品对比分析，不含任何商业背书。
-
-</div>
-
-</div>
