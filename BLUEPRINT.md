@@ -492,7 +492,7 @@ Agent 失控循环拖垮生产库、全表结果进入 LLM 上下文造成二次
     COUNT，开发态开箱可用。提供
     DataAPI（`POST /api/v1/datasources/{id}/query/estimate`）与 MCP 工具
     `estimate_query`。
--   **中期：**多租户工作区（企业版前置）
+-   **中期：**多租户工作区（企业版前置）— 隔离模型 ADR 已起草：[ADR-001](docs/adr/0001-multi-tenant-workspace.md)（Proposed，待评审）
 -   **已完成（AI 增强 · 本轮）：**语义指标层（Curated
     Metrics）——管理员预定义受治理的 SQL 模板指标（类型化参数 +
     枚举白名单），Agent 运行指标而非现场编
