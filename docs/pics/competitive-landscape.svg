@@ -1,0 +1,35 @@
+<svg class="diagram" viewbox="0 0 720 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Aegis 定位维恩图">
+      <!-- circles -->
+      <circle cx="360" cy="135" r="140" fill="#3B82F6" fill-opacity="0.42" stroke="#2563EB" stroke-width="2"></circle>
+      <circle cx="286" cy="262" r="140" fill="#10B981" fill-opacity="0.42" stroke="#059669" stroke-width="2"></circle>
+      <circle cx="434" cy="262" r="140" fill="#F59E0B" fill-opacity="0.42" stroke="#D97706" stroke-width="2"></circle>
+
+      <!-- competitor mini-labels (white halo for readability) -->
+      <g font-size="12.5" font-weight="600" text-anchor="middle" fill="#111827" stroke="#fff" stroke-width="3" paint-order="stroke">
+        <text x="360" y="78">Google Toolbox · DBHub</text>
+        <text x="360" y="95" font-size="11" fill="#374151">（Postgres / Mongo MCP）</text>
+        <text x="186" y="300">Satori · Cyral</text>
+        <text x="186" y="317" font-size="11" fill="#374151">（数据访问代理）</text>
+        <text x="534" y="300">Wren AI · Vanna</text>
+        <text x="534" y="317" font-size="11" fill="#374151">（NL2SQL 语义层）</text>
+        <text x="300" y="180">代理+MCP 混合</text>
+        <text x="420" y="180">Chat2DB</text>
+        <text x="360" y="335">Hasura · PostgREST</text>
+      </g>
+
+      <!-- center badge -->
+      <g text-anchor="middle">
+        <text x="360" y="196" font-size="22" font-weight="800" fill="#111827">Aegis</text>
+        <text x="360" y="218" font-size="12.5" fill="#374151">三者交集 · 开源单二进制</text>
+      </g>
+
+      <!-- external category labels -->
+      <g text-anchor="middle" font-weight="700">
+        <text x="360" y="28" font-size="15" fill="#1D4ED8">① 数据库 MCP 服务</text>
+        <text x="360" y="46" font-size="11.5" font-weight="500" fill="#6b7280">AI 数据供给（tools）</text>
+        <text x="96" y="232" font-size="14" fill="#047857">② 数据访问</text>
+        <text x="96" y="250" font-size="14" fill="#047857">代理与治理</text>
+        <text x="624" y="232" font-size="14" fill="#B45309">③ 语义层 /</text>
+        <text x="624" y="250" font-size="14" fill="#B45309">NL2SQL 使能</text>
+      </g>
+    </svg>
