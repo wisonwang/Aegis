@@ -1,5 +1,12 @@
 # Aegis · 数据库代理治理平台
 
+![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
+![Go](https://img.shields.io/badge/Go-1.26-blue.svg)
+![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-purple.svg)
+![Deploy](https://img.shields.io/badge/deploy-single%20binary-orange.svg)
+
+> **把内部数据库变成受治理的 AI Agent 工具**——单二进制、默认开启治理、LLM 生成的 SQL 也绕不过权限。详见 [CHANGELOG](CHANGELOG.md) · [SECURITY](SECURITY.md) · [examples](examples/)。
+
 > 使用 Golang 构建的**数据库代理 / 数据服务治理平台**：集中管理数据库访问权限、封装表/行/列级数据权限，并以 **DataAPI** 与 **MCP 服务** 的形式统一对外提供数据能力，供业务系统与 AI Agent 使用。
 
 > **命名（Rebrand）：** 项目已由 **DataHub** 更名为 **Aegis**（副标题 *AI Data Supply Gateway*），以规避与 LinkedIn / Acryl 同名数据目录产品（metadata catalog）的品牌与 SEO 混淆。代码级标识符已同步更名完成：模块路径 `github.com/wisonwang/aegis`、`aegis://` URI 方案、`aegis_svc` 受限账号、`AEGIS_*` 环境变量、`cmd/aegis` 入口目录。
@@ -37,6 +44,10 @@ Aegis 在应用（或 AI Agent）与后端数据库之间插入一个**代理层
 AI 应用（ChatBI / Agent 工作流 / RAG / Copilot）的 SQL 由 LLM 现场生成——不可评审、不可穷举、可被提示词注入操纵，「应用层代码内控权限」在 AI 场景下失效。Aegis 把治理下沉到数据访问层：凭据隔离、三级权限、解析级 SQL 强制校验、全量审计、统一供给，五大风险逐一兜底。完整论证与面向 AI 的功能扩充规划（MCP resources / NL2SQL 网关 / 行数上限 / 限流 / 动态脱敏等）见 **[BLUEPRINT.html](BLUEPRINT.html)**（项目 PRD 蓝图 v0.3，含平台架构图）。
 
 ---
+
+> **30 秒上手**：`docker compose up -d` 启动后，把 Aegis 注册为 Claude Desktop 的 MCP 服务器（配置见 [`examples/mcp/claude_desktop_config.json`](examples/mcp/claude_desktop_config.json)），Agent 立刻获得受治理的 `query` / `estimate_query` / `nl2sql` 工具——全程无需任何数据库凭据。更多接入示例见 [`examples/`](examples/)。
+
+**推荐仓库 Topics**：`ai-agent` · `mcp` · `data-governance` · `llm` · `text-to-sql` · `data-security` · `sql-proxy` · `rag`
 
 ## 快速开始
 
