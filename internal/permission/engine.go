@@ -52,17 +52,41 @@ func Rewrite(sql string, perms map[string]*store.TableEffective, attrs map[strin
 		tables, err = rewriteSelect(node, perms, attrs)
 		res.IsRead = true
 	case *sqlparser.Update:
+		var targets []*sqlparser.AliasedTableExpr
+		for _, te := range node.TableExprs {
+			targets = append(targets, collectTopLevelTables(te)...)
+		}
 		tables, err = dmlTables(node.TableExprs, perms, "UPDATE")
 		if err == nil {
 			err = applyRowPolicyDML(tables, &node.Where, perms, attrs)
 		}
 		if err == nil {
+			nested := []string{}
+			if e := enforceTableRefs(node, targetSet(targets), perms, attrs, &nested); e != nil {
+				err = e
+			} else {
+				tables = append(tables, nested...)
+			}
+		}
+		if err == nil {
 			finalizeWrite(res, node.Where, node.TableExprs)
 		}
 	case *sqlparser.Delete:
+		var targets []*sqlparser.AliasedTableExpr
+		for _, te := range node.TableExprs {
+			targets = append(targets, collectTopLevelTables(te)...)
+		}
 		tables, err = dmlTables(node.TableExprs, perms, "DELETE")
 		if err == nil {
 			err = applyRowPolicyDML(tables, &node.Where, perms, attrs)
+		}
+		if err == nil {
+			nested := []string{}
+			if e := enforceTableRefs(node, targetSet(targets), perms, attrs, &nested); e != nil {
+				err = e
+			} else {
+				tables = append(tables, nested...)
+			}
 		}
 		if err == nil {
 			finalizeWrite(res, node.Where, node.TableExprs)
@@ -85,42 +109,75 @@ func Rewrite(sql string, perms map[string]*store.TableEffective, attrs map[strin
 }
 
 // rewriteSelect enforces per-table SELECT permission and injects row-level
-// policies by wrapping each top-level table in a filtered derived subquery.
+// policies. Unlike a naive top-level-only pass, it recurses into nested
+// subqueries (the "second hardening layer"): every table reference — whether in
+// the top-level FROM, a derived table, a scalar subquery in the SELECT list, or
+// an IN/EXISTS subquery in WHERE — is governed, closing the nested-subquery
+// bypass gap documented in the blueprint.
 func rewriteSelect(sel *sqlparser.Select, perms map[string]*store.TableEffective, attrs map[string]string) ([]string, error) {
 	var tables []string
-	for _, te := range sel.From {
-		for _, ate := range collectTopLevelTables(te) {
-			tn, ok := ate.Expr.(sqlparser.TableName)
-			if !ok {
-				// a subquery used as a table source: not governed at this level
-				continue
-			}
-			name := tn.Name.String()
-			key := strings.ToLower(name)
-			eff, ok := perms[key]
-			if !ok {
-				return nil, fmt.Errorf("access denied to table %q (no permission granted)", name)
-			}
-			if !eff.Ops["SELECT"] {
-				return nil, fmt.Errorf("SELECT denied on table %q", name)
-			}
-			tables = append(tables, key)
-			if len(eff.RowPolicies) > 0 {
-				sub, err := wrapWithPolicy(name, eff.RowPolicies, attrs)
-				if err != nil {
-					return nil, err
-				}
-				ate.Expr = sub
-				// MySQL/PostgreSQL require every derived table to carry an
-				// alias. Reuse the original table name when none was given so
-				// qualified column references (e.g. orders.id) keep working.
-				if ate.As.IsEmpty() {
-					ate.As = sqlparser.NewTableIdent(name)
-				}
-			}
-		}
+	if err := enforceTableRefs(sel, nil, perms, attrs, &tables); err != nil {
+		return nil, err
 	}
 	return tables, nil
+}
+
+// enforceTableRefs walks a statement subtree and governs every real table
+// reference: it checks SELECT permission and wraps the table in a filtered
+// derived subquery that carries its row policies. Tables whose AliasedTableExpr
+// is present in skip are left untouched — used so a DML target table (which is
+// governed by appending its policy to the top-level WHERE) is not also
+// re-wrapped when it happens to be referenced again inside a nested subquery.
+//
+// Delegating the traversal to sqlparser.Walk guarantees that policies are
+// injected at every depth: a wrapped table becomes a derived subquery whose
+// inner table must NOT be re-governed (returning false stops the walk from
+// descending into it), while a bare table name has no children to visit.
+func enforceTableRefs(node sqlparser.SQLNode, skip map[*sqlparser.AliasedTableExpr]bool, perms map[string]*store.TableEffective, attrs map[string]string, tables *[]string) error {
+	return sqlparser.Walk(func(n sqlparser.SQLNode) (bool, error) {
+		ate, ok := n.(*sqlparser.AliasedTableExpr)
+		if !ok {
+			// Descend into everything else (SELECT, WHERE, subqueries, ...).
+			return true, nil
+		}
+		if skip[ate] {
+			// DML target table: governed elsewhere via the top-level WHERE.
+			return false, nil
+		}
+		tn, ok := ate.Expr.(sqlparser.TableName)
+		if !ok {
+			// A derived table / subquery used as a table source: descend so the
+			// tables it references get governed in their own scope.
+			return true, nil
+		}
+		name := tn.Name.String()
+		key := strings.ToLower(name)
+		eff, ok := perms[key]
+		if !ok {
+			return false, fmt.Errorf("access denied to table %q (no permission granted)", name)
+		}
+		if !eff.Ops["SELECT"] {
+			return false, fmt.Errorf("SELECT denied on table %q", name)
+		}
+		*tables = append(*tables, key)
+		if len(eff.RowPolicies) > 0 {
+			sub, err := wrapWithPolicy(name, eff.RowPolicies, attrs)
+			if err != nil {
+				return false, err
+			}
+			ate.Expr = sub
+			// MySQL/PostgreSQL require every derived table to carry an alias.
+			// Reuse the original table name when none was given so qualified
+			// column references (e.g. orders.id) keep working.
+			if ate.As.IsEmpty() {
+				ate.As = sqlparser.NewTableIdent(name)
+			}
+		}
+		// Do not descend into this table expression: a wrapped table becomes a
+		// derived subquery whose inner table must not be re-governed (avoids
+		// double-wrapping), and a bare table name has no children to visit.
+		return false, nil
+	}, node)
 }
 
 // RewriteVirtual applies governance to a dataset: a curated query (definition)
@@ -395,6 +452,18 @@ func collectTopLevelTables(te sqlparser.TableExpr) []*sqlparser.AliasedTableExpr
 		out = append(out, collectTopLevelTables(n.RightExpr)...)
 	}
 	return out
+}
+
+// targetSet builds a pointer identity set of the DML's direct target tables so
+// that enforceTableRefs can skip exactly those (governing them via the
+// top-level WHERE) while still hardening any nested subquery that references the
+// same table under a different node.
+func targetSet(targets []*sqlparser.AliasedTableExpr) map[*sqlparser.AliasedTableExpr]bool {
+	m := make(map[*sqlparser.AliasedTableExpr]bool, len(targets))
+	for _, t := range targets {
+		m[t] = true
+	}
+	return m
 }
 
 // computeColumnMask aggregates denied/allowed columns and value-masks from

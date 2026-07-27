@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Aegis 项目 PRD 蓝图 v0.6</title>
+<title>Aegis 项目 PRD 蓝图 v0.7</title>
 <style>
   :root{
     --blue:#185FA5; --teal:#0F6E56; --purple:#534AB7; --amber:#854F0B; --green:#3B6D11; --coral:#993C1D;
@@ -282,10 +282,10 @@
       <div class="card">
         <h3>已知边界（生产化前需补强）</h3>
         <ul class="clean">
-          <li class="muted">行策略注入作用于顶层 FROM/JOIN，<b>未递归</b>进入嵌套子查询内部</li>
+          <li>行策略注入已<b>递归覆盖嵌套子查询（双层加固）</b>：顶层 FROM 与任意深度子查询（IN / EXISTS / 派生表 / 标量子查询，含 DML 的 WHERE / SET 内嵌套子查询）中的表引用均受治理；纯数据库原生 RLS 列为可选增强</li>
           <li class="muted">列脱敏在结果层按列名执行，依赖查询返回原始列名</li>
           <li class="muted">控制面为单文件 SQLite，未做多节点高可用</li>
-          <li class="muted">写操作行级约束仍依赖后端 RLS 兜底（平台层对写操作仅做无 WHERE 拦截与影响行数上限）</li>
+          <li class="muted">写操作行级约束仍建议以数据库原生 RLS 兜底（平台层对写操作做无 WHERE 拦截、影响行数上限，并递归加固嵌套子查询）</li>
         </ul>
       </div>
     </div>
@@ -310,7 +310,7 @@
         <li><span class="pill ok">已完成</span> 可观测性：Prometheus 指标、健康探针（liveness / readiness）</li>
         <li><span class="pill ok">已完成</span> 结构化日志：标准库 log/slog 实现（JSON / 文本），覆盖 HTTP 访问日志（含 req_id 关联）+ 治理决策事件（denied/error 结构化告警）+ 启动/运行时事件</li>
         <li><span class="pill ok">已完成</span> PostgreSQL 端到端验证：lib/pq 驱动内置，live 集成测试覆盖默认拒绝 / 行策略(:attr) / 列脱敏 / admin 旁路 / ListTables 治理</li>
-        <li>数据库原生 RLS 双层加固（弥补嵌套子查询边界）— 待做</li>
+        <li><span class="pill ok">已完成</span> 数据库原生 RLS 双层加固（弥补嵌套子查询边界）：行策略注入递归进入任意深度子查询，顶层 FROM 与 IN / EXISTS / 派生表 / 标量子查询中的表引用均受治理（含 DML 的 WHERE / SET 内嵌套子查询）；纯数据库原生 RLS 列为可选增强</li>
       </ul>
     </div>
 
@@ -405,7 +405,7 @@
         <tr><th>能力域</th><th><span class="phase p1">阶段1</span></th><th><span class="phase p2">阶段2</span></th><th><span class="phase p3">阶段3</span></th><th><span class="phase p4">阶段4</span></th><th><span class="phase p5">阶段5</span></th></tr>
       </thead>
       <tbody>
-        <tr><td>表/行/列治理</td><td>基础 ✅</td><td>RLS 加固</td><td>分类分级</td><td>NL 校验</td><td>声明式</td></tr>
+        <tr><td>表/行/列治理</td><td>基础 ✅</td><td>RLS 加固 ✅</td><td>分类分级</td><td>NL 校验</td><td>声明式</td></tr>
         <tr><td>数据源接入</td><td>SQLite ✅</td><td>MySQL ✅ / PG</td><td>信创库</td><td>向量源</td><td>插件源</td></tr>
         <tr><td>协议供给</td><td>REST+MCP ✅</td><td>限流/行数上限</td><td>审批流</td><td>resources/prompts</td><td>SDK/OpenAPI</td></tr>
         <tr><td>身份体系</td><td>JWT/Key ✅</td><td>审计日志 ✅</td><td>SSO/OIDC ✅</td><td>LDAP / 会话关联审计</td><td>联邦身份</td></tr>
@@ -446,7 +446,7 @@
     <div class="grid c2">
       <div class="card">
         <h3>治理完整性</h3>
-        <p class="lead" style="margin:0">嵌套子查询行策略不递归、非 SELECT 写操作的行约束，是主要治理盲区。建议以数据库原生 RLS + 写操作校验兜底。</p>
+        <p class="lead" style="margin:0">行策略注入已递归覆盖嵌套子查询（双层加固），平台层治理不可绕过；非 SELECT 写操作的行约束仍建议以数据库原生 RLS 兜底，平台层已做无 WHERE 拦截、影响行数上限与嵌套子查询递归加固。</p>
       </div>
       <div class="card">
         <h3>可用性与性能</h3>
@@ -480,7 +480,7 @@
   </section>
 
   <p class="footnote">
-    Aegis 项目 PRD 蓝图 v0.6 · 更新于 2026-07-27 · 已合并「企业 AI 应用建设场景」必要性论证、功能扩充规划（原 AI-SCENARIO.html 专项文档），新增「市场定位与竞争策略（2026-07 复盘）」、<strong>SSO/OIDC 身份对接</strong>、<strong>健康探针增强</strong>、<strong>结构化日志（标准库 log/slog，JSON/文本，含访问日志与治理决策事件）</strong>、<strong>脱敏算法库（Tokenization 确定性假名 + 格式保留加密 FPE）</strong>，以及本轮 <strong>LDAP / Active Directory 身份对接</strong>（基于密码的目录单点登录，三步绑定校验 + 组→角色自动映射 + auto-provisioning，与 OIDC 共用同一外部身份供给链路）。密钥经 <code>AEGIS_MASK_SECRET</code> 注入。当前版本为单二进制 Golang 实现，三级治理 / 审计 / OIDC / LDAP / 真实 MySQL 已端到端验证。文档与代码同源维护于本仓库（模块 <code>github.com/wisonwang/aegis</code>）。
+    Aegis 项目 PRD 蓝图 v0.7 · 更新于 2026-07-27 · 已合并「企业 AI 应用建设场景」必要性论证、功能扩充规划（原 AI-SCENARIO.html 专项文档），新增「市场定位与竞争策略（2026-07 复盘）」、<strong>SSO/OIDC 身份对接</strong>、<strong>健康探针增强</strong>、<strong>结构化日志（标准库 log/slog，JSON/文本，含访问日志与治理决策事件）</strong>、<strong>脱敏算法库（Tokenization 确定性假名 + 格式保留加密 FPE）</strong>，以及本轮 <strong>LDAP / Active Directory 身份对接</strong>（基于密码的目录单点登录，三步绑定校验 + 组→角色自动映射 + auto-provisioning，与 OIDC 共用同一外部身份供给链路）。密钥经 <code>AEGIS_MASK_SECRET</code> 注入。当前版本为单二进制 Golang 实现，三级治理 / 审计 / OIDC / LDAP / 真实 MySQL 已端到端验证。文档与代码同源维护于本仓库（模块 <code>github.com/wisonwang/aegis</code>）。
   </p>
 </div>
 </body>
