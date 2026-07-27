@@ -332,6 +332,54 @@ func (h *Handler) RunMetric(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// estimateRequest is the body for a pre-run cost/risk estimate.
+type estimateRequest struct {
+	DataSource string `json:"datasource"` // id or name
+	SQL        string `json:"sql"`        // SQL statement to estimate
+	SessionID  string `json:"session_id"` // optional; links queries from one AI conversation
+}
+
+// EstimateQuery returns a cost/risk preview of a SQL statement WITHOUT
+// executing it. The statement is run through the same governance rewrite as
+// Query, so row/column policies and masking are already reflected in the
+// EXPLAIN plan, but no data is read or written. Agents use it to decide
+// whether to run a query — tighten a filter, avoid a large scan, or
+// handle PII carefully.
+func (h *Handler) EstimateQuery(w http.ResponseWriter, r *http.Request) {
+	var req estimateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if strings.TrimSpace(req.SQL) == "" {
+		writeError(w, http.StatusBadRequest, "sql is required")
+		return
+	}
+	// Prefer the datasource id/name from the URL path; allow an explicit
+	// body field for callers that POST to a fixed endpoint.
+	target := r.PathValue("id")
+	if target == "" {
+		target = req.DataSource
+	}
+	dsID, err := h.resolveDS(target)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	c := claimsFromContext(r.Context())
+	sessionID := req.SessionID
+	if sessionID == "" {
+		sessionID = uuid.NewString()
+	}
+	ctx := proxy.WithSession(proxy.WithChannel(r.Context(), "dataapi"), sessionID)
+	est, err := h.Proxy.Estimate(ctx, dsID, c, req.SQL)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, est)
+}
+
 // resolveDS resolves a datasource id or name to its id.
 func (h *Handler) resolveDS(idOrName string) (string, error) {
 	if idOrName == "" {

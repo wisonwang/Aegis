@@ -37,7 +37,25 @@ type RewriteResult struct {
 // service identity. All table/row/column decisions happen here.
 func Rewrite(sql string, perms map[string]*store.TableEffective, attrs map[string]string, superuser bool) (*RewriteResult, error) {
 	if superuser {
-		return &RewriteResult{SQL: sql, IsRead: !isWriteKeyword(sql), WriteHasWhere: true}, nil
+		// The superuser bypasses all enforcement, but we still derive a
+		// COUNT(*) pre-check for single-table writes so the cost estimator
+		// can report affected rows (read-only) without executing the write.
+		res := &RewriteResult{SQL: sql, IsRead: !isWriteKeyword(sql), WriteHasWhere: true, Masks: map[string]store.MaskSpec{}}
+		if !res.IsRead {
+			if stmt, err := sqlparser.Parse(sql); err == nil {
+				switch n := stmt.(type) {
+				case *sqlparser.Delete:
+					finalizeWrite(res, n.Where, n.TableExprs)
+				case *sqlparser.Update:
+					finalizeWrite(res, n.Where, n.TableExprs)
+				}
+			}
+			// The superuser is never blocked by the no-where guard, so
+			// restore the "safe" flag even though finalizeWrite may
+			// have set it to false for a WHERE-less write.
+			res.WriteHasWhere = true
+		}
+		return res, nil
 	}
 	stmt, err := sqlparser.Parse(sql)
 	if err != nil {

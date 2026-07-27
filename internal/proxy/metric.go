@@ -204,8 +204,18 @@ func metricLiteral(pd *store.MetricParam, v interface{}) (string, error) {
 // computeLineage derives a governance-aware summary of the tables and sensitive
 // columns a metric touches, from its SQL template and the datasource's
 // classification index. It never blocks execution — it only informs.
+// computeLineage derives lineage for a curated metric definition; it simply
+// delegates to computeLineageForSQL with the definition's SQL template, so the
+// same logic can serve arbitrary SQL (e.g. the query cost estimator).
 func (p *Proxy) computeLineage(ctx context.Context, dsID string, def *store.MetricDefinition) (*MetricLineage, error) {
-	tables := extractTables(def.SQLTemplate)
+	return p.computeLineageForSQL(ctx, dsID, def.SQLTemplate)
+}
+
+// computeLineageForSQL derives a governance-aware summary of the tables and
+// sensitive columns a SQL statement touches, from its FROM/JOIN tables and the
+// datasource's classification index. It never blocks execution — it only informs.
+func (p *Proxy) computeLineageForSQL(ctx context.Context, dsID string, sql string) (*MetricLineage, error) {
+	tables := extractTables(sql)
 	classes, err := p.store.ClassificationIndexFor(dsID)
 	if err != nil {
 		return nil, err

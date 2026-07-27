@@ -301,6 +301,31 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 			return nil, err
 		}
 		payload = schema
+	case "estimate_query":
+		dsName, _ := args["datasource"].(string)
+		sql, _ := args["sql"].(string)
+		if sql == "" {
+			return nil, fmt.Errorf("sql is required")
+		}
+		dsID, err := resolveDatasource(s.store, dsName)
+		if err != nil {
+			return nil, err
+		}
+		// Link every query an agent issues in one conversation (same as query/nl2sql).
+		sessionID, _ := args["session_id"].(string)
+		if sessionID == "" {
+			if h := r.Header.Get("Mcp-Session-Id"); h != "" {
+				sessionID = h
+			} else {
+				sessionID = uuid.NewString()
+			}
+		}
+		ctx := proxy.WithSession(proxy.WithChannel(r.Context(), "mcp"), sessionID)
+		est, err := s.proxy.Estimate(ctx, dsID, claims, sql)
+		if err != nil {
+			return nil, err
+		}
+		payload = est
 	case "list_metrics":
 		dsName, _ := args["datasource"].(string)
 		dsID, err := resolveDatasource(s.store, dsName)
@@ -544,6 +569,19 @@ func toolsList() []map[string]interface{} {
 				},
 			"required": []string{"datasource", "question"},
 		},
+		},
+		{
+			"name":        "estimate_query",
+			"description": "Preview the cost/risk of a SQL query BEFORE running it. Returns an EXPLAIN-based estimated row scan, the tables/sensitive columns touched, max data sensitivity, and a low/medium/high risk level with warnings. Use this to let an agent decide whether to run a query, tighten a filter, or avoid a large/PII-heavy scan. The estimate itself is governed (row/column policies reflected) and read-only.",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"datasource": map[string]interface{}{"type": "string", "description": "data source id or name"},
+					"sql":        map[string]interface{}{"type": "string", "description": "SQL statement to estimate"},
+					"session_id": map[string]interface{}{"type": "string", "description": "optional id linking queries from one AI conversation; echoed back for threading"},
+				},
+				"required": []string{"datasource", "sql"},
+			},
 		},
 		{
 			"name":        "list_metrics",

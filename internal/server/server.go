@@ -156,6 +156,7 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 	mux.HandleFunc("GET /api/v1/me", api.Authenticate(cfg, h.Me))
 	mux.HandleFunc("GET /api/v1/me/approvals", api.Authenticate(cfg, h.UserListMyApprovals))
 	mux.HandleFunc("POST /api/v1/query", api.Authenticate(cfg, h.Query))
+	mux.HandleFunc("POST /api/v1/datasources/{id}/query/estimate", api.Authenticate(cfg, h.EstimateQuery))
 	mux.HandleFunc("GET /api/v1/datasources", api.Authenticate(cfg, h.ListDataSources))
 	mux.HandleFunc("GET /api/v1/datasources/{id}/tables", api.Authenticate(cfg, h.ListTables))
 	mux.HandleFunc("GET /api/v1/datasources/{id}/tables/{table}", api.Authenticate(cfg, h.DescribeTable))

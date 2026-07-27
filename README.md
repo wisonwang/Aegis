@@ -246,6 +246,38 @@ curl -s -X POST localhost:8080/mcp -H "Authorization: Bearer <token>" \
 
 ---
 
+## 查询血缘成本（Query Lineage & Cost）
+
+在 Agent **真正执行**一条 SQL 之前，先用 `EXPLAIN` 给出**成本/风险预览**——扫描行数估算、涉及表与敏感列、最高敏感度，以及 `low`/`medium`/`high` 风险等级与可读告警。仍复用同一条治理 `Rewrite` 链路（行/列策略、脱敏已反映到被 `EXPLAIN` 的 SQL 上），但**只读、零变更**：读操作 `EXPLAIN` 治理后的 SELECT；写操作复用权限引擎已生成的 `SELECT COUNT(*)` 预检来估影响行数。
+
+- **方言无关解析**：MySQL/StarRocks/ClickHouse 取数值列 `rows`；PostgreSQL / SQLite 正则匹配 `rows=N`；SQLite 在 `EXPLAIN QUERY PLAN` 不吐行数时**回退到只读 `COUNT(*)`** 给出精确行数（演示/开发默认 sqlite，故该功能在开发态也开箱可用）。
+- **风险合成**：结合数据敏感度（public→pii）与扫描行数（≥100 万判 `high`、≥5 万判 `medium`）给出 `risk_level`，并附带可读告警（如「扫描约 1,200,000 行，建议加 WHERE 过滤」「结果含 PII 列，输出前请确认已脱敏」）。
+- **治理拒绝即最有用的估计**：若 SQL 触及未授权表，`Estimate` 直接返回拒绝错误，让 Agent 在发出真实查询前就学到会被拦。
+
+### DataAPI 调用
+
+```bash
+# 运行前预估一条 SQL 的成本/风险（不执行）
+curl -s -X POST localhost:8080/api/v1/datasources/demo/query/estimate \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"sql":"SELECT * FROM customers"}'
+# 返回 { governed_sql, read_only, estimated_rows, tables, columns,
+#         max_sensitivity, has_pii, risk_level, warnings }
+```
+
+### MCP 工具 `estimate_query`
+
+```bash
+curl -s -X POST localhost:8080/mcp -H "Authorization: Bearer <token>" \
+  -d '{"jsonrpc":"2.0","id":9,"method":"tools/call",
+       "params":{"name":"estimate_query",
+                 "arguments":{"datasource":"demo","sql":"SELECT * FROM customers"}}}'
+```
+
+Web 控制台「数据查询」tab 也提供「评估成本」按钮，实时展示风险等级与告警。
+
+---
+
 ## 数据集管理（Data Products）
 
 在「数据库连接（数据源）」之上，Aegis 提供**数据集（Dataset）**这一受治理的「数据产品」层：把一条查询固化成稳定的、可发布的、带契约的数据集，供 AI Agent 按名称消费，而无需接触底层物理表。
