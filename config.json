@@ -55,5 +55,14 @@
     },
     "default_roles": [],
     "skip_tls_verify": false
+  },
+  "nl2sql": {
+    "enabled": false,
+    "provider": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "api_key": "",
+    "model": "gpt-4o-mini",
+    "timeout_sec": 30,
+    "max_retries": 2
   }
 }

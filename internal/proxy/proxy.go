@@ -13,6 +13,7 @@ import (
 	"github.com/wisonwang/aegis/internal/datasource"
 	"github.com/wisonwang/aegis/internal/logging"
 	"github.com/wisonwang/aegis/internal/metrics"
+	"github.com/wisonwang/aegis/internal/nl2sql"
 	"github.com/wisonwang/aegis/internal/permission"
 	"github.com/wisonwang/aegis/internal/store"
 )
@@ -35,10 +36,11 @@ type TableInfo struct {
 // Proxy executes queries on behalf of a platform principal, enforcing
 // governance via the permission engine and the datasource connection pools.
 type Proxy struct {
-	store    *store.Store
-	ds       *datasource.Manager
-	guard    *Guard             // nil = behavior limits disabled
-	detector *alerting.Detector // nil = anomaly alerting disabled
+	store      *store.Store
+	ds         *datasource.Manager
+	guard      *Guard             // nil = behavior limits disabled
+	detector   *alerting.Detector // nil = anomaly alerting disabled
+	nl2sqlGen  nl2sql.Generator   // nil = NL2SQL gateway disabled
 }
 
 func New(store *store.Store, ds *datasource.Manager) *Proxy {
@@ -51,6 +53,33 @@ func (p *Proxy) SetGuard(g *Guard) { p.guard = g }
 // SetDetector installs the anomaly-detection engine that watches governed
 // outcomes and raises security alerts. Pass nil to disable alerting.
 func (p *Proxy) SetDetector(d *alerting.Detector) { p.detector = d }
+
+// SetNL2SQL installs the natural-language-to-SQL generator. Pass nil to
+// disable the NL2SQL gateway.
+func (p *Proxy) SetNL2SQL(g nl2sql.Generator) { p.nl2sqlGen = g }
+
+// NL2SQLConfigured reports whether a generator is installed.
+func (p *Proxy) NL2SQLConfigured() bool { return p.nl2sqlGen != nil }
+
+// dialectOf maps a datasource type to a SQL dialect label for the LLM prompt.
+func dialectOf(t string) string {
+	switch t {
+	case "mysql", "mariadb":
+		return "MySQL"
+	case "postgres", "postgresql":
+		return "PostgreSQL"
+	case "sqlite":
+		return "SQLite"
+	case "trino", "presto":
+		return "Trino (PrestoSQL)"
+	case "starrocks":
+		return "StarRocks (MySQL dialect)"
+	case "clickhouse":
+		return "ClickHouse"
+	default:
+		return "standard SQL"
+	}
+}
 
 // Channel context ------------------------------------------------------------
 
@@ -243,6 +272,51 @@ func (p *Proxy) Execute(ctx context.Context, dsID string, claims *auth.Claims, s
 	}
 	p.audit(ctx, dsID, claims, sql, rr.SQL, "ok", note, len(res.Rows), started)
 	return res, nil
+}
+
+// NL2SQL translates a natural-language question into a governed SQL query and
+// executes it. The generated SQL is fed straight back into Execute, so the
+// *exact same* table/row/column governance, value masking, behavior limits and
+// audit trail apply as for any hand-written query. NL2SQL widens who can ask;
+// it never widens what they may see.
+//
+// It returns the governed QueryResult and the generated SQL (for transparency).
+// gen is nil when generation itself failed (caller should treat that as a
+// 5xx); gen is non-nil but res nil when governance denied execution (4xx).
+func (p *Proxy) NL2SQL(ctx context.Context, dsID string, claims *auth.Claims, question, sqlHint string) (res *QueryResult, gen *nl2sql.Result, err error) {
+	if p.nl2sqlGen == nil {
+		return nil, nil, fmt.Errorf("NL2SQL is not configured on this server")
+	}
+	if strings.TrimSpace(question) == "" && strings.TrimSpace(sqlHint) == "" {
+		return nil, nil, fmt.Errorf("a question or sql_hint is required")
+	}
+	ds, err := p.store.GetDataSource(dsID)
+	if err != nil || ds == nil {
+		return nil, nil, fmt.Errorf("datasource not found")
+	}
+	schema, err := p.Catalog(ctx, dsID, claims)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build catalog: %w", err)
+	}
+	gen, err = p.nl2sqlGen.Generate(ctx, &nl2sql.Request{
+		SchemaMarkdown: schema.CatalogMarkdown(),
+		Question:       question,
+		Dialect:        dialectOf(ds.Type),
+		SQLHint:        sqlHint,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("NL2SQL generation failed: %w", err)
+	}
+	if gen == nil || strings.TrimSpace(gen.SQL) == "" {
+		return nil, nil, fmt.Errorf("NL2SQL returned no SQL")
+	}
+	res, err = p.Execute(ctx, dsID, claims, gen.SQL)
+	if err != nil {
+		// gen is non-nil here: this is a governance denial / execution error,
+		// not a generation failure.
+		return nil, gen, err
+	}
+	return res, gen, nil
 }
 
 // executeNoSQL runs the governed path for Mongo / Elasticsearch backends.

@@ -166,6 +166,54 @@ curl -s -X POST localhost:8080/mcp -H "Content-Type: application/json" \
 
 ---
 
+## NL2SQL 安全网关（自然语言 → 受治理 SQL）
+
+把「用大白话问数据」变成受治理的查询接口。**关键设计**：LLM 生成的 SQL 不会直接执行，而是被原样送回 `Proxy.Execute` —— 与手写 SQL 走完全相同的表/行/列治理、脱敏、行为限流与审计链路。NL2SQL 只放宽「谁能问」，绝不放宽「能看到什么」。
+
+- LLM 端点兼容 OpenAI `/chat/completions`（OpenAI / Volcengine Ark·doubao / Azure OpenAI / 本地 vLLM 均可）。
+- 生成阶段强制只读：模型只产出 `SELECT` / `WITH`，`INSERT/UPDATE/DELETE/DDL` 等会被拒绝；且只能引用治理后 Schema 中**已授权**的表与列。
+- 支持 `sql_hint`：可直接传入已知 SQL 让平台代为执行（同样受治理）。
+
+### 配置（config.json 或环境变量）
+
+```jsonc
+"nl2sql": {
+  "enabled": true,
+  "provider": "openai",
+  "base_url": "https://api.openai.com/v1",   // 或 https://ark.cn-beijing.volces.com/api/v3
+  "api_key": "sk-...",                        // 生产环境从密钥管理注入
+  "model": "gpt-4o-mini",
+  "timeout_sec": 30,
+  "max_retries": 2
+}
+```
+
+环境变量：`AEGIS_NL2SQL_ENABLED` / `AEGIS_NL2SQL_BASE_URL` / `AEGIS_NL2SQL_API_KEY` / `AEGIS_NL2SQL_MODEL` / `AEGIS_NL2SQL_TIMEOUT_SEC` / `AEGIS_NL2SQL_MAX_RETRIES`。未配置时接口返回明确的「未启用」错误。
+
+### DataAPI 调用
+
+```bash
+curl -s -X POST localhost:8080/api/v1/datasources/demo/nl2sql \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"question":"查看上海客户的姓名和手机号"}'
+# 返回 { generated_sql, explanation, query_result(已脱敏), session_id }
+```
+
+### MCP 工具 `nl2sql`
+
+```bash
+curl -s -X POST localhost:8080/mcp -H "Authorization: Bearer <token>" \
+  -d '{"jsonrpc":"2.0","id":7,"method":"tools/call",
+       "params":{"name":"nl2sql",
+                 "arguments":{"datasource":"demo","question":"查看上海客户的姓名和手机号"}}}'
+```
+
+### 后台查看模型可见 Schema
+
+`GET /api/v1/datasources/{id}/catalog` 返回治理后的语义 Schema（即喂给模型的上下文，脱敏列已标注），便于排查 NL2SQL 准确率。
+
+---
+
 ## 数据集管理（Data Products）
 
 在「数据库连接（数据源）」之上，Aegis 提供**数据集（Dataset）**这一受治理的「数据产品」层：把一条查询固化成稳定的、可发布的、带契约的数据集，供 AI Agent 按名称消费，而无需接触底层物理表。

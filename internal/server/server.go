@@ -15,6 +15,7 @@ import (
 	"github.com/wisonwang/aegis/internal/logging"
 	"github.com/wisonwang/aegis/internal/mcp"
 	"github.com/wisonwang/aegis/internal/metrics"
+	"github.com/wisonwang/aegis/internal/nl2sql"
 	"github.com/wisonwang/aegis/internal/proxy"
 	"github.com/wisonwang/aegis/internal/store"
 	"github.com/wisonwang/aegis/internal/version"
@@ -82,6 +83,16 @@ func Run(cfg *config.Config) error {
 		return st.InsertSecurityAlert(&a)
 	})
 	px.SetDetector(det)
+
+	// NL2SQL gateway: install the configured generator (nil when disabled or
+	// misconfigured). When set, natural-language questions are turned into
+	// governed SQL and executed through the normal path.
+	if gen, err := nl2sql.NewGenerator(cfg.NL2SQL); err != nil {
+		logging.With("error", err.Error()).Warn("nl2sql disabled")
+	} else if gen != nil {
+		px.SetNL2SQL(gen)
+	}
+
 	h := &api.Handler{Store: st, Proxy: px, DS: dm, Cfg: cfg}
 
 	// OIDC handler (nil when disabled)
@@ -148,6 +159,8 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 	mux.HandleFunc("GET /api/v1/datasources", api.Authenticate(cfg, h.ListDataSources))
 	mux.HandleFunc("GET /api/v1/datasources/{id}/tables", api.Authenticate(cfg, h.ListTables))
 	mux.HandleFunc("GET /api/v1/datasources/{id}/tables/{table}", api.Authenticate(cfg, h.DescribeTable))
+	mux.HandleFunc("GET /api/v1/datasources/{id}/catalog", api.Authenticate(cfg, h.Catalog))
+	mux.HandleFunc("POST /api/v1/datasources/{id}/nl2sql", api.Authenticate(cfg, h.NL2SQL))
 
 	// ---- Datasets (agent-facing consumption) ----
 	mux.HandleFunc("GET /api/v1/datasets", api.Authenticate(cfg, h.ListDatasets))

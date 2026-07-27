@@ -33,6 +33,7 @@
       <button class="tab" data-tab="audit">审计日志</button>
       <button class="tab" data-tab="alerts">安全告警</button>
       <button class="tab" data-tab="approvals">审批流</button>
+      <button class="tab" data-tab="nl2sql">NL2SQL</button>
     </nav>
 
     <section id="tab-query" class="panel active">
@@ -176,6 +177,22 @@
         <button id="apLoad">刷新</button>
       </div>
       <table id="apAll" class="grid"></table>
+    </section>
+
+    <section id="tab-nl2sql" class="panel">
+      <h3>NL2SQL 安全网关</h3>
+      <p class="hint">用自然语言提问，Aegis 生成 SQL 后经由<strong>同一套受治理执行链路</strong>运行——表/行/列权限、脱敏、审计全部生效。仅允许只读查询。</p>
+      <div class="row">
+        <select id="nlDs"></select>
+        <button id="nlCatalog">查看已授权 Schema</button>
+      </div>
+      <textarea id="nlQ" rows="3" placeholder="例如：查看上海客户的姓名和手机号"></textarea>
+      <div class="row">
+        <input id="nlHint" placeholder="可选：直接给 SQL 让系统代为执行（sql_hint）" style="flex:2" />
+        <button id="nlRun">生成并执行</button>
+      </div>
+      <div id="nlGen" class="result"></div>
+      <div id="nlResult" class="result"></div>
     </section>
   </main>
 

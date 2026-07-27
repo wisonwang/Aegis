@@ -262,6 +262,34 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 			"session_id":   sessionID,
 			"queryResult":  res,
 		}
+	case "nl2sql":
+		dsName, _ := args["datasource"].(string)
+		question, _ := args["question"].(string)
+		sqlHint, _ := args["sql_hint"].(string)
+		dsID, err := resolveDatasource(s.store, dsName)
+		if err != nil {
+			return nil, err
+		}
+		// Link every query an agent issues in one conversation (same as query).
+		sessionID, _ := args["session_id"].(string)
+		if sessionID == "" {
+			if h := r.Header.Get("Mcp-Session-Id"); h != "" {
+				sessionID = h
+			} else {
+				sessionID = uuid.NewString()
+			}
+		}
+		ctx := proxy.WithSession(proxy.WithChannel(r.Context(), "mcp"), sessionID)
+		res, gen, err := s.proxy.NL2SQL(ctx, dsID, claims, question, sqlHint)
+		if err != nil {
+			return nil, err
+		}
+		payload = map[string]interface{}{
+			"session_id":    sessionID,
+			"generated_sql": gen.SQL,
+			"explanation":   gen.Explanation,
+			"queryResult":   res,
+		}
 	case "get_catalog":
 		dsName, _ := args["datasource"].(string)
 		dsID, err := resolveDatasource(s.store, dsName)
@@ -455,6 +483,20 @@ func toolsList() []map[string]interface{} {
 					"session_id": map[string]interface{}{"type": "string", "description": "optional id linking queries from one AI conversation; echoed back for threading"},
 				},
 				"required": []string{"datasource", "sql"},
+			},
+		},
+		{
+			"name":        "nl2sql",
+			"description": "Translate a natural-language question into a governed SQL query and run it. Only read-only SQL is ever executed; table/row/column governance and value masking still apply. Use this to let a user ask in plain language. Prefer get_catalog first so the model sees column meanings.",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"datasource": map[string]interface{}{"type": "string", "description": "data source id or name"},
+					"question":   map[string]interface{}{"type": "string", "description": "the natural-language question"},
+					"sql_hint":   map[string]interface{}{"type": "string", "description": "optional hand-written SQL to prefer over free generation"},
+					"session_id": map[string]interface{}{"type": "string", "description": "optional id linking queries from one AI conversation; echoed back for threading"},
+				},
+				"required": []string{"datasource", "question"},
 			},
 		},
 	}

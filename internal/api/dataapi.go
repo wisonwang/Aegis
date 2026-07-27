@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/wisonwang/aegis/internal/auth"
@@ -149,6 +150,64 @@ func (h *Handler) Query(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, queryResponse{QueryResult: res, SessionID: sessionID})
 }
 
+// nl2sqlRequest is the body for the NL2SQL gateway endpoint.
+type nl2sqlRequest struct {
+	DataSource string `json:"datasource"` // id or name
+	Question   string `json:"question"`   // natural-language question
+	SQLHint    string `json:"sql_hint"`   // optional hand-written SQL to prefer over generation
+	SessionID  string `json:"session_id"` // optional; links queries from one AI conversation
+}
+
+// NL2SQL turns a natural-language question into a governed SQL query and runs
+// it. The generated SQL is executed through the same governed path as Query,
+// so table/row/column governance, masking and the audit trail all still apply.
+func (h *Handler) NL2SQL(w http.ResponseWriter, r *http.Request) {
+	var req nl2sqlRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if strings.TrimSpace(req.Question) == "" && strings.TrimSpace(req.SQLHint) == "" {
+		writeError(w, http.StatusBadRequest, "question or sql_hint is required")
+		return
+	}
+	// Prefer the datasource id/name from the URL path; allow an explicit body
+	// field for callers that POST to a fixed endpoint. resolveDS accepts an
+	// id or a name.
+	target := r.PathValue("id")
+	if target == "" {
+		target = req.DataSource
+	}
+	dsID, err := h.resolveDS(target)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	c := claimsFromContext(r.Context())
+	sessionID := req.SessionID
+	if sessionID == "" {
+		sessionID = uuid.NewString()
+	}
+	ctx := proxy.WithSession(proxy.WithChannel(r.Context(), "dataapi"), sessionID)
+	res, gen, err := h.Proxy.NL2SQL(ctx, dsID, c, req.Question, req.SQLHint)
+	if err != nil {
+		if gen == nil {
+			// Generation failure / not configured: server-side issue.
+			writeError(w, http.StatusBadGateway, err.Error())
+		} else {
+			// Generation succeeded but governance denied execution.
+			writeError(w, http.StatusForbidden, err.Error())
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"generated_sql": gen.SQL,
+		"explanation":   gen.Explanation,
+		"query_result":  res,
+		"session_id":    sessionID,
+	})
+}
+
 // ListDataSources returns the registered datasources (id, name, type).
 func (h *Handler) ListDataSources(w http.ResponseWriter, r *http.Request) {
 	ds, err := h.Store.ListDataSources()
@@ -190,6 +249,25 @@ func (h *Handler) DescribeTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"table": table, "columns": cols})
+}
+
+// Catalog returns the governed, semantically enriched schema of a datasource
+// for the caller: the tables/columns they may access, with business
+// descriptions, synonyms and example values. This is exactly what the NL2SQL
+// gateway feeds to the model.
+func (h *Handler) Catalog(w http.ResponseWriter, r *http.Request) {
+	dsID := r.PathValue("id")
+	if _, err := h.Store.GetDataSource(dsID); err != nil || dsID == "" {
+		writeError(w, http.StatusNotFound, "datasource not found")
+		return
+	}
+	c := claimsFromContext(r.Context())
+	schema, err := h.Proxy.Catalog(r.Context(), dsID, c)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, schema)
 }
 
 // resolveDS resolves a datasource id or name to its id.

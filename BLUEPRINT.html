@@ -332,10 +332,10 @@
       </div>
 
     <div class="card">
-      <h3><span class="p4">阶段 4 · AI 增强</span> <span class="pill todo">规划中</span></h3>
+      <h3><span class="p4">阶段 4 · AI 增强</span> <span class="pill partial">部分落地</span></h3>
       <ul class="clean">
-        <li>MCP 能力扩展：<code>resources</code>（表 schema 语义卡片）、<code>prompts</code>（安全取数模板）</li>
-        <li>NL2SQL 安全网关：自然语言 → SQL → 治理强制校验 → 执行，端到端内置</li>
+        <li>MCP 能力扩展：<code>resources</code>（表 schema 语义卡片）、<code>prompts</code>（安全取数模板）<span class="pill ok">已落地</span></li>
+        <li>NL2SQL 安全网关：自然语言 → SQL → 治理强制校验 → 执行，端到端内置（LLM 生成 SQL 原样回灌受治理执行链路，只读强制 + 已授权列约束）<span class="pill ok">已落地</span></li>
         <li>查询血缘与成本：EXPLAIN 预估扫描行数 / 影响范围，给 Agent 风险提示</li>
         <li>语义指标层与向量检索集成：结构化 + 语义混合检索作为统一 DataAPI</li>
       </ul>
@@ -363,7 +363,7 @@
         <tr><td>MCP resources / prompts</td><td>数据源目录、表结构语义卡片作为 resources 暴露；提供「如何安全查询」的 prompts 模板</td><td>已落地</td></tr>
         <tr><td>Schema 语义描述</td><td>表/列业务含义注释（「amount = 含税订单金额」）随 <code>describe_table</code> 下发，提升 NL2SQL 准确率</td><td>已落地</td></tr>
         <tr><td>多数据源：NoSQL 适配器</td><td>MongoDB / Elasticsearch 文档与搜索后端、Trino/Presto 联邦查询；治理（表权限 / 行策略 <code>$and</code>·<code>bool.must</code> / 列 allow-deny / 值脱敏）与 SQL 对齐，含 <code>insert/update/delete</code> 写入护栏（无 WHERE 拦截 + 影响行数预检）</td><td>已落地</td></tr>
-        <tr><td>NL2SQL 安全网关</td><td>「自然语言 → SQL → 治理校验 → 执行」端到端接口，企业无需在每个应用重复实现</td><td>规划</td></tr>
+        <tr><td>NL2SQL 安全网关</td><td>「自然语言 → SQL → 治理校验 → 执行」端到端接口：LLM（OpenAI 兼容）生成只读 SQL 后原样回灌受治理执行链路，企业无需在每个应用重复实现；DataAPI 与 MCP 双入口</td><td>已落地</td></tr>
         <tr><td>语义指标层</td><td>统一定义核心指标（GMV、活跃用户）的计算 SQL，AI 引用指标而非现场编 SQL，根治口径漂移</td><td>远期</td></tr>
         <tr><td>可观测性（Metrics）</td><td><code>GET /metrics</code> 暴露 Prometheus 指标：受治理查询数/延迟/返回行数（按 channel×status）、数据源与已发布数据集计数、构建版本；直接接入 Prometheus/Grafana</td><td>已落地</td></tr>
       </table>
@@ -479,14 +479,15 @@
       <li><b>已完成（楔子策略首役 · 本轮）：</b>审计关联 AI 会话 ID（会话级串联，强化「全程录像」卖点）+ 异常行为告警（高频 denied / 批量导出 / 非工作时段 → 控制面 <code>security_alerts</code> 落库、管理台可检索标记、可选 Webhook）。下一步把 MCP 治理能力整理为开发者叙事（README / 落地页），启动 OSS 采用率验证。</li>
   <li><b>已完成（企业门槛 · 本轮）：</b>SSO / OIDC 身份对接——OAuth2 授权码流程 + PKCE，用户 auto-provisioning，claim→角色自动映射；健康探针增强（/api/v1/ready 就绪检查）</li>
   <li><b>已完成（企业门槛 · 本轮）：</b>LDAP / Active Directory 身份对接——基于密码的目录单点登录，三步绑定校验（服务账号检索 → 解析用户 DN → 用户 DN 绑定），组（member）→ 平台角色自动映射（claim_mappings），用户 auto-provisioning（external_id = ldap:&lt;DN&gt;），与 OIDC 共用同一套外部身份供给/签发链路；<code>Directory</code> 接口抽象使逻辑可无目录服务的单元测试覆盖</li>
-  <li><b>短期：</b>权限审批流（授权申请 — 审批 — 生效 — 回收闭环）；数据分类分级：按敏感级别自动推荐默认脱敏策略；多租户工作区（组织 / 项目维度隔离与配额）</li>
-      <li><b>中期：</b>NL2SQL 安全网关 + 语义指标层；脱敏算法库（Tokenization / 格式保留加密）；多租户工作区（企业版前置）</li>
+  <li><b>已完成（AI 增强 · 本轮）：</b>NL2SQL 安全网关——自然语言经 LLM（OpenAI 兼容）生成<strong>只读</strong> SQL，原样回灌受治理执行链路（表/行/列治理、脱敏、审计全部生效）；提供 DataAPI（<code>POST /api/v1/datasources/{id}/nl2sql</code>）、MCP 工具 <code>nl2sql</code> 与受治理 Schema 查看端点；生成阶段强制只读 + 仅引用已授权列。</li>
+  <li><b>短期：</b>多租户工作区（组织 / 项目维度隔离与配额）；权限审批流增强（审批人分组 / 时限 / 自动撤回）</li>
+      <li><b>中期：</b>语义指标层与查询血缘/成本（EXPLAIN 扫描行数预估、给 Agent 风险提示）；多租户工作区（企业版前置）</li>
       <li><b>远期：</b>集群化 + 插件市场 + 治理即代码，升级为「AI 数据服务中台」</li>
     </ul>
   </section>
 
   <p class="footnote">
-    Aegis 项目 PRD 蓝图 v0.8 · 更新于 2026-07-27 · 已合并「企业 AI 应用建设场景」必要性论证、功能扩充规划（原 AI-SCENARIO.html 专项文档），新增「市场定位与竞争策略（2026-07 复盘）」、<strong>SSO/OIDC 身份对接</strong>、<strong>健康探针增强</strong>、<strong>结构化日志（标准库 log/slog，JSON/文本，含访问日志与治理决策事件）</strong>、<strong>脱敏算法库（Tokenization 确定性假名 + 格式保留加密 FPE）</strong>、<strong>LDAP / Active Directory 身份对接</strong>，以及本轮 <strong>数据分类分级自动推荐默认脱敏</strong>（基于列分类 level + 标签 + 列名推导默认脱敏策略，提供 <code>POST .../masks/recommend</code> 一键预览 / 落地，全新安装自动为 analyst 套用）。另含阶段2 <strong>RLS 双层加固</strong>（行策略递归注入任意深度嵌套子查询）。密钥经 <code>AEGIS_MASK_SECRET</code> 注入。当前版本为单二进制 Golang 实现，三级治理 / 审计 / OIDC / LDAP / 真实 MySQL / PostgreSQL 已端到端验证。文档与代码同源维护于本仓库（模块 <code>github.com/wisonwang/aegis</code>）。
+    Aegis 项目 PRD 蓝图 v0.8 · 更新于 2026-07-27 · 已合并「企业 AI 应用建设场景」必要性论证、功能扩充规划（原 AI-SCENARIO.html 专项文档），新增「市场定位与竞争策略（2026-07 复盘）」、<strong>SSO/OIDC 身份对接</strong>、<strong>健康探针增强</strong>、<strong>结构化日志（标准库 log/slog，JSON/文本，含访问日志与治理决策事件）</strong>、<strong>脱敏算法库（Tokenization 确定性假名 + 格式保留加密 FPE）</strong>、<strong>LDAP / Active Directory 身份对接</strong>，以及本轮 <strong>数据分类分级自动推荐默认脱敏</strong>（基于列分类 level + 标签 + 列名推导默认脱敏策略，提供 <code>POST .../masks/recommend</code> 一键预览 / 落地，全新安装自动为 analyst 套用）。另含阶段2 <strong>RLS 双层加固</strong>（行策略递归注入任意深度嵌套子查询）、<strong>NL2SQL 安全网关</strong>（LLM 生成只读 SQL 回灌受治理执行链路，DataAPI + MCP 双入口）。密钥经 <code>AEGIS_MASK_SECRET</code> 注入。当前版本为单二进制 Golang 实现，三级治理 / 审计 / OIDC / LDAP / 真实 MySQL / PostgreSQL 已端到端验证。文档与代码同源维护于本仓库（模块 <code>github.com/wisonwang/aegis</code>）。
   </p>
 </div>
 </body>

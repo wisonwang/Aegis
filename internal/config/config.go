@@ -22,6 +22,7 @@ type Config struct {
 	Alerting   AlertingConfig `json:"alerting"`
 	OIDC       OIDCConfig     `json:"oidc"`
 	LDAP       LDAPConfig     `json:"ldap"`
+	NL2SQL     NL2SQLConfig   `json:"nl2sql"`
 	Logging    LoggingConfig  `json:"logging"`
 	MaskSecret string         `json:"mask_secret"` // server key for keyed masking (tokenize/fpe); source from KMS in prod
 }
@@ -45,6 +46,23 @@ type OIDCConfig struct {
 	RedirectURL   string            `json:"redirect_url"`   // callback URL registered with the IdP, e.g. "http://localhost:8080/api/v1/auth/oidc/callback"
 	Scopes        []string          `json:"scopes"`         // additional scopes beyond openid,profile,email
 	ClaimMappings map[string]string `json:"claim_mappings"` // map OIDC claim values to platform roles, e.g. {"admins":"admin","analysts":"analyst"}
+}
+
+// NL2SQLConfig configures the natural-language-to-SQL gateway. When Enabled
+// and an APIKey is present, Aegis can translate a natural-language question
+// into a governed SQL query and execute it through the normal governed path
+// (so table/row/column governance + masking + audit still apply). The LLM
+// endpoint is OpenAI-compatible (works with OpenAI, Volcengine Ark/doubao,
+// Azure OpenAI, local vLLM, etc.). Leave Enabled=false to keep the feature
+// off; the platform then returns a clear "not configured" error.
+type NL2SQLConfig struct {
+	Enabled    bool   `json:"enabled"`     // enable the NL2SQL gateway
+	Provider   string `json:"provider"`    // "openai" (OpenAI-compatible chat completions)
+	BaseURL    string `json:"base_url"`    // e.g. https://api.openai.com/v1 or https://ark.cn-beijing.volces.com/api/v3
+	APIKey     string `json:"api_key"`     // LLM provider key (source from secret manager in prod)
+	Model      string `json:"model"`       // model id, e.g. gpt-4o-mini
+	TimeoutSec int    `json:"timeout_sec"` // per-request timeout (0 = default 30)
+	MaxRetries int    `json:"max_retries"` // retry count on transient errors (0 = default 2)
 }
 
 // limiting. Zero values fall back to platform defaults; admin can be exempted.
@@ -160,6 +178,13 @@ func Default() *Config {
 		OIDC: OIDCConfig{
 			Scopes: []string{"profile", "email"},
 		},
+		NL2SQL: NL2SQLConfig{
+			Provider:   "openai",
+			BaseURL:    "https://api.openai.com/v1",
+			Model:      "gpt-4o-mini",
+			TimeoutSec: 30,
+			MaxRetries: 2,
+		},
 		Logging: LoggingConfig{
 			Format: "json",
 			Level:  "info",
@@ -258,6 +283,29 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("AEGIS_OIDC_REDIRECT_URL"); v != "" {
 		cfg.OIDC.RedirectURL = v
+	}
+	// NL2SQL environment overrides
+	if v := os.Getenv("AEGIS_NL2SQL_ENABLED"); v != "" {
+		cfg.NL2SQL.Enabled = v == "true" || v == "1"
+	}
+	if v := os.Getenv("AEGIS_NL2SQL_BASE_URL"); v != "" {
+		cfg.NL2SQL.BaseURL = v
+	}
+	if v := os.Getenv("AEGIS_NL2SQL_API_KEY"); v != "" {
+		cfg.NL2SQL.APIKey = v
+	}
+	if v := os.Getenv("AEGIS_NL2SQL_MODEL"); v != "" {
+		cfg.NL2SQL.Model = v
+	}
+	if v := os.Getenv("AEGIS_NL2SQL_TIMEOUT_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.NL2SQL.TimeoutSec = n
+		}
+	}
+	if v := os.Getenv("AEGIS_NL2SQL_MAX_RETRIES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.NL2SQL.MaxRetries = n
+		}
 	}
 	// Logging overrides
 	if v := os.Getenv("AEGIS_LOG_FORMAT"); v != "" {
