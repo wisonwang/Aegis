@@ -32,6 +32,7 @@
       <button class="tab" data-tab="gov">权限治理</button>
       <button class="tab" data-tab="audit">审计日志</button>
       <button class="tab" data-tab="alerts">安全告警</button>
+      <button class="tab" data-tab="approvals">审批流</button>
     </nav>
 
     <section id="tab-query" class="panel active">
@@ -143,6 +144,38 @@
         <button id="alLoad">查询</button>
       </div>
       <table id="alertTable" class="grid"></table>
+    </section>
+
+    <section id="tab-approvals" class="panel">
+      <h3>提交访问授权申请</h3>
+      <p class="hint">向管理员申请「为某个角色授予某数据源某表的访问权限」。审批通过后系统自动创建对应的表级授权，可随时撤回。</p>
+      <div class="row">
+        <select id="apDs"></select>
+        <input id="apTable" placeholder="表名, 如 orders" />
+        <select id="apRole"></select>
+        <input id="apOps" placeholder="SELECT,INSERT" value="SELECT" />
+      </div>
+      <div class="row">
+        <input id="apJust" placeholder="申请理由" style="flex:2" />
+        <button id="apSubmit">提交申请</button>
+      </div>
+      <div id="apMsg" class="hint"></div>
+
+      <h3>我的申请</h3>
+      <table id="apMine" class="grid"></table>
+
+      <h3>审批台（管理员）</h3>
+      <div class="row">
+        <select id="apFilter">
+          <option value="">全部状态</option>
+          <option value="pending">待审批</option>
+          <option value="approved">已批准</option>
+          <option value="rejected">已拒绝</option>
+          <option value="revoked">已撤回</option>
+        </select>
+        <button id="apLoad">刷新</button>
+      </div>
+      <table id="apAll" class="grid"></table>
     </section>
   </main>
 

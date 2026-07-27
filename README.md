@@ -581,6 +581,46 @@ curl -X POST http://localhost:8080/api/v1/auth/ldap/login \
 
 ---
 
+## 权限审批流（Access Approval Workflow）
+
+Aegis 的授权按**角色**聚合，因此一次审批 = 为某角色申请对某数据源某表的访问。闭环：**申请 → 审批 → 生效 → 回收**。
+
+### 端点
+
+| 方法 & 路径 | 权限 | 说明 |
+| --- | --- | --- |
+| `POST /admin/api/approvals` | 登录用户 | 提交申请：`datasource_id`、`table_name`、`role`、`ops`、`justification`；`ops` 限定为 `SELECT,INSERT,UPDATE,DELETE` 子集 |
+| `GET /admin/api/approvals` | 管理员 | 列出申请，支持 `status` / `datasource_id` 过滤 |
+| `GET /api/v1/me/approvals` | 登录用户 | 查看本人提交与状态 |
+| `POST /admin/api/approvals/{id}/approve` | 管理员 | 批准：自动创建角色级 `table_permissions` 授权，记录 `granted_perm_id` |
+| `POST /admin/api/approvals/{id}/reject` | 管理员 | 拒绝：不创建授权 |
+| `POST /admin/api/approvals/{id}/revoke` | 管理员 | 撤回已批准项：按 `granted_perm_id` 精确删除授权，闭环可逆 |
+
+> 已批准项不可重复批准（返回 409）；仅 `pending` 可审批，`approved` 可撤回。
+
+### 示例
+
+```bash
+# 1. 普通用户提交申请（为 analyst 角色申请 demo 数据源 orders 表的只读）
+curl -X POST http://localhost:8080/admin/api/approvals \
+  -H 'Authorization: Bearer <user-token>' -H 'Content-Type: application/json' \
+  -d '{"datasource_id":"<ds-id>","table_name":"orders","role":"analyst","ops":"SELECT","justification":"报表需要"}'
+
+# 2. 管理员批准 -> 自动落授权
+curl -X POST http://localhost:8080/admin/api/approvals/<req-id>/approve \
+  -H 'Authorization: Bearer <admin-token>'
+
+# 3. 撤回 -> 精确删除该授权
+curl -X POST http://localhost:8080/admin/api/approvals/<req-id>/revoke \
+  -H 'Authorization: Bearer <admin-token>'
+```
+
+### 设计要点（ADR）
+
+授权模型以**角色**为自然键，审批目标是角色而非个人——申请人仅作留痕，避免牵动用户↔角色成员图；回收缩小到「删除本审批创建的授权行」，保证治理闭环可审计、可还原。后台「审批流」页提供**申请视图**（提交 + 我的申请）与**审批台**（待审批 + 历史 + 通过/拒绝/撤回）双视图。
+
+---
+
 ## 可观测性（Observability）
 
 ### 健康探针

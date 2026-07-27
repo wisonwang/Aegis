@@ -164,6 +164,14 @@ func (s *Store) migrate() error {
 			level TEXT, tags TEXT, updated_at DATETIME)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_classifications_key
 			ON data_classifications(datasource_id, table_name, column_name)`,
+		`CREATE TABLE IF NOT EXISTS approval_requests (
+			id TEXT PRIMARY KEY, applicant_id TEXT, applicant_name TEXT,
+			datasource_id TEXT, datasource_name TEXT, table_name TEXT,
+			role_name TEXT, ops TEXT, justification TEXT, status TEXT,
+			approver_id TEXT, approver_name TEXT, granted_perm_id TEXT,
+			created_at DATETIME, resolved_at DATETIME)`,
+		`CREATE INDEX IF NOT EXISTS idx_approval_status ON approval_requests(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_approval_applicant ON approval_requests(applicant_id)`,
 	}
 	for _, st := range stmts {
 		if _, err := s.db.Exec(st); err != nil {
@@ -516,10 +524,15 @@ func (s *Store) CreateTablePermission(p *TablePermission) error {
 }
 
 // ListTablePermissions returns permissions for a role+datsource; tableName "" means all.
+// An empty roleID selects all roles (consistent with ListColumnMasks).
 func (s *Store) ListTablePermissions(roleID, dsID, tableName string) ([]*TablePermission, error) {
 	q := `SELECT id,role_id,datasource_id,table_name,ops,allowed_cols,denied_cols
-	      FROM table_permissions WHERE role_id=? AND datasource_id=?`
-	args := []interface{}{roleID, dsID}
+	      FROM table_permissions WHERE datasource_id=?`
+	args := []interface{}{dsID}
+	if roleID != "" {
+		q += ` AND role_id=?`
+		args = append(args, roleID)
+	}
 	if tableName != "" {
 		q += ` AND table_name=?`
 		args = append(args, tableName)
@@ -559,10 +572,15 @@ func (s *Store) CreateRowPolicy(p *RowPolicy) error {
 }
 
 // ListRowPolicies returns policies for a role+datsource; table "" means all tables.
+// An empty roleID selects all roles.
 func (s *Store) ListRowPolicies(roleID, dsID, table string) ([]*RowPolicy, error) {
 	q := `SELECT id,role_id,datasource_id,table_name,predicate,priority
-	      FROM row_policies WHERE role_id=? AND datasource_id=?`
-	args := []interface{}{roleID, dsID}
+	      FROM row_policies WHERE datasource_id=?`
+	args := []interface{}{dsID}
+	if roleID != "" {
+		q += ` AND role_id=?`
+		args = append(args, roleID)
+	}
 	if table != "" {
 		q += ` AND table_name=?`
 		args = append(args, table)

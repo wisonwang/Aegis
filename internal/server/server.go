@@ -143,6 +143,7 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 	// ---- DataAPI (requires authentication) ----
 	mux.HandleFunc("POST /api/v1/login", h.Login)
 	mux.HandleFunc("GET /api/v1/me", api.Authenticate(cfg, h.Me))
+	mux.HandleFunc("GET /api/v1/me/approvals", api.Authenticate(cfg, h.UserListMyApprovals))
 	mux.HandleFunc("POST /api/v1/query", api.Authenticate(cfg, h.Query))
 	mux.HandleFunc("GET /api/v1/datasources", api.Authenticate(cfg, h.ListDataSources))
 	mux.HandleFunc("GET /api/v1/datasources/{id}/tables", api.Authenticate(cfg, h.ListTables))
@@ -188,6 +189,14 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 	mux.HandleFunc("GET /admin/api/alerts", a(h.AdminListAlerts))
 	mux.HandleFunc("GET /admin/api/alerts/stats", a(h.AdminAlertStats))
 	mux.HandleFunc("POST /admin/api/alerts/{id}/resolve", a(h.AdminResolveAlert))
+
+	// ---- Access approval workflow (申请 -> 审批 -> 生效 -> 回收) ----
+	// Any authenticated user may raise a request; only admins resolve them.
+	mux.HandleFunc("POST /admin/api/approvals", api.Authenticate(cfg, h.UserSubmitApproval))
+	mux.HandleFunc("GET /admin/api/approvals", a(h.AdminListApprovals))
+	mux.HandleFunc("POST /admin/api/approvals/{id}/approve", a(h.AdminApproveApproval))
+	mux.HandleFunc("POST /admin/api/approvals/{id}/reject", a(h.AdminRejectApproval))
+	mux.HandleFunc("POST /admin/api/approvals/{id}/revoke", a(h.AdminRevokeApproval))
 
 	// ---- Schema semantics (AI data-supply layer) ----
 	mux.HandleFunc("GET /admin/api/datasources/{id}/semantics", a(h.AdminListSemantics))

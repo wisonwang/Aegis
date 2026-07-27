@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Aegis 项目 PRD 蓝图 v0.8</title>
+<title>Aegis 项目 PRD 蓝图 v0.9</title>
 <style>
   :root{
     --blue:#185FA5; --teal:#0F6E56; --purple:#534AB7; --amber:#854F0B; --green:#3B6D11; --coral:#993C1D;
@@ -79,6 +79,7 @@
     <span class="tag">MySQL 已接入</span>
     <span class="tag">SSO / OIDC</span>
     <span class="tag">LDAP / AD</span>
+    <span class="tag">权限审批流</span>
   </div>
 </header>
 
@@ -275,6 +276,7 @@
           <li><span class="pill ok">已验证</span> 后台管理 UI（用户/角色/数据源/权限/策略 CRUD + 审计日志页 + 安全告警页）</li>
           <li><span class="pill ok">已验证</span> SSO / OIDC 身份对接：OAuth2 授权码 + PKCE，用户 auto-provisioning，claim→角色自动映射</li>
           <li><span class="pill ok">已验证</span> LDAP / Active Directory 身份对接：基于密码的目录单点登录，三步绑定校验，组→角色自动映射，用户 auto-provisioning（external_id = ldap:&lt;DN&gt;）</li>
+          <li><span class="pill ok">已验证</span> 权限审批流：申请（为角色授予表访问）— 审批 — 生效 — 回收闭环；审批通过自动落角色级 table_permissions 授权、撤回按 granted_perm_id 精确删除，前端「审批流」页含申请视图与审批台</li>
           <li><span class="pill ok">已验证</span> 健康探针：liveness（/api/v1/health）与 readiness（/api/v1/ready，检查 store 可用性）</li>
           <li><span class="pill ok">已验证</span> 结构化日志：标准库 log/slog（JSON / 文本），覆盖 HTTP 访问日志（req_id 关联）+ 治理决策事件（denied/error）+ 启动事件，可直接接入 Loki / ELK</li>
         </ul>
@@ -314,17 +316,20 @@
       </ul>
     </div>
 
-    <div class="card">
-      <h3><span class="p3">阶段 3 · 企业治理</span> <span class="pill todo">规划中</span></h3>
-      <ul class="clean">
-        <li><span class="pill ok">已完成</span> 统一身份：SSO / OIDC 接入，OAuth2 授权码流程 + PKCE，用户 auto-provisioning，claim→角色自动映射</li>
-        <li><span class="pill ok">已完成</span> LDAP / Active Directory 接入：基于密码的目录单点登录，三步绑定（服务账号检索 → 解析用户 DN → 用户 DN 绑定校验），组（group）→ 角色自动映射，用户 auto-provisioning；<code>Directory</code> 接口抽象使逻辑可无服务单测</li>
-        <li><span class="pill ok">已完成</span> 脱敏算法库：哈希（hash）、掩码（phone/email/card/partial/redact）、<b>Tokenization</b>（确定性 HMAC 假名，脱敏后仍可关联/聚合）与 <b>格式保留加密 FPE</b>（对卡号/证件号等纯数字 PII 保长保型，密钥可经 <code>FpeDecrypt</code> 还原）；密钥经 <code>AEGIS_MASK_SECRET</code> 注入，未配置时回退开发默认值并告警</li>
-      <li>权限审批流：授权申请 — 审批 — 生效 — 回收闭环</li>
-      <li><span class="pill ok">已完成</span> 数据分类分级自动推荐默认脱敏：基于列分类（level + 标签 + 列名）自动推导默认脱敏策略（phone/email/card/fpe/partial/tokenize），并提供 <code>POST /admin/api/datasources/{id}/masks/recommend</code> 一键预览 / 落地（按指定角色或全量非 admin 角色）；全新安装自动为 analyst 角色套用推荐脱敏，列治理开箱可见</li>
-      <li>多租户隔离：组织 / 项目维度的工作区与配额</li>
-      </ul>
-    </div>
+      <div class="card">
+        <h3><span class="p3">阶段 3 · 企业治理</span> <span class="pill next">进行中</span></h3>
+        <ul class="clean">
+          <li><span class="pill ok">已完成</span> 统一身份：SSO / OIDC 接入，OAuth2 授权码流程 + PKCE，用户 auto-provisioning，claim→角色自动映射</li>
+          <li><span class="pill ok">已完成</span> LDAP / Active Directory 接入：基于密码的目录单点登录，三步绑定（服务账号检索 → 解析用户 DN → 用户 DN 绑定校验），组（group）→ 角色自动映射，用户 auto-provisioning；<code>Directory</code> 接口抽象使逻辑可无服务单测</li>
+          <li><span class="pill ok">已完成</span> 脱敏算法库：哈希（hash）、掩码（phone/email/card/partial/redact）、<b>Tokenization</b>（确定性 HMAC 假名，脱敏后仍可关联/聚合）与 <b>格式保留加密 FPE</b>（对卡号/证件号等纯数字 PII 保长保型，密钥可经 <code>FpeDecrypt</code> 还原）；密钥经 <code>AEGIS_MASK_SECRET</code> 注入，未配置时回退开发默认值并告警</li>
+          <li><span class="pill ok">已完成</span> 权限审批流：授权申请 — 审批 — 生效 — 回收闭环（申请以「为某角色授予某数据源某表访问」为粒度；审批通过自动落 <code>table_permissions</code> 授权、撤回按 <code>granted_perm_id</code> 精确删除，闭环可逆，不触碰用户↔角色关系）</li>
+          <li><span class="pill ok">已完成</span> 数据分类分级自动推荐默认脱敏：基于列分类（level + 标签 + 列名）自动推导默认脱敏策略（phone/email/card/fpe/partial/tokenize），并提供 <code>POST /admin/api/datasources/{id}/masks/recommend</code> 一键预览 / 落地（按指定角色或全量非 admin 角色）；全新安装自动为 analyst 角色套用推荐脱敏，列治理开箱可见</li>
+          <li>多租户隔离：组织 / 项目维度的工作区与配额</li>
+          </ul>
+        <div class="callout blue" style="margin-top:14px">
+          <strong>ADR · 审批流建模在 RBAC 角色层（非用户层）</strong>：Aegis 的治理授权原本就按 <b>角色</b> 而非个人聚合（<code>role_id</code> 是 <code>table_permissions</code> 的自然键），因此一次审批 =「为某角色新增对某表的授权」。申请人=请求的发起人（留痕），授权目标=角色。收益：复用现有引擎、闭环可逆（撤回仅删本审批创建的授权行）、不牵动用户↔角色成员图；代价：若需「仅给某个人临时授权」，需先建/指角色——对治理型平台这是更清晰、更可审计的模型。前端提供「提交申请 + 我的申请」与「审批台（管理员）」双视图。
+        </div>
+      </div>
 
     <div class="card">
       <h3><span class="p4">阶段 4 · AI 增强</span> <span class="pill todo">规划中</span></h3>
