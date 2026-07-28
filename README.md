@@ -1,8 +1,11 @@
 # Aegis · 数据库代理治理平台
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
+
 ![Go](https://img.shields.io/badge/Go-1.26-blue.svg)
+
 ![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-purple.svg)
+
 ![Deploy](https://img.shields.io/badge/deploy-single%20binary-orange.svg)
 
 > **把内部数据库变成受治理的 AI Agent 工具**——单二进制、默认开启治理、LLM 生成的 SQL 也绕不过权限。详见 [CHANGELOG](CHANGELOG.md) · [SECURITY](SECURITY.md) · [examples](examples/)。
@@ -10,6 +13,8 @@
 > 使用 Golang 构建的**数据库代理 / 数据服务治理平台**：集中管理数据库访问权限、封装表/行/列级数据权限，并以 **DataAPI** 与 **MCP 服务** 的形式统一对外提供数据能力，供业务系统与 AI Agent 使用。
 
 > **命名（Rebrand）：** 项目已由 **DataHub** 更名为 **Aegis**（副标题 *AI Data Supply Gateway*），以规避与 LinkedIn / Acryl 同名数据目录产品（metadata catalog）的品牌与 SEO 混淆。代码级标识符已同步更名完成：模块路径 `github.com/wisonwang/aegis`、`aegis://` URI 方案、`aegis_svc` 受限账号、`AEGIS_*` 环境变量、`cmd/aegis` 入口目录。
+
+
 
 ---
 
@@ -41,7 +46,7 @@ Aegis 在应用（或 AI Agent）与后端数据库之间插入一个**代理层
 
 ### 为什么 AI 场景必须有这一层
 
-AI 应用（ChatBI / Agent 工作流 / RAG / Copilot）的 SQL 由 LLM 现场生成——不可评审、不可穷举、可被提示词注入操纵，「应用层代码内控权限」在 AI 场景下失效。Aegis 把治理下沉到数据访问层：凭据隔离、三级权限、解析级 SQL 强制校验、全量审计、统一供给，五大风险逐一兜底。完整论证与面向 AI 的功能扩充规划（MCP resources / NL2SQL 网关 / 行数上限 / 限流 / 动态脱敏等）见 **[BLUEPRINT.md](BLUEPRINT.md)**（项目 PRD 蓝图 v0.6）。
+AI 应用（ChatBI / Agent 工作流 / RAG / Copilot）的 SQL 由 LLM 现场生成——不可评审、不可穷举、可被提示词注入操纵，「应用层代码内控权限」在 AI 场景下失效。Aegis 把治理下沉到数据访问层：凭据隔离、三级权限、解析级 SQL 强制校验、全量审计、统一供给，五大风险逐一兜底。完整论证与面向 AI 的功能扩充规划（MCP resources / NL2SQL 网关 / 行数上限 / 限流 / 动态脱敏等）见 **[BLUEPRINT.md](BLUEPRINT.md)**（项目蓝图 v1.0）。
 
 ---
 
@@ -291,7 +296,7 @@ Web 控制台「数据查询」tab 也提供「评估成本」按钮，实时展
 
 ## 数据集管理（Data Products）
 
-在「数据库连接（数据源）」之上，Aegis 提供**数据集（Dataset）**这一受治理的「数据产品」层：把一条查询固化成稳定的、可发布的、带契约的数据集，供 AI Agent 按名称消费，而无需接触底层物理表。
+在「数据库连接（数据源）」之上，Aegis 提供\*\*数据集（Dataset）\*\*这一受治理的「数据产品」层：把一条查询固化成稳定的、可发布的、带契约的数据集，供 AI Agent 按名称消费，而无需接触底层物理表。
 
 - **数据集是虚拟表**：其治理（表/行/列权限、动态脱敏、语义）复用同一套权限引擎，治理行以 `table_name = 数据集名` 写入现有权限表，无需新建权限模型。
 - **生命周期**：`draft → published`；仅 `published` 且已授权的数据集对 Agent 可见、可查。
@@ -353,27 +358,20 @@ curl -s localhost:8080/api/v1/datasets/<dataset-id>/query -H "Authorization: Bea
 
 **动态脱敏（Dynamic Masking）**：除了整列隐藏，Aegis 还支持对列值做**变换掩码**——列仍返回，但敏感值被脱敏，让 AI 既能拿到有用数据又不暴露 PII。规则按「角色 × 数据源 × 表 × 列」配置，内置 6 种策略：
 
-| 策略 | 效果 | 示例 |
-| --- | --- | --- |
-| `phone` | 保留前 3 + 后 4 位，中间 `*` | `13812345678` → `138****5678` |
-| `email` | 保留首字符 + 完整域名 | `ops@acme.com` → `o***@acme.com` |
-| `card` | 仅保留后 4 位 | `4111111111111111` → `************1111` |
-| `partial` | 保留首尾各 N 位（`keep`，默认 2） | `Acme Corp` → `Ac*****rp` |
-| `hash` | SHA-256 截断 16 位（不可逆） | `secret` → `2bb80d537b1da3e3` |
-| `redact` | 常量 `***` | 任意值 → `***` |
-| `tokenize` | **确定性 HMAC 假名**（密钥相关，可跨表关联/聚合） | `alice@example.com` → `aZ3k...`（24 位不透明令牌，相同输入稳定同值） |
-| `fpe` | **格式保留加密**（仅纯数字 PII，保长保型，密钥可还原） | `4111111111111111` → `7f2c...`（仍是 16 位数字，非数字回退 `tokenize`） |
+| 策略         | 效果                              | 示例                                                         |
+| ---------- | ------------------------------- | ---------------------------------------------------------- |
+| `phone`    | 保留前 3 + 后 4 位，中间 `*`            | `13812345678` → `138****5678`                              |
+| `email`    | 保留首字符 + 完整域名                    | `ops@acme.com` → `o***@acme.com`                           |
+| `card`     | 仅保留后 4 位                        | `4111111111111111` → `************1111`                    |
+| `partial`  | 保留首尾各 N 位（`keep`，默认 2）          | `Acme Corp` → `Ac*****rp`                                  |
+| `hash`     | SHA-256 截断 16 位（不可逆）            | `secret` → `2bb80d537b1da3e3`                              |
+| `redact`   | 常量 `***`                        | 任意值 → `***`                                                |
+| `tokenize` | **确定性 HMAC 假名**（密钥相关，可跨表关联/聚合）  | `alice@example.com` → `aZ3k...`（24 位不透明令牌，相同输入稳定同值）        |
+| `fpe`      | **格式保留加密**（仅纯数字 PII，保长保型，密钥可还原） | `4111111111111111` → `7f2c...`（仍是 16 位数字，非数字回退 `tokenize`） |
 
 掩码在结果层对单元格执行，`admin` 角色与无掩码规则的角色不受影响；MCP `get_catalog` 的语义卡片会标注被掩码列（`masked: <策略>`），让 Agent 知道自己拿到的字段是脱敏值。
 
 > **密钥策略（`tokenize` / `fpe`）**：这两种策略是**确定性、密钥相关**的——相同的输入在相同的 `AEGIS_MASK_SECRET` 下总是得到相同输出，因此脱敏后的值仍能做 `JOIN` / 去重 / 聚合，而原始 PII 不会离开平台。`fpe` 还可用 `proxy.FpeDecrypt`（或未来管理端「再识别」工具）在持有密钥时还原。生产环境**务必通过 `AEGIS_MASK_SECRET` 注入密钥**（建议来自 KMS / Vault），未配置时回退到不安全的开发默认值并在启动日志告警；密钥一旦轮换，已落库的脱敏值需按新密钥重算。
-
-<!-- 管理 API（仅管理员）：
-GET  /admin/api/datasources/{id}/masks
-POST /admin/api/datasources/{id}/masks   {role, table, column, strategy, keep?}
-DELETE /admin/api/datasources/{id}/masks/{mask}
-POST /admin/api/datasources/{id}/masks/recommend   {role?, table?, apply_to_all_roles?, apply?}  # 按分类推荐脱敏，apply=true 落地
--->
 
 ### 数据分级分类（Data Classification）
 
@@ -394,17 +392,17 @@ POST /admin/api/datasources/{id}/masks/recommend   {role?, table?, apply_to_all_
 
 推荐优先级（精确标签 > 级别 + 列名启发 > 级别兜底）：
 
-| 输入 | 推荐策略 |
-| --- | --- |
-| 标签 `pii:phone` / `pii:mobile` | `phone` |
-| 标签 `pii:email` | `email` |
-| 标签 `pii:card` / `pii:bank` / `pii:account` | `card` |
-| 标签 `pii:idcard` / `pii:ssn` | `fpe` |
-| 标签 `pii:name` | `partial`（`keep=1`） |
-| 级别 `pii`/`restricted` + 列名含 phone/email/card/idcard/name | 对应策略（证件号 → `fpe`） |
-| 级别 `pii`/`restricted` 且无更精确特征 | `tokenize`（确定性假名，可关联） |
-| 级别 `confidential` 或标签含 `financial`/`money` | `partial`（`keep=2`，保留量级） |
-| 级别 `public`/`internal` | 无需脱敏 |
+| 输入                                                       | 推荐策略                     |
+| -------------------------------------------------------- | ------------------------ |
+| 标签 `pii:phone` / `pii:mobile`                            | `phone`                  |
+| 标签 `pii:email`                                           | `email`                  |
+| 标签 `pii:card` / `pii:bank` / `pii:account`               | `card`                   |
+| 标签 `pii:idcard` / `pii:ssn`                              | `fpe`                    |
+| 标签 `pii:name`                                            | `partial`（`keep=1`）      |
+| 级别 `pii`/`restricted` + 列名含 phone/email/card/idcard/name | 对应策略（证件号 → `fpe`）        |
+| 级别 `pii`/`restricted` 且无更精确特征                            | `tokenize`（确定性假名，可关联）    |
+| 级别 `confidential` 或标签含 `financial`/`money`               | `partial`（`keep=2`，保留量级） |
+| 级别 `public`/`internal`                                   | 无需脱敏                     |
 
 管理端点（仅管理员）：
 
@@ -467,14 +465,14 @@ curl -X POST "http://localhost:8080/admin/api/alerts/<id>/resolve" -H "Authoriza
 
 针对 AI Agent「概率性调用方」的行为约束，在权限治理之外再加一层运行时防线（`config.json` 的 `limits` 段，亦可用环境变量覆盖）：
 
-| 参数                   | 默认   | 作用                                                                 |
-| -------------------- | ---- | ------------------------------------------------------------------ |
-| `max_rows`           | 1000 | 单次查询返回行数上限，超出即截断并在响应里带 `truncated: true`（防 Agent 拖库）             |
-| `query_timeout`      | 30s  | 单查询执行超时，超时熔断取消后端查询（防失控 SQL 占死连接）                                  |
-| `rate_per_min`       | 120  | 按主体（用户/Agent）滑动窗口每分钟限流，超额直接拒绝并审计留痕                                  |
-| `max_affected_rows`  | 0（关闭） | 单条 UPDATE/DELETE 影响行数上限；执行前先 `SELECT COUNT(*)` 预检，超阈值直接拒绝（防批量误改/误删） |
-| `allow_no_where_writes` | false | 为 `false` 时，无 WHERE 且无行策略兜底的 UPDATE/DELETE 直接拒绝（硬安全网，可显式开启放宽）     |
-| `admin_exempt`       | true | `admin` 角色豁免以上限制                                                       |
+| 参数                      | 默认    | 作用                                                                  |
+| ----------------------- | ----- | ------------------------------------------------------------------- |
+| `max_rows`              | 1000  | 单次查询返回行数上限，超出即截断并在响应里带 `truncated: true`（防 Agent 拖库）                |
+| `query_timeout`         | 30s   | 单查询执行超时，超时熔断取消后端查询（防失控 SQL 占死连接）                                    |
+| `rate_per_min`          | 120   | 按主体（用户/Agent）滑动窗口每分钟限流，超额直接拒绝并审计留痕                                  |
+| `max_affected_rows`     | 0（关闭） | 单条 UPDATE/DELETE 影响行数上限；执行前先 `SELECT COUNT(*)` 预检，超阈值直接拒绝（防批量误改/误删） |
+| `allow_no_where_writes` | false | 为 `false` 时，无 WHERE 且无行策略兜底的 UPDATE/DELETE 直接拒绝（硬安全网，可显式开启放宽）       |
+| `admin_exempt`          | true  | `admin` 角色豁免以上限制                                                    |
 
 环境变量覆盖：`AEGIS_MAX_ROWS` / `AEGIS_QUERY_TIMEOUT` / `AEGIS_RATE_PER_MIN` / `AEGIS_MAX_AFFECTED_ROWS`（如 `1`）/ `AEGIS_ALLOW_NO_WHERE_WRITES`（如 `true`）。
 
@@ -562,13 +560,14 @@ Elasticsearch 读（search）/ 写（index / updateByQuery / deleteByQuery）同
 
 > 管理端注册 NoSQL 数据源同样在线生效；`type` 必须是 `mongo`/`es`/`trino`/`presto` 之一，非法类型会被拒绝。
 
-## 已知边界（MVP）
+## 已知边界
 
-- 行级策略目前作用于顶层 `FROM/JOIN` 表；嵌套子查询内部的表暂未递归注入（多表 JOIN 顶层表已覆盖常见场景）。
+- **行级策略已递归加固**：行策略注入覆盖顶层 `FROM/JOIN` 与任意深度嵌套子查询（IN / EXISTS / 派生表 / 标量子查询，含 DML 的 `WHERE` / `SET` 内嵌套），平台层治理不可绕过（RLS 双层加固，提交 `0e2f33e`）。纯数据库原生 RLS 仍为可选增强。
 - NoSQL（Mongo/ES）写入已支持 `insert/update/delete`，治理与 SQL 对齐；**数据集（Dataset）对 NoSQL 目前为只读视图**（写操作仍走底层集合）。
 - ES 写入的字段级治理仅覆盖顶层字段（嵌套对象字段暂不在列权限范围内）。
 - 列级治理在结果层按列名执行（单表查询精确；多表同名列取并集白名单）。
-- `INSERT` 行级策略未注入（仅校验表级 INSERT 权限）。
+- `INSERT/REPLACE` 自带 `VALUES`，不触发"无 WHERE 写拦截"；行级策略对 INSERT 仅校验表级 INSERT 权限（行策略注入主要用于 SELECT/UPDATE/DELETE 读取面）。
+- PostgreSQL 专有语法（如 `RETURNING`）在行级重写场景下可能受限；治理内核基于 MySQL/SQLite 语法解析，标准 PG 查询同样适用。
 
 这些边界在生产化时可基于具体数据库的原生 Row-Level Security (RLS) 进一步加固。
 
@@ -599,15 +598,15 @@ Aegis 支持通过 **OpenID Connect** 接入外部身份提供商（IdP），实
 }
 ```
 
-| 配置项 | 环境变量 | 说明 |
-| --- | --- | --- |
-| `enabled` | `AEGIS_OIDC_ENABLED` | 是否启用 OIDC |
-| `issuer` | `AEGIS_OIDC_ISSUER` | IdP issuer URL，自动发现 `.well-known/openid-configuration` |
-| `client_id` | `AEGIS_OIDC_CLIENT_ID` | OAuth2 client id |
-| `client_secret` | `AEGIS_OIDC_CLIENT_SECRET` | OAuth2 client secret |
-| `redirect_url` | `AEGIS_OIDC_REDIRECT_URL` | 回调地址，必须在 IdP 中注册 |
-| `scopes` | — | 额外 scope，默认含 `openid` + `profile` + `email` |
-| `claim_mappings` | — | 将 IdP claim 值映射到平台角色，如 `{"admins":"admin"}` |
+| 配置项              | 环境变量                       | 说明                                                     |
+| ---------------- | -------------------------- | ------------------------------------------------------ |
+| `enabled`        | `AEGIS_OIDC_ENABLED`       | 是否启用 OIDC                                              |
+| `issuer`         | `AEGIS_OIDC_ISSUER`        | IdP issuer URL，自动发现 `.well-known/openid-configuration` |
+| `client_id`      | `AEGIS_OIDC_CLIENT_ID`     | OAuth2 client id                                       |
+| `client_secret`  | `AEGIS_OIDC_CLIENT_SECRET` | OAuth2 client secret                                   |
+| `redirect_url`   | `AEGIS_OIDC_REDIRECT_URL`  | 回调地址，必须在 IdP 中注册                                       |
+| `scopes`         | —                          | 额外 scope，默认含 `openid` + `profile` + `email`            |
+| `claim_mappings` | —                          | 将 IdP claim 值映射到平台角色，如 `{"admins":"admin"}`            |
 
 ### 登录流程
 
@@ -620,6 +619,7 @@ open http://localhost:8080/api/v1/auth/oidc/login
 ```
 
 **用户生命周期**：
+
 - **首次登录（auto-provisioning）**：平台根据 `sub` 自动创建用户，用户名取 `email`，display_name 取 `name`；`claim_mappings` 自动分配角色（若角色不存在则自动创建）。
 - **再次登录**：根据 `sub` 关联已有用户，同步 display_name。
 - **密码字段为空**：OIDC 用户无本地密码，只能通过 IdP 登录。
@@ -666,22 +666,22 @@ Aegis 支持通过 **LDAP / Active Directory** 做基于密码的目录单点登
 }
 ```
 
-| 配置项 | 环境变量 | 说明 |
-| --- | --- | --- |
-| `enabled` | `AEGIS_LDAP_ENABLED` | 是否启用 LDAP 登录 |
-| `url` | `AEGIS_LDAP_URL` | 目录地址，如 `ldap://host:389` 或 `ldaps://host:636` |
-| `bind_dn` / `bind_password` | `AEGIS_LDAP_BIND_DN` / `AEGIS_LDAP_BIND_PASSWORD` | 用于检索用户的服务账号（匿名绑定可留空） |
-| `base_dn` | `AEGIS_LDAP_BASE_DN` | 用户检索基，如 `dc=example,dc=com` |
-| `user_filter` | `AEGIS_LDAP_USER_FILTER` | 用户检索过滤器，`%s` 为登录名，如 `(uid=%s)` 或 `(sAMAccountName=%s)` |
-| `user_attr` | `AEGIS_LDAP_USER_ATTR` | 用作平台用户名的属性（缺省回退为用户 DN） |
-| `display_attr` | `AEGIS_LDAP_DISPLAY_ATTR` | 展示名属性，如 `displayName` |
-| `email_attr` | `AEGIS_LDAP_EMAIL_ATTR` | 邮箱属性，如 `mail` |
-| `group_base_dn` | `AEGIS_LDAP_GROUP_BASE_DN` | 组检索基 |
-| `group_filter` | `AEGIS_LDAP_GROUP_FILTER` | 组过滤器，`%d` 为用户 DN，如 `(member=%d)` 或 `(memberOf=%d)` |
-| `group_name_attr` | `AEGIS_LDAP_GROUP_NAME_ATTR` | 组名属性，如 `cn` |
-| `claim_mappings` | — | 将目录组值映射到平台角色，如 `{"aegis-admins":"admin"}` |
-| `default_roles` | — | 所有 LDAP 登录用户都授予的角色 |
-| `skip_tls_verify` | `AEGIS_LDAP_SKIP_TLS_VERIFY` | 跳过 TLS 证书校验（仅开发环境） |
+| 配置项                         | 环境变量                                              | 说明                                                     |
+| --------------------------- | ------------------------------------------------- | ------------------------------------------------------ |
+| `enabled`                   | `AEGIS_LDAP_ENABLED`                              | 是否启用 LDAP 登录                                           |
+| `url`                       | `AEGIS_LDAP_URL`                                  | 目录地址，如 `ldap://host:389` 或 `ldaps://host:636`          |
+| `bind_dn` / `bind_password` | `AEGIS_LDAP_BIND_DN` / `AEGIS_LDAP_BIND_PASSWORD` | 用于检索用户的服务账号（匿名绑定可留空）                                   |
+| `base_dn`                   | `AEGIS_LDAP_BASE_DN`                              | 用户检索基，如 `dc=example,dc=com`                            |
+| `user_filter`               | `AEGIS_LDAP_USER_FILTER`                          | 用户检索过滤器，`%s` 为登录名，如 `(uid=%s)` 或 `(sAMAccountName=%s)` |
+| `user_attr`                 | `AEGIS_LDAP_USER_ATTR`                            | 用作平台用户名的属性（缺省回退为用户 DN）                                 |
+| `display_attr`              | `AEGIS_LDAP_DISPLAY_ATTR`                         | 展示名属性，如 `displayName`                                  |
+| `email_attr`                | `AEGIS_LDAP_EMAIL_ATTR`                           | 邮箱属性，如 `mail`                                          |
+| `group_base_dn`             | `AEGIS_LDAP_GROUP_BASE_DN`                        | 组检索基                                                   |
+| `group_filter`              | `AEGIS_LDAP_GROUP_FILTER`                         | 组过滤器，`%d` 为用户 DN，如 `(member=%d)` 或 `(memberOf=%d)`     |
+| `group_name_attr`           | `AEGIS_LDAP_GROUP_NAME_ATTR`                      | 组名属性，如 `cn`                                            |
+| `claim_mappings`            | —                                                 | 将目录组值映射到平台角色，如 `{"aegis-admins":"admin"}`              |
+| `default_roles`             | —                                                 | 所有 LDAP 登录用户都授予的角色                                     |
+| `skip_tls_verify`           | `AEGIS_LDAP_SKIP_TLS_VERIFY`                      | 跳过 TLS 证书校验（仅开发环境）                                     |
 
 ### 登录流程
 
@@ -694,6 +694,7 @@ curl -X POST http://localhost:8080/api/v1/auth/ldap/login \
 ```
 
 **认证过程**（三步绑定）：
+
 1. （可选）用服务账号 `bind_dn` 绑定目录，以便检索用户；
 2. 按 `user_filter` 检索用户条目、解析其 DN；
 3. **以用户 DN + 输入密码绑定目录**——这是真正的凭证校验，失败即返回 401。
@@ -710,14 +711,14 @@ Aegis 的授权按**角色**聚合，因此一次审批 = 为某角色申请对�
 
 ### 端点
 
-| 方法 & 路径 | 权限 | 说明 |
-| --- | --- | --- |
-| `POST /admin/api/approvals` | 登录用户 | 提交申请：`datasource_id`、`table_name`、`role`、`ops`、`justification`；`ops` 限定为 `SELECT,INSERT,UPDATE,DELETE` 子集 |
-| `GET /admin/api/approvals` | 管理员 | 列出申请，支持 `status` / `datasource_id` 过滤 |
-| `GET /api/v1/me/approvals` | 登录用户 | 查看本人提交与状态 |
-| `POST /admin/api/approvals/{id}/approve` | 管理员 | 批准：自动创建角色级 `table_permissions` 授权，记录 `granted_perm_id` |
-| `POST /admin/api/approvals/{id}/reject` | 管理员 | 拒绝：不创建授权 |
-| `POST /admin/api/approvals/{id}/revoke` | 管理员 | 撤回已批准项：按 `granted_perm_id` 精确删除授权，闭环可逆 |
+| 方法 & 路径                                  | 权限   | 说明                                                                                                        |
+| ---------------------------------------- | ---- | --------------------------------------------------------------------------------------------------------- |
+| `POST /admin/api/approvals`              | 登录用户 | 提交申请：`datasource_id`、`table_name`、`role`、`ops`、`justification`；`ops` 限定为 `SELECT,INSERT,UPDATE,DELETE` 子集 |
+| `GET /admin/api/approvals`               | 管理员  | 列出申请，支持 `status` / `datasource_id` 过滤                                                                     |
+| `GET /api/v1/me/approvals`               | 登录用户 | 查看本人提交与状态                                                                                                 |
+| `POST /admin/api/approvals/{id}/approve` | 管理员  | 批准：自动创建角色级 `table_permissions` 授权，记录 `granted_perm_id`                                                    |
+| `POST /admin/api/approvals/{id}/reject`  | 管理员  | 拒绝：不创建授权                                                                                                  |
+| `POST /admin/api/approvals/{id}/revoke`  | 管理员  | 撤回已批准项：按 `granted_perm_id` 精确删除授权，闭环可逆                                                                    |
 
 > 已批准项不可重复批准（返回 409）；仅 `pending` 可审批，`approved` 可撤回。
 
@@ -750,10 +751,10 @@ curl -X POST http://localhost:8080/admin/api/approvals/<req-id>/revoke \
 
 Aegis 提供两个标准探针端点，便于 K8s / 负载均衡器做健康检查：
 
-| 端点 | 用途 | 响应 |
-| --- | --- | --- |
-| `GET /api/v1/health` | **Liveness**（存活） | 始终返回 `{"status":"ok"}`（200），进程活着即通过 |
-| `GET /api/v1/ready` | **Readiness**（就绪） | 检查控制面 store 是否可达；就绪返回 `{"status":"ready"}`（200），否则 503 |
+| 端点                   | 用途                | 响应                                                     |
+| -------------------- | ----------------- | ------------------------------------------------------ |
+| `GET /api/v1/health` | **Liveness**（存活）  | 始终返回 `{"status":"ok"}`（200），进程活着即通过                    |
+| `GET /api/v1/ready`  | **Readiness**（就绪） | 检查控制面 store 是否可达；就绪返回 `{"status":"ready"}`（200），否则 503 |
 
 K8s 探针配置示例：
 
@@ -785,15 +786,15 @@ Aegis 用标准库 `log/slog` 输出结构化日志（**零额外依赖**，保�
 }
 ```
 
-| 配置项 | 环境变量 | 说明 |
-| --- | --- | --- |
+| 配置项      | 环境变量               | 说明                                   |
+| -------- | ------------------ | ------------------------------------ |
 | `format` | `AEGIS_LOG_FORMAT` | 输出格式：`json` 或 `text`（`text` 便于本地肉眼看） |
-| `level` | `AEGIS_LOG_LEVEL` | 最低输出级别：低于该级别的记录被丢弃 |
+| `level`  | `AEGIS_LOG_LEVEL`  | 最低输出级别：低于该级别的记录被丢弃                   |
 
 ### 脱敏密钥（`tokenize` / `fpe`）
 
-| 配置项 | 环境变量 | 说明 |
-| --- | --- | --- |
+| 配置项           | 环境变量                | 说明                                                                                       |
+| ------------- | ------------------- | ---------------------------------------------------------------------------------------- |
 | `mask_secret` | `AEGIS_MASK_SECRET` | 密钥化脱敏策略（`tokenize` 确定性假名、`fpe` 格式保留加密）的服务器密钥；生产环境务必注入（建议来自 KMS / Vault），未配置回退不安全开发默认值并告警 |
 
 日志覆盖三类高价值信号：
@@ -817,14 +818,14 @@ Aegis 在 `GET /metrics` 暴露 Prometheus 格式指标，可直接被 Prometheu
 
 核心指标：
 
-| 指标 | 类型 | 标签 | 说明 |
-| --- | --- | --- | --- |
-| `aegis_queries_total` | Counter | `channel`(dataapi/mcp), `status`(ok/denied/error) | 受治理查询总数（DataAPI、MCP、数据集查询均计入） |
-| `aegis_query_duration_seconds` | Histogram | `channel`, `status` | 受治理查询延迟分布 |
-| `aegis_rows_returned_total` | Counter | `channel`, `status` | 返回给调用方的数据行累计数 |
-| `aegis_datasources_total` | Gauge | — | 已配置数据源数量 |
-| `aegis_datasets_published_total` | Gauge | — | 已发布数据集数量 |
-| `aegis_build_info` | Gauge | `version`, `commit` | 构建版本与提交号（值恒为 1） |
+| 指标                               | 类型        | 标签                                                | 说明                            |
+| -------------------------------- | --------- | ------------------------------------------------- | ----------------------------- |
+| `aegis_queries_total`            | Counter   | `channel`(dataapi/mcp), `status`(ok/denied/error) | 受治理查询总数（DataAPI、MCP、数据集查询均计入） |
+| `aegis_query_duration_seconds`   | Histogram | `channel`, `status`                               | 受治理查询延迟分布                     |
+| `aegis_rows_returned_total`      | Counter   | `channel`, `status`                               | 返回给调用方的数据行累计数                 |
+| `aegis_datasources_total`        | Gauge     | —                                                 | 已配置数据源数量                      |
+| `aegis_datasets_published_total` | Gauge     | —                                                 | 已发布数据集数量                      |
+| `aegis_build_info`               | Gauge     | `version`, `commit`                               | 构建版本与提交号（值恒为 1）               |
 
 抓取配置示例（`prometheus.yml`）：
 
