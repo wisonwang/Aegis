@@ -380,8 +380,11 @@ func (h *Handler) AdminUpsertDatasetMask(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var req upsertMaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil ||
-		req.Role == "" || req.Column == "" || req.Strategy == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	if req.Role == "" || req.Column == "" || req.Strategy == "" {
 		writeError(w, http.StatusBadRequest, "role, column and strategy are required")
 		return
 	}

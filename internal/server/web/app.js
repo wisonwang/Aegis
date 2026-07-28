@@ -58,6 +58,7 @@ function showApp() {
   loadRolesInto('#gRole'); loadRolesInto('#gPolicyRole');
   loadUsers(); loadRoles(); loadDataSourcesTable();
   loadDataSources('#apDs'); loadRolesInto('#apRole'); loadMyApprovals();
+  loadDataSourceMap(); loadDataSources('#dsDs'); loadDatasetsTable();
 }
 
 // Hide enterprise tabs/panels the current license does not entitle.
@@ -614,5 +615,213 @@ document.getElementById('mtRun').addEventListener('click', async () => {
 });
 
 document.querySelector('[data-tab="metrics"]').addEventListener('click', loadMTDs);
+
+// ---- dataset management (data products) ----
+async function loadDataSourceMap() {
+  try {
+    const data = await api('/api/v1/datasources');
+    window.__dsMap = {};
+    for (const d of (data.datasources || [])) window.__dsMap[d.id] = d.name;
+  } catch (e) { window.__dsMap = {}; }
+}
+function dsName(id) { return (window.__dsMap && window.__dsMap[id]) || id || '—'; }
+
+async function loadDatasetsTable() {
+  const t = document.getElementById('dsTable');
+  try {
+    const data = await api('/admin/api/datasets');
+    const sets = data.datasets || [];
+    if (sets.length === 0) {
+      t.innerHTML = '<thead><tr><th>数据集</th></tr></thead><tbody><tr><td>暂无数据集</td></tr></tbody>';
+      return;
+    }
+    t.innerHTML = '<thead><tr><th>名称</th><th>显示名</th><th>数据源</th><th>状态</th><th>定义</th><th>操作</th></tr></thead><tbody>' +
+      sets.map(d => `<tr>
+        <td><code>${esc(d.name)}</code></td>
+        <td>${esc(d.display_name || '')}</td>
+        <td>${esc(dsName(d.datasource_id))}</td>
+        <td><span class="badge ${d.status === 'published' ? 'ok' : 'warning'}">${d.status === 'published' ? '已发布' : '草稿'}</span></td>
+        <td><code title="${esc(d.definition || '')}">${esc((d.definition || '').length > 40 ? d.definition.slice(0, 40) + '…' : (d.definition || ''))}</code></td>
+        <td>
+          <button class="sec" data-act="dsgov" data-id="${d.id}" data-name="${esc(d.name)}">治理</button>
+          <button class="sec" data-act="dspub" data-id="${d.id}" data-status="${esc(d.status)}">${d.status === 'published' ? '取消发布' : '发布'}</button>
+          <button class="sec" data-act="dsedit" data-id="${d.id}">编辑</button>
+          <button class="danger" data-act="dsdel" data-id="${d.id}" data-name="${esc(d.name)}">删除</button>
+        </td></tr>`).join('') + '</tbody>';
+  } catch (e) {
+    t.innerHTML = '<thead><tr><th>数据集</th></tr></thead><tbody><tr><td class="error">' + esc(e.message) + '</td></tr></tbody>';
+  }
+}
+
+function dsResetForm() {
+  window.__dsEditId = null;
+  document.getElementById('dsName').value = '';
+  document.getElementById('dsName').disabled = false;
+  document.getElementById('dsDisp').value = '';
+  document.getElementById('dsDef').value = '';
+  document.getElementById('dsFields').value = '';
+  document.getElementById('dsStatus').value = 'draft';
+  document.getElementById('dsSave').textContent = '创建数据集';
+  document.getElementById('dsCancel').classList.add('hidden');
+  document.getElementById('dsMsg').textContent = '';
+}
+
+function isValidJSON(s) { try { JSON.parse(s); return true; } catch { return false; } }
+
+document.getElementById('dsCancel').addEventListener('click', dsResetForm);
+
+document.getElementById('dsSave').addEventListener('click', async () => {
+  const msg = document.getElementById('dsMsg');
+  msg.textContent = '';
+  const name = document.getElementById('dsName').value.trim();
+  const dsId = document.getElementById('dsDs').value;
+  const def = document.getElementById('dsDef').value;
+  const fields = document.getElementById('dsFields').value.trim();
+  const status = document.getElementById('dsStatus').value;
+  const editId = window.__dsEditId;
+  if (!editId && !name) { msg.textContent = '请填写名称'; return; }
+  if (!dsId) { msg.textContent = '请选择数据源'; return; }
+  if (!editId && !def.trim()) { msg.textContent = '请填写定义 SQL'; return; }
+  if (fields && !isValidJSON(fields)) { msg.textContent = '字段契约需为合法 JSON'; return; }
+  const body = editId
+    ? { display_name: document.getElementById('dsDisp').value, definition: def, status, fields }
+    : { name, display_name: document.getElementById('dsDisp').value, datasource_id: dsId, definition: def, status, fields };
+  try {
+    if (editId) await api('/admin/api/datasets/' + editId, { method: 'PUT', body: JSON.stringify(body) });
+    else await api('/admin/api/datasets', { method: 'POST', body: JSON.stringify(body) });
+    dsResetForm();
+    loadDatasetsTable();
+  } catch (e) { msg.textContent = e.message; }
+});
+
+document.getElementById('dsTable').addEventListener('click', async (e) => {
+  const act = e.target.dataset.act;
+  if (!act) return;
+  const id = e.target.dataset.id;
+  const name = e.target.dataset.name || id;
+  try {
+    if (act === 'dsdel') {
+      if (!confirm('删除数据集「' + name + '」将级联删除其下所有表权限 / 行策略 / 列脱敏 / 业务语义。确认？')) return;
+      await api('/admin/api/datasets/' + id, { method: 'DELETE' });
+      if (window.__dsGovId === id) { window.__dsGovId = null; document.getElementById('dsGov').classList.add('hidden'); }
+      loadDatasetsTable();
+    } else if (act === 'dspub') {
+      const st = e.target.dataset.status;
+      await api('/admin/api/datasets/' + id + (st === 'published' ? '/unpublish' : '/publish'), { method: 'POST' });
+      loadDatasetsTable();
+    } else if (act === 'dsedit') {
+      const data = await api('/admin/api/datasets/' + id);
+      window.__dsEditId = id;
+      document.getElementById('dsName').value = data.name;
+      document.getElementById('dsName').disabled = true;
+      document.getElementById('dsDisp').value = data.display_name || '';
+      document.getElementById('dsDs').value = data.datasource_id || '';
+      document.getElementById('dsDef').value = data.definition || '';
+      document.getElementById('dsFields').value = (data.fields && data.fields !== '[]') ? data.fields : '';
+      document.getElementById('dsStatus').value = data.status || 'draft';
+      document.getElementById('dsSave').textContent = '保存修改';
+      document.getElementById('dsCancel').classList.remove('hidden');
+      document.getElementById('dsMsg').textContent = '编辑模式：名称不可改';
+    } else if (act === 'dsgov') {
+      window.__dsGovId = id;
+      document.getElementById('dsGovName').textContent = name;
+      document.getElementById('dsGov').classList.remove('hidden');
+      loadRolesInto('#dsgRole'); loadRolesInto('#dsgPolicyRole'); loadRolesInto('#dsgMaskRole');
+      loadDatasetGov();
+    }
+  } catch (err) { alert(err.message); }
+});
+
+// ---- dataset governance (keyed on dataset name) ----
+async function loadDatasetGov() {
+  const id = window.__dsGovId;
+  if (!id) return;
+  try {
+    const [p, pol, m, s] = await Promise.all([
+      api('/admin/api/datasets/' + id + '/permissions'),
+      api('/admin/api/datasets/' + id + '/policies'),
+      api('/admin/api/datasets/' + id + '/masks'),
+      api('/admin/api/datasets/' + id + '/semantics'),
+    ]);
+    const pt = document.getElementById('dsgPermTable');
+    pt.innerHTML = '<thead><tr><th>角色</th><th>操作</th><th>允许列</th><th>拒绝列</th><th>操作</th></tr></thead><tbody>' +
+      (p.permissions || []).map(x => `<tr><td>${esc(x.role)}</td><td>${esc(x.ops)}</td>
+        <td>${esc(JSON.stringify(x.allowed_cols))}</td><td>${esc(JSON.stringify(x.denied_cols))}</td>
+        <td><button class="danger" data-act="dsgdelperm" data-id="${x.id}">删除</button></td></tr>`).join('') + '</tbody>';
+    const plt = document.getElementById('dsgPolicyTable');
+    plt.innerHTML = '<thead><tr><th>角色</th><th>谓词</th><th>优先级</th><th>操作</th></tr></thead><tbody>' +
+      (pol.policies || []).map(x => `<tr><td>${esc(x.role)}</td><td><code>${esc(x.predicate)}</code></td><td>${esc(x.priority)}</td>
+        <td><button class="danger" data-act="dsgdelpol" data-id="${x.id}">删除</button></td></tr>`).join('') + '</tbody>';
+    const mt = document.getElementById('dsgMaskTable');
+    mt.innerHTML = '<thead><tr><th>角色</th><th>列</th><th>策略</th><th>操作</th></tr></thead><tbody>' +
+      (m.masks || []).map(x => `<tr><td>${esc(x.role)}</td><td>${esc(x.column_name)}</td><td>${esc(x.strategy)}</td>
+        <td><button class="danger" data-act="dsgdelmask" data-id="${x.id}">删除</button></td></tr>`).join('') + '</tbody>';
+    const st = document.getElementById('dsgSemTable');
+    st.innerHTML = '<thead><tr><th>列</th><th>描述</th><th>同义词</th><th>示例</th><th>操作</th></tr></thead><tbody>' +
+      (s.semantics || []).map(x => `<tr><td>${esc(x.column_name || '表级')}</td><td>${esc(x.description || '')}</td>
+        <td>${esc(x.synonyms || '')}</td><td>${esc(x.examples || '')}</td>
+        <td><button class="danger" data-act="dsgdelsem" data-id="${esc(x.id)}">删除</button></td></tr>`).join('') + '</tbody>';
+  } catch (e) { alert(e.message); }
+}
+
+document.getElementById('dsgAddPerm').addEventListener('click', async () => {
+  const id = window.__dsGovId; if (!id) return;
+  const body = {
+    role: document.getElementById('dsgRole').value,
+    ops: document.getElementById('dsgOps').value,
+    allowed_cols: JSON.parse(document.getElementById('dsgAllowed').value || '[]'),
+    denied_cols: JSON.parse(document.getElementById('dsgDenied').value || '[]'),
+  };
+  try { await api('/admin/api/datasets/' + id + '/permissions', { method: 'POST', body: JSON.stringify(body) }); loadDatasetGov(); }
+  catch (e) { alert(e.message); }
+});
+document.getElementById('dsgAddPolicy').addEventListener('click', async () => {
+  const id = window.__dsGovId; if (!id) return;
+  const body = {
+    role: document.getElementById('dsgPolicyRole').value,
+    predicate: document.getElementById('dsgPred').value,
+    priority: parseInt(document.getElementById('dsgPrio').value || '10', 10),
+  };
+  try { await api('/admin/api/datasets/' + id + '/policies', { method: 'POST', body: JSON.stringify(body) }); loadDatasetGov(); }
+  catch (e) { alert(e.message); }
+});
+document.getElementById('dsgAddMask').addEventListener('click', async () => {
+  const id = window.__dsGovId; if (!id) return;
+  const body = {
+    role: document.getElementById('dsgMaskRole').value,
+    column: document.getElementById('dsgMaskCol').value,
+    strategy: document.getElementById('dsgMaskStrat').value,
+    keep: 0,
+  };
+  try { await api('/admin/api/datasets/' + id + '/masks', { method: 'POST', body: JSON.stringify(body) }); loadDatasetGov(); }
+  catch (e) { alert(e.message); }
+});
+document.getElementById('dsgAddSem').addEventListener('click', async () => {
+  const id = window.__dsGovId; if (!id) return;
+  const body = {
+    column_name: document.getElementById('dsgSemCol').value.trim(),
+    description: document.getElementById('dsgSemDesc').value.trim(),
+    synonyms: JSON.parse(document.getElementById('dsgSemSyn').value || '[]'),
+    examples: JSON.parse(document.getElementById('dsgSemEx').value || '[]'),
+  };
+  try { await api('/admin/api/datasets/' + id + '/semantics', { method: 'POST', body: JSON.stringify(body) }); loadDatasetGov(); }
+  catch (e) { alert(e.message); }
+});
+document.getElementById('dsGov').addEventListener('click', async (e) => {
+  const act = e.target.dataset.act;
+  if (!act) return;
+  const id = window.__dsGovId; if (!id) return;
+  try {
+    if (act === 'dsgdelperm') await api('/admin/api/datasets/' + id + '/permissions/' + e.target.dataset.id, { method: 'DELETE' });
+    else if (act === 'dsgdelpol') await api('/admin/api/datasets/' + id + '/policies/' + e.target.dataset.id, { method: 'DELETE' });
+    else if (act === 'dsgdelmask') await api('/admin/api/datasets/' + id + '/masks/' + e.target.dataset.id, { method: 'DELETE' });
+    else if (act === 'dsgdelsem') await api('/admin/api/datasets/' + id + '/semantics/' + e.target.dataset.id, { method: 'DELETE' });
+    loadDatasetGov();
+  } catch (err) { alert(err.message); }
+});
+
+document.querySelector('[data-tab="datasets"]').addEventListener('click', () => {
+  loadDataSourceMap(); loadDataSources('#dsDs'); loadDatasetsTable();
+});
 
 boot();

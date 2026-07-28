@@ -15,15 +15,24 @@ import (
 	"github.com/wisonwang/aegis/internal/api"
 	"github.com/wisonwang/aegis/internal/capabilities"
 	"github.com/wisonwang/aegis/internal/config"
+	"github.com/wisonwang/aegis/internal/store"
 )
 
 // Register wires enterprise-only routes behind the capability gate.
-func Register(mux *http.ServeMux, cfg *config.Config, h *api.Handler, caps *capabilities.Capabilities) {
+//
+// The admin and auth wrappers apply api.WorkspaceResolver so enterprise
+// routes obey the same multi-tenant scoping as the core DataAPI (ADR-001):
+// a platform admin gets the cross-workspace ("*") view, while non-admins
+// are scoped to their own workspace. Without this, dataset/metric/approval
+// management would have been pinned to the default workspace.
+func Register(mux *http.ServeMux, cfg *config.Config, st *store.Store, h *api.Handler, caps *capabilities.Capabilities) {
 	require := func(cap capabilities.Capability) func(http.HandlerFunc) http.HandlerFunc {
 		return requireCap(caps, cap)
 	}
-	auth := func(fn http.HandlerFunc) http.HandlerFunc { return api.Authenticate(cfg, fn) }
-	admin := func(fn http.HandlerFunc) http.HandlerFunc { return api.Authenticate(cfg, api.RequireAdmin(fn)) }
+	auth := func(fn http.HandlerFunc) http.HandlerFunc { return api.Authenticate(cfg, api.WorkspaceResolver(st, fn)) }
+	admin := func(fn http.HandlerFunc) http.HandlerFunc {
+		return api.Authenticate(cfg, api.WorkspaceResolver(st, api.RequireAdmin(fn)))
+	}
 
 	// ---- Datasets (data products) : CapDataProducts ----
 	mux.HandleFunc("GET /api/v1/datasets", auth(require(capabilities.CapDataProducts)(h.ListDatasets)))

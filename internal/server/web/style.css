@@ -49,6 +49,9 @@ button.danger { background: var(--danger); }
 .error { color: var(--danger); font-size: 13px; min-height: 18px; }
 .gov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .gov-grid h3 { margin: 6px 0; }
+.gov-grid h4 { margin: 8px 0 4px; font-size: 15px; }
+details { margin-bottom: 10px; }
+details summary { cursor: pointer; color: var(--brand); font-size: 13px; }
 
 /* ---- audit ---- */
 .stat-row { display: flex; gap: 10px; margin-bottom: 12px; }

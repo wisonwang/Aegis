@@ -34,6 +34,7 @@
       <button class="tab" data-tab="alerts">安全告警</button>
       <button class="tab" data-tab="approvals" data-cap="approval_workflow">审批流</button>
       <button class="tab" data-tab="nl2sql">NL2SQL</button>
+      <button class="tab" data-tab="datasets" data-cap="data_products">数据集</button>
       <button class="tab" data-tab="metrics" data-cap="data_products">指标</button>
     </nav>
 
@@ -196,6 +197,90 @@
       </div>
       <div id="nlGen" class="result"></div>
       <div id="nlResult" class="result"></div>
+    </section>
+
+    <section id="tab-datasets" class="panel">
+      <h3>数据集管理</h3>
+      <p class="hint">数据集是构建在数据源之上的<strong>受治理数据产品</strong>：有稳定名称（消费句柄）、有定义 SQL、有生命周期（草稿 → 发布）。Agent 消费已发布且已授权的数据集；其表/行/列治理与底层表共用同一套引擎（按 table_name = 数据集名称 关联）。</p>
+      <div class="row">
+        <input id="dsName" placeholder="名称（标识符，如 orders_v" />
+        <input id="dsDisp" placeholder="显示名" />
+        <select id="dsDs"></select>
+        <select id="dsStatus">
+          <option value="draft">草稿</option>
+          <option value="published">已发布</option>
+        </select>
+        <button id="dsSave">创建数据集</button>
+        <button id="dsCancel" class="sec hidden">取消编辑</button>
+        <span id="dsMsg" class="hint"></span>
+      </div>
+      <details>
+        <summary>定义与字段契约（高级）</summary>
+        <textarea id="dsDef" rows="5" placeholder="SELECT ... 作为数据集定义（需为合法 SELECT）"></textarea>
+        <input id="dsFields" placeholder='字段契约 JSON, 如 [{"name":"order_id","type":"int","description":"订单号"}]' style="width:100%" />
+      </details>
+      <table id="dsTable" class="grid"></table>
+
+      <div id="dsGov" class="hidden">
+        <hr />
+        <h3>治理：<b id="dsGovName"></b></h3>
+        <p class="hint">下表均为该数据集专属治理（与同名底层表共享授权键）。</p>
+        <div class="gov-grid">
+          <div>
+            <h4>表权限</h4>
+            <div class="row">
+              <select id="dsgRole"></select>
+              <input id="dsgOps" placeholder="SELECT,INSERT" />
+              <input id="dsgAllowed" placeholder='允许列JSON ["c"]' />
+              <input id="dsgDenied" placeholder='拒绝列JSON ["c"]' />
+              <button id="dsgAddPerm">添加</button>
+            </div>
+            <table id="dsgPermTable" class="grid"></table>
+          </div>
+          <div>
+            <h4>行级策略</h4>
+            <div class="row">
+              <select id="dsgPolicyRole"></select>
+              <input id="dsgPred" placeholder="tenant_id = :tenant" style="flex:2" />
+              <input id="dsgPrio" placeholder="优先级" />
+              <button id="dsgAddPolicy">添加</button>
+            </div>
+            <table id="dsgPolicyTable" class="grid"></table>
+          </div>
+          <div>
+            <h4>列脱敏</h4>
+            <div class="row">
+              <select id="dsgMaskRole"></select>
+              <input id="dsgMaskCol" placeholder="列名" />
+              <select id="dsgMaskStrat">
+                <option value="phone">phone</option>
+                <option value="email">email</option>
+                <option value="card">card</option>
+                <option value="partial">partial</option>
+                <option value="hash">hash</option>
+                <option value="redact">redact</option>
+                <option value="tokenize">tokenize</option>
+                <option value="fpe">fpe</option>
+              </select>
+              <button id="dsgAddMask">添加</button>
+            </div>
+            <table id="dsgMaskTable" class="grid"></table>
+          </div>
+          <div>
+            <h4>业务语义</h4>
+            <div class="row">
+              <input id="dsgSemCol" placeholder="列名（空=表级）" />
+              <input id="dsgSemDesc" placeholder="业务描述" style="flex:2" />
+              <button id="dsgAddSem">添加</button>
+            </div>
+            <div class="row">
+              <input id="dsgSemSyn" placeholder='同义词JSON ["a","b"]' />
+              <input id="dsgSemEx" placeholder='示例JSON ["x","y"]' />
+            </div>
+            <table id="dsgSemTable" class="grid"></table>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section id="tab-metrics" class="panel">

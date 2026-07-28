@@ -247,7 +247,7 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 	mux.HandleFunc("DELETE /admin/api/datasources/{id}/classifications/{cls}", a(h.AdminDeleteClassification))
 
 	// ---- Enterprise-only routes (gated by capability, ADR-002) ----
-	enterprise.Register(mux, cfg, h, caps)
+	enterprise.Register(mux, cfg, st, h, caps)
 
 	// ---- MCP endpoint for AI agents ----
 	if cfg.MCP.Enabled {
