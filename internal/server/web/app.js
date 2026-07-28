@@ -824,4 +824,27 @@ document.querySelector('[data-tab="datasets"]').addEventListener('click', () => 
   loadDataSourceMap(); loadDataSources('#dsDs'); loadDatasetsTable();
 });
 
+// ---- API docs: copy code blocks to clipboard ----
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.copy-btn');
+  if (!btn) return;
+  const code = btn.closest('.code').querySelector('code');
+  if (!code) return;
+  const text = code.innerText;
+  const restore = () => { btn.textContent = '复制'; };
+  const done = () => { btn.textContent = '已复制'; setTimeout(restore, 1200); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else {
+    fallbackCopy(text, done);
+  }
+});
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); done(); } catch (e) { /* ignore */ }
+  document.body.removeChild(ta);
+}
+
 boot();
