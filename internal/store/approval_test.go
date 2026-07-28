@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestApprovalRequest_Lifecycle(t *testing.T) {
 	st, err := Open(":memory:")
@@ -19,7 +22,7 @@ func TestApprovalRequest_Lifecycle(t *testing.T) {
 		Ops:            "SELECT",
 		Justification:  "need read access",
 	}
-	if err := st.CreateApprovalRequest(req); err != nil {
+	if err := st.CreateApprovalRequest(context.Background(), req); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	if req.ID == "" {
@@ -37,7 +40,7 @@ func TestApprovalRequest_Lifecycle(t *testing.T) {
 		t.Fatalf("get mismatch: %+v", got)
 	}
 
-	pending, err := st.ListApprovalRequests(ApprovalPending, "", "")
+	pending, err := st.ListApprovalRequests(context.Background(), ApprovalPending, "", "")
 	if err != nil {
 		t.Fatalf("list pending: %v", err)
 	}
@@ -45,7 +48,7 @@ func TestApprovalRequest_Lifecycle(t *testing.T) {
 		t.Fatalf("pending count = %d", len(pending))
 	}
 
-	mine, err := st.ListApprovalRequests("", "", "u1")
+	mine, err := st.ListApprovalRequests(context.Background(), "", "", "u1")
 	if err != nil {
 		t.Fatalf("list mine: %v", err)
 	}
@@ -70,7 +73,7 @@ func TestApprovalRequest_Lifecycle(t *testing.T) {
 		t.Fatal("expected resolved_at to be set")
 	}
 
-	approved, err := st.ListApprovalRequests(ApprovalApproved, "", "")
+	approved, err := st.ListApprovalRequests(context.Background(), ApprovalApproved, "", "")
 	if err != nil {
 		t.Fatalf("list approved: %v", err)
 	}
@@ -82,10 +85,10 @@ func TestApprovalRequest_Lifecycle(t *testing.T) {
 func TestApprovalRequest_FilterByDataSource(t *testing.T) {
 	st, _ := Open(":memory:")
 	defer st.Close()
-	_ = st.CreateApprovalRequest(&ApprovalRequest{ID: "a1", DataSourceID: "ds1", Status: ApprovalPending})
-	_ = st.CreateApprovalRequest(&ApprovalRequest{ID: "a2", DataSourceID: "ds2", Status: ApprovalPending})
+	_ = st.CreateApprovalRequest(context.Background(), &ApprovalRequest{ID: "a1", DataSourceID: "ds1", Status: ApprovalPending})
+	_ = st.CreateApprovalRequest(context.Background(), &ApprovalRequest{ID: "a2", DataSourceID: "ds2", Status: ApprovalPending})
 
-	list, err := st.ListApprovalRequests("", "ds1", "")
+	list, err := st.ListApprovalRequests(context.Background(), "", "ds1", "")
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

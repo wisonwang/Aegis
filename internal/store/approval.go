@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"time"
 )
@@ -38,8 +39,9 @@ type ApprovalRequest struct {
 	ResolvedAt     time.Time `json:"resolved_at"`
 }
 
-// CreateApprovalRequest persists a new pending request.
-func (s *Store) CreateApprovalRequest(req *ApprovalRequest) error {
+// CreateApprovalRequest persists a new pending request. Scoped to the active
+// workspace from ctx.
+func (s *Store) CreateApprovalRequest(ctx context.Context, req *ApprovalRequest) error {
 	if req.ID == "" {
 		req.ID = uid()
 	}
@@ -52,10 +54,10 @@ func (s *Store) CreateApprovalRequest(req *ApprovalRequest) error {
 	_, err := s.db.Exec(
 		`INSERT INTO approval_requests
 		 (id, applicant_id, applicant_name, datasource_id, datasource_name,
-		  table_name, role_name, ops, justification, status, created_at)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		  table_name, role_name, ops, justification, status, created_at, workspace_id)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 		req.ID, req.ApplicantID, req.ApplicantName, req.DataSourceID, req.DataSourceName,
-		req.TableName, req.RoleName, req.Ops, req.Justification, req.Status, req.CreatedAt)
+		req.TableName, req.RoleName, req.Ops, req.Justification, req.Status, req.CreatedAt, WriteWorkspace(ctx))
 	return err
 }
 
@@ -90,12 +92,17 @@ func (s *Store) GetApprovalRequest(id string) (*ApprovalRequest, error) {
 
 // ListApprovalRequests returns requests filtered by optional status,
 // datasource, and applicant. Empty strings mean "no filter" for that field.
-func (s *Store) ListApprovalRequests(status, dsID, applicantID string) ([]*ApprovalRequest, error) {
+// Scoped to the active workspace from ctx (platform admin may pass WorkspaceAll).
+func (s *Store) ListApprovalRequests(ctx context.Context, status, dsID, applicantID string) ([]*ApprovalRequest, error) {
 	q := `SELECT id, applicant_id, applicant_name, datasource_id, datasource_name,
 	       table_name, role_name, ops, justification, status, approver_id,
 	       approver_name, granted_perm_id, created_at, resolved_at
 	      FROM approval_requests WHERE 1=1`
 	args := []interface{}{}
+	if !CrossesWorkspaces(ctx) {
+		q += ` AND workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
 	if status != "" {
 		q += ` AND status=?`
 		args = append(args, status)

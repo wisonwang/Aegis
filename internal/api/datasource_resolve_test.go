@@ -9,6 +9,7 @@ import (
 	"github.com/wisonwang/aegis/internal/auth"
 	"github.com/wisonwang/aegis/internal/config"
 	"github.com/wisonwang/aegis/internal/store"
+	"context"
 )
 
 // dsResolveStore seeds an in-memory store with one role and one datasource
@@ -24,7 +25,7 @@ func dsResolveStore(t *testing.T) *store.Store {
 	if err := st.CreateRole(&store.Role{ID: "r-analyst", Name: "analyst"}); err != nil {
 		t.Fatalf("role: %v", err)
 	}
-	if err := st.CreateDataSource(&store.DataSource{ID: "uuid-1", Name: "demo", Type: "sqlite", DSN: ":memory:"}); err != nil {
+	if err := st.CreateDataSource(context.Background(), &store.DataSource{ID: "uuid-1", Name: "demo", Type: "sqlite", DSN: ":memory:"}); err != nil {
 		t.Fatalf("ds: %v", err)
 	}
 	return st
@@ -80,7 +81,7 @@ func TestAdminRoutesResolveByName(t *testing.T) {
 	}
 
 	// 2) The mask must be stored under the UUID, never under the name.
-	masks, err := st.ListColumnMasks("", "uuid-1", "customers")
+	masks, err := st.ListColumnMasks(context.Background(), "", "uuid-1", "customers")
 	if err != nil {
 		t.Fatalf("list masks by uuid: %v", err)
 	}
@@ -90,7 +91,7 @@ func TestAdminRoutesResolveByName(t *testing.T) {
 	if masks[0].DataSourceID != "uuid-1" {
 		t.Fatalf("mask persisted under datasource_id=%q, expected %q (name leaked as FK)", masks[0].DataSourceID, "uuid-1")
 	}
-	orphans, _ := st.ListColumnMasks("", "demo", "customers")
+	orphans, _ := st.ListColumnMasks(context.Background(), "", "demo", "customers")
 	if len(orphans) != 0 {
 		t.Fatalf("name was persisted as a foreign key: %d orphan mask(s)", len(orphans))
 	}
@@ -107,7 +108,7 @@ func TestAdminRoutesResolveByName(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("upsert perm by name: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	perms, err := st.ListTablePermissions("r-analyst", "uuid-1", "orders")
+	perms, err := st.ListTablePermissions(context.Background(), "r-analyst", "uuid-1", "orders")
 	if err != nil {
 		t.Fatalf("list perms by uuid: %v", err)
 	}
@@ -122,7 +123,7 @@ func TestAdminRoutesResolveByName(t *testing.T) {
 		t.Fatalf("unknown name: expected 404, got %d", w.Code)
 	}
 	// The only mask in the system must still be the one under the UUID.
-	remaining, _ := st.ListColumnMasks("", "uuid-1", "")
+	remaining, _ := st.ListColumnMasks(context.Background(), "", "uuid-1", "")
 	if len(remaining) != 1 {
 		t.Fatalf("unknown-name call must not create a mask, uuid-1 has %d", len(remaining))
 	}

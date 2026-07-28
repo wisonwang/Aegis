@@ -10,13 +10,13 @@ import (
 // AdminListSemantics returns all semantic entries (table & column business
 // descriptions) for a data source.
 func (h *Handler) AdminListSemantics(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
 	}
 	table := r.URL.Query().Get("table")
-	sems, err := h.Store.ListSemantics(dsID, table)
+	sems, err := h.Store.ListSemantics(r.Context(), dsID, table)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -46,7 +46,7 @@ type upsertSemanticRequest struct {
 
 // AdminUpsertSemantic inserts or updates a table/column semantic description.
 func (h *Handler) AdminUpsertSemantic(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -66,7 +66,7 @@ func (h *Handler) AdminUpsertSemantic(w http.ResponseWriter, r *http.Request) {
 		Synonyms:     string(syn),
 		Examples:     string(ex),
 	}
-	if err := h.Store.UpsertSemantic(sem); err != nil {
+	if err := h.Store.UpsertSemantic(r.Context(), sem); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

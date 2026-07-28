@@ -37,7 +37,7 @@ func newMetricTestStack(t *testing.T) *Proxy {
 	}
 	raw.Close()
 
-	if err := st.CreateDataSource(&store.DataSource{ID: "ds1", Name: "sqlite1", Type: "sqlite", DSN: dbPath}); err != nil {
+	if err := st.CreateDataSource(context.Background(), &store.DataSource{ID: "ds1", Name: "sqlite1", Type: "sqlite", DSN: dbPath}); err != nil {
 		t.Fatalf("create ds: %v", err)
 	}
 	if err := st.CreateRole(&store.Role{ID: "r1", Name: "analyst"}); err != nil {
@@ -49,18 +49,18 @@ func newMetricTestStack(t *testing.T) *Proxy {
 	if err := st.AddUserRole("u1", "r1"); err != nil {
 		t.Fatalf("add role: %v", err)
 	}
-	if err := st.CreateTablePermission(&store.TablePermission{
+	if err := st.CreateTablePermission(context.Background(), &store.TablePermission{
 		ID: "tp1", RoleID: "r1", DataSourceID: "ds1", TableName: "customers", Ops: "SELECT",
 	}); err != nil {
 		t.Fatalf("perm: %v", err)
 	}
-	if err := st.UpsertColumnMask(&store.ColumnMask{
+	if err := st.UpsertColumnMask(context.Background(), &store.ColumnMask{
 		ID: "m1", RoleID: "r1", DataSourceID: "ds1", TableName: "customers",
 		ColumnName: "phone", Strategy: "phone",
 	}); err != nil {
 		t.Fatalf("mask: %v", err)
 	}
-	if err := st.UpsertClassification(&store.DataClassification{
+	if err := st.UpsertClassification(context.Background(), &store.DataClassification{
 		ID: "c1", DataSourceID: "ds1", TableName: "customers", ColumnName: "phone",
 		Level: "pii", Tags: `["contact"]`,
 	}); err != nil {
@@ -76,7 +76,7 @@ func metricClaims() *auth.Claims {
 func TestResolveMetricThroughGovernedPath(t *testing.T) {
 	p := newMetricTestStack(t)
 	// Curated metric: count of customers in a region, parameterized.
-	if err := p.store.UpsertMetric(&store.MetricDefinition{
+	if err := p.store.UpsertMetric(context.Background(), &store.MetricDefinition{
 		DataSourceID: "ds1", Name: "customers_in_region",
 		Description: "Number of customers in a given region",
 		SQLTemplate:  "SELECT count(*) AS cnt FROM customers WHERE region = :region",
@@ -111,7 +111,7 @@ func TestResolveMetricThroughGovernedPath(t *testing.T) {
 		t.Fatalf("expected HasPII=true because customers.phone is classified pii; got %+v", res.Lineage)
 	}
 	// Audit recorded the governed execution.
-	audits, _, err := p.store.ListAudits(store.AuditFilter{Limit: 5})
+	audits, _, err := p.store.ListAudits(context.Background(), store.AuditFilter{Limit: 5})
 	if err != nil {
 		t.Fatalf("list audit: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestResolveMetricThroughGovernedPath(t *testing.T) {
 
 func TestResolveMetricMaskingApplies(t *testing.T) {
 	p := newMetricTestStack(t)
-	if err := p.store.UpsertMetric(&store.MetricDefinition{
+	if err := p.store.UpsertMetric(context.Background(), &store.MetricDefinition{
 		DataSourceID: "ds1", Name: "customer_contacts",
 		Description: "Customer id, name and phone",
 		SQLTemplate:  "SELECT id, name, phone FROM customers",
@@ -147,7 +147,7 @@ func TestResolveMetricMaskingApplies(t *testing.T) {
 
 func TestResolveMetricParamValidation(t *testing.T) {
 	p := newMetricTestStack(t)
-	if err := p.store.UpsertMetric(&store.MetricDefinition{
+	if err := p.store.UpsertMetric(context.Background(), &store.MetricDefinition{
 		DataSourceID: "ds1", Name: "by_region",
 		SQLTemplate: "SELECT count(*) AS cnt FROM customers WHERE region = :region",
 		Params: []store.MetricParam{
@@ -161,7 +161,7 @@ func TestResolveMetricParamValidation(t *testing.T) {
 		t.Fatal("expected error on missing required param")
 	}
 	// Bad enum value.
-	if err := p.store.UpsertMetric(&store.MetricDefinition{
+	if err := p.store.UpsertMetric(context.Background(), &store.MetricDefinition{
 		DataSourceID: "ds1", Name: "by_tier",
 		SQLTemplate: "SELECT count(*) AS cnt FROM customers WHERE region = :tier",
 		Params: []store.MetricParam{
@@ -195,7 +195,7 @@ func TestResolveMetricInjectionSafe(t *testing.T) {
 	// literal (safe) or returns rows only for the literal string (0), never
 	// the full table (3).
 	p := newMetricTestStack(t)
-	if err := p.store.UpsertMetric(&store.MetricDefinition{
+	if err := p.store.UpsertMetric(context.Background(), &store.MetricDefinition{
 		DataSourceID: "ds1", Name: "safe_region",
 		SQLTemplate: "SELECT count(*) AS cnt FROM customers WHERE region = :region",
 		Params:       []store.MetricParam{{Name: "region", Type: "string", Required: true}},
@@ -216,7 +216,7 @@ func TestResolveMetricUnauthorizedTableDenied(t *testing.T) {
 	p := newMetricTestStack(t)
 	// Analyst has no permission on a table not granted; metric targeting it
 	// must be denied by the governed Execute path.
-	if err := p.store.UpsertMetric(&store.MetricDefinition{
+	if err := p.store.UpsertMetric(context.Background(), &store.MetricDefinition{
 		DataSourceID: "ds1", Name: "secrets_leak",
 		SQLTemplate:  "SELECT * FROM nonexistent_table",
 	}); err != nil {

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -180,6 +181,12 @@ func (s *Store) migrate() error {
 			params TEXT, unit TEXT, created_at DATETIME, updated_at DATETIME)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_metrics_key
 			ON metric_definitions(datasource_id, name)`,
+		`CREATE TABLE IF NOT EXISTS workspaces (
+			id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT UNIQUE NOT NULL,
+			settings TEXT, created_at DATETIME)`,
+		`CREATE TABLE IF NOT EXISTS workspace_members (
+			workspace_id TEXT, user_id TEXT, role TEXT, is_default INTEGER DEFAULT 0,
+			created_at DATETIME, PRIMARY KEY(workspace_id, user_id))`,
 	}
 	for _, st := range stmts {
 		if _, err := s.db.Exec(st); err != nil {
@@ -201,6 +208,67 @@ func (s *Store) migrate() error {
 	}
 	if err := migrateDatasets(s); err != nil {
 		return err
+	}
+	if err := migrateWorkspaces(s); err != nil {
+		return err
+	}
+	return nil
+}
+
+// migrateWorkspaces brings an existing single-tenant deployment forward to the
+// multi-tenant model (ADR-001) with zero data loss:
+//  1. seed the `default` workspace,
+//  2. backfill workspace_members for every existing user
+//     (platform admin -> workspace_admin, others -> member, default=true),
+//  3. add a NOT NULL DEFAULT 'default' workspace_id column to every governed
+//     table so legacy rows stay visible inside the default workspace.
+func migrateWorkspaces(s *Store) error {
+	if _, err := s.db.Exec(
+		`INSERT OR IGNORE INTO workspaces (id,name,slug,settings,created_at)
+		 VALUES (?,?,?,?,?)`,
+		DefaultWorkspaceID, "Default", "default", "{}", time.Now()); err != nil {
+		return err
+	}
+	// Backfill membership for users that are not yet members of default.
+	users, err := s.ListUsers()
+	if err != nil {
+		return err
+	}
+	for _, u := range users {
+		ok, err := s.IsWorkspaceMember(DefaultWorkspaceID, u.ID)
+		if err != nil {
+			return err
+		}
+		if ok {
+			continue
+		}
+		role := WsRoleMember
+		if rs, rerr := s.ListRolesForUser(u.ID); rerr == nil {
+			for _, r := range rs {
+				if r.Name == "admin" {
+					role = WsRoleAdmin
+				}
+			}
+		}
+		if err := s.AddWorkspaceMember(DefaultWorkspaceID, u.ID, role, true); err != nil {
+			return err
+		}
+	}
+	// Add workspace_id discriminator to every governed table. Existing rows
+	// inherit 'default' thanks to the NOT NULL DEFAULT clause.
+	governed := []string{
+		"datasources", "table_permissions", "row_policies", "column_masks",
+		"schema_semantics", "data_classifications", "approval_requests",
+		"metric_definitions", "audit_logs", "datasets",
+	}
+	for _, t := range governed {
+		if _, err := s.db.Exec(
+			`ALTER TABLE ` + t + ` ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'default'`); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") {
+				logging.With("error", err.Error(), "table", t).
+					Warn("migration: add workspace_id failed")
+			}
+		}
 	}
 	return nil
 }
@@ -446,7 +514,7 @@ func (s *Store) ListRolesForUser(userID string) ([]*Role, error) {
 
 // DataSources ----------------------------------------------------------------
 
-func (s *Store) CreateDataSource(d *DataSource) error {
+func (s *Store) CreateDataSource(ctx context.Context, d *DataSource) error {
 	if d.ID == "" {
 		d.ID = uid()
 	}
@@ -454,15 +522,20 @@ func (s *Store) CreateDataSource(d *DataSource) error {
 		d.CreatedAt = time.Now()
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO datasources (id,name,type,dsn,created_at) VALUES (?,?,?,?,?)`,
-		d.ID, d.Name, d.Type, d.DSN, d.CreatedAt)
+		`INSERT INTO datasources (id,name,type,dsn,created_at,workspace_id) VALUES (?,?,?,?,?,?)`,
+		d.ID, d.Name, d.Type, d.DSN, d.CreatedAt, WriteWorkspace(ctx))
 	return err
 }
 
-func (s *Store) GetDataSource(id string) (*DataSource, error) {
+func (s *Store) GetDataSource(ctx context.Context, id string) (*DataSource, error) {
 	d := &DataSource{}
-	err := s.db.QueryRow(
-		`SELECT id,name,type,dsn,created_at FROM datasources WHERE id=?`, id).
+	q := `SELECT id,name,type,dsn,created_at FROM datasources WHERE id=?`
+	args := []interface{}{id}
+	if !CrossesWorkspaces(ctx) {
+		q += ` AND workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
+	err := s.db.QueryRow(q, args...).
 		Scan(&d.ID, &d.Name, &d.Type, &d.DSN, &d.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -473,8 +546,15 @@ func (s *Store) GetDataSource(id string) (*DataSource, error) {
 	return d, nil
 }
 
-func (s *Store) ListDataSources() ([]*DataSource, error) {
-	rows, err := s.db.Query(`SELECT id,name,type,dsn,created_at FROM datasources ORDER BY name`)
+func (s *Store) ListDataSources(ctx context.Context) ([]*DataSource, error) {
+	q := `SELECT id,name,type,dsn,created_at FROM datasources`
+	args := []interface{}{}
+	if !CrossesWorkspaces(ctx) {
+		q += ` WHERE workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
+	q += ` ORDER BY name`
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -520,23 +600,28 @@ func (s *Store) DeleteDataSource(id string) error {
 
 // Table permissions ----------------------------------------------------------
 
-func (s *Store) CreateTablePermission(p *TablePermission) error {
+func (s *Store) CreateTablePermission(ctx context.Context, p *TablePermission) error {
 	if p.ID == "" {
 		p.ID = uid()
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO table_permissions (id,role_id,datasource_id,table_name,ops,allowed_cols,denied_cols)
-		 VALUES (?,?,?,?,?,?,?)`,
-		p.ID, p.RoleID, p.DataSourceID, p.TableName, p.Ops, p.AllowedCols, p.DeniedCols)
+		`INSERT INTO table_permissions (id,role_id,datasource_id,table_name,ops,allowed_cols,denied_cols,workspace_id)
+		 VALUES (?,?,?,?,?,?,?,?)`,
+		p.ID, p.RoleID, p.DataSourceID, p.TableName, p.Ops, p.AllowedCols, p.DeniedCols, WriteWorkspace(ctx))
 	return err
 }
 
 // ListTablePermissions returns permissions for a role+datsource; tableName "" means all.
-// An empty roleID selects all roles (consistent with ListColumnMasks).
-func (s *Store) ListTablePermissions(roleID, dsID, tableName string) ([]*TablePermission, error) {
+// An empty roleID selects all roles (consistent with ListColumnMasks). Results are
+// scoped to the active workspace from ctx (platform admin may pass WorkspaceAll).
+func (s *Store) ListTablePermissions(ctx context.Context, roleID, dsID, tableName string) ([]*TablePermission, error) {
 	q := `SELECT id,role_id,datasource_id,table_name,ops,allowed_cols,denied_cols
 	      FROM table_permissions WHERE datasource_id=?`
 	args := []interface{}{dsID}
+	if !CrossesWorkspaces(ctx) {
+		q += ` AND workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
 	if roleID != "" {
 		q += ` AND role_id=?`
 		args = append(args, roleID)
@@ -568,23 +653,27 @@ func (s *Store) DeleteTablePermission(id string) error {
 
 // Row policies ---------------------------------------------------------------
 
-func (s *Store) CreateRowPolicy(p *RowPolicy) error {
+func (s *Store) CreateRowPolicy(ctx context.Context, p *RowPolicy) error {
 	if p.ID == "" {
 		p.ID = uid()
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO row_policies (id,role_id,datasource_id,table_name,predicate,priority)
-		 VALUES (?,?,?,?,?,?)`,
-		p.ID, p.RoleID, p.DataSourceID, p.TableName, p.Predicate, p.Priority)
+		`INSERT INTO row_policies (id,role_id,datasource_id,table_name,predicate,priority,workspace_id)
+		 VALUES (?,?,?,?,?,?,?)`,
+		p.ID, p.RoleID, p.DataSourceID, p.TableName, p.Predicate, p.Priority, WriteWorkspace(ctx))
 	return err
 }
 
 // ListRowPolicies returns policies for a role+datsource; table "" means all tables.
-// An empty roleID selects all roles.
-func (s *Store) ListRowPolicies(roleID, dsID, table string) ([]*RowPolicy, error) {
+// An empty roleID selects all roles. Scoped to the active workspace from ctx.
+func (s *Store) ListRowPolicies(ctx context.Context, roleID, dsID, table string) ([]*RowPolicy, error) {
 	q := `SELECT id,role_id,datasource_id,table_name,predicate,priority
 	      FROM row_policies WHERE datasource_id=?`
 	args := []interface{}{dsID}
+	if !CrossesWorkspaces(ctx) {
+		q += ` AND workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
 	if roleID != "" {
 		q += ` AND role_id=?`
 		args = append(args, roleID)
@@ -619,12 +708,13 @@ func (s *Store) DeleteRowPolicy(id string) error {
 
 // UpsertColumnMask inserts or updates a masking rule, keyed by the
 // (role, datasource, table, column) natural key.
-func (s *Store) UpsertColumnMask(p *ColumnMask) error {
+func (s *Store) UpsertColumnMask(ctx context.Context, p *ColumnMask) error {
+	ws := WriteWorkspace(ctx)
 	if p.ID == "" {
 		var found string
 		err := s.db.QueryRow(
-			`SELECT id FROM column_masks WHERE role_id=? AND datasource_id=? AND table_name=? AND column_name=?`,
-			p.RoleID, p.DataSourceID, p.TableName, p.ColumnName).Scan(&found)
+			`SELECT id FROM column_masks WHERE role_id=? AND datasource_id=? AND table_name=? AND column_name=? AND workspace_id=?`,
+			p.RoleID, p.DataSourceID, p.TableName, p.ColumnName, ws).Scan(&found)
 		if err == nil {
 			p.ID = found
 		} else {
@@ -635,22 +725,28 @@ func (s *Store) UpsertColumnMask(p *ColumnMask) error {
 		p.UpdatedAt = time.Now()
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO column_masks (id,role_id,datasource_id,table_name,column_name,strategy,keep,updated_at)
-		 VALUES (?,?,?,?,?,?,?,?)
+		`INSERT INTO column_masks (id,role_id,datasource_id,table_name,column_name,strategy,keep,updated_at,workspace_id)
+		 VALUES (?,?,?,?,?,?,?,?,?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   role_id=excluded.role_id, datasource_id=excluded.datasource_id,
 		   table_name=excluded.table_name, column_name=excluded.column_name,
-		   strategy=excluded.strategy, keep=excluded.keep, updated_at=excluded.updated_at`,
-		p.ID, p.RoleID, p.DataSourceID, p.TableName, p.ColumnName, p.Strategy, p.Keep, p.UpdatedAt)
+		   strategy=excluded.strategy, keep=excluded.keep, updated_at=excluded.updated_at,
+		   workspace_id=excluded.workspace_id`,
+		p.ID, p.RoleID, p.DataSourceID, p.TableName, p.ColumnName, p.Strategy, p.Keep, p.UpdatedAt, ws)
 	return err
 }
 
 // ListColumnMasks returns masking rules. An empty roleID selects all roles.
 // An empty table selects all tables. Results are ordered for stability.
-func (s *Store) ListColumnMasks(roleID, dsID, table string) ([]*ColumnMask, error) {
+// Scoped to the active workspace from ctx.
+func (s *Store) ListColumnMasks(ctx context.Context, roleID, dsID, table string) ([]*ColumnMask, error) {
 	q := `SELECT id,role_id,datasource_id,table_name,column_name,strategy,keep,updated_at
 	      FROM column_masks WHERE datasource_id=?`
 	args := []interface{}{dsID}
+	if !CrossesWorkspaces(ctx) {
+		q += ` AND workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
 	if roleID != "" {
 		q += ` AND role_id=?`
 		args = append(args, roleID)
@@ -686,7 +782,7 @@ func (s *Store) DeleteColumnMask(id string) error {
 // ResolvePermissions aggregates all of a user's roles into a per-table
 // governance view for the given datasource. Default policy is deny: a table
 // only appears here if at least one role grants an operation on it.
-func (s *Store) ResolvePermissions(userID, dsID string) (map[string]*TableEffective, error) {
+func (s *Store) ResolvePermissions(ctx context.Context, userID, dsID string) (map[string]*TableEffective, error) {
 	roles, err := s.ListRolesForUser(userID)
 	if err != nil {
 		return nil, err
@@ -709,7 +805,7 @@ func (s *Store) ResolvePermissions(userID, dsID string) (map[string]*TableEffect
 		return a
 	}
 	for _, r := range roles {
-		perms, err := s.ListTablePermissions(r.ID, dsID, "")
+		perms, err := s.ListTablePermissions(ctx, r.ID, dsID, "")
 		if err != nil {
 			return nil, err
 		}
@@ -738,7 +834,7 @@ func (s *Store) ResolvePermissions(userID, dsID string) (map[string]*TableEffect
 				}
 			}
 		}
-		pols, err := s.ListRowPolicies(r.ID, dsID, "")
+		pols, err := s.ListRowPolicies(ctx, r.ID, dsID, "")
 		if err != nil {
 			return nil, err
 		}
@@ -746,7 +842,7 @@ func (s *Store) ResolvePermissions(userID, dsID string) (map[string]*TableEffect
 			a := get(p.TableName)
 			a.policies = append(a.policies, p.Predicate)
 		}
-		masks, err := s.ListColumnMasks(r.ID, dsID, "")
+		masks, err := s.ListColumnMasks(ctx, r.ID, dsID, "")
 		if err != nil {
 			return nil, err
 		}

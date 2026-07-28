@@ -43,7 +43,7 @@ func (s *Server) getPrompt(r *http.Request, params json.RawMessage) (interface{}
 }
 
 func (s *Server) nl2sqlPrompt(r *http.Request, args map[string]string) (interface{}, error) {
-	claims, err := s.principal(r)
+	ctx, claims, err := s.resolveContext(r)
 	if err != nil {
 		return nil, err
 	}
@@ -52,17 +52,17 @@ func (s *Server) nl2sqlPrompt(r *http.Request, args map[string]string) (interfac
 	if dsName == "" || question == "" {
 		return nil, fmt.Errorf("datasource and question are required")
 	}
-	dsID, err := resolveDatasource(s.store, dsName)
+	dsID, err := resolveDatasource(ctx, s.store, dsName)
 	if err != nil {
 		return nil, err
 	}
-	schema, err := s.proxy.Catalog(r.Context(), dsID, claims)
+	schema, err := s.proxy.Catalog(ctx, dsID, claims)
 	if err != nil {
 		return nil, err
 	}
 	dialect := args["dialect"]
 	if dialect == "" {
-		if ds, err := s.store.GetDataSource(dsID); err == nil && ds != nil {
+		if ds, err := s.store.GetDataSource(ctx, dsID); err == nil && ds != nil {
 			dialect = ds.Type
 		}
 	}

@@ -47,10 +47,10 @@ func Run(cfg *config.Config) error {
 
 	// Observability: advertise build identity and live counts at start-up.
 	metrics.SetBuildInfo(version.Version, version.Commit)
-	if dss, err := st.ListDataSources(); err == nil {
+	if dss, err := st.ListDataSources(context.Background()); err == nil {
 		metrics.SetDatasources(len(dss))
 	}
-	if dsets, err := st.ListDatasets(); err == nil {
+	if dsets, err := st.ListDatasets(context.Background()); err == nil {
 		n := 0
 		for _, d := range dsets {
 			if d.Status == store.DatasetPublished {
@@ -143,7 +143,7 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 	})
 	mux.HandleFunc("GET /api/v1/ready", func(w http.ResponseWriter, r *http.Request) {
 		// Readiness: ensure the control-plane store is reachable.
-		if _, err := st.ListDataSources(); err != nil {
+		if _, err := st.ListDataSources(context.Background()); err != nil {
 			api.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not ready", "reason": err.Error()})
 			return
 		}
@@ -168,19 +168,26 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 		mux.HandleFunc("POST /api/v1/auth/ldap/login", ldapH.LDAPLogin)
 	}
 
-	// ---- DataAPI (requires authentication) ----
+	// ---- DataAPI (requires authentication + workspace scoping) ----
 	mux.HandleFunc("POST /api/v1/login", h.Login)
 	mux.HandleFunc("GET /api/v1/me", api.Authenticate(cfg, h.Me))
-	mux.HandleFunc("POST /api/v1/query", api.Authenticate(cfg, h.Query))
-	mux.HandleFunc("POST /api/v1/datasources/{id}/query/estimate", api.Authenticate(cfg, h.EstimateQuery))
-	mux.HandleFunc("GET /api/v1/datasources", api.Authenticate(cfg, h.ListDataSources))
-	mux.HandleFunc("GET /api/v1/datasources/{id}/tables", api.Authenticate(cfg, h.ListTables))
-	mux.HandleFunc("GET /api/v1/datasources/{id}/tables/{table}", api.Authenticate(cfg, h.DescribeTable))
-	mux.HandleFunc("GET /api/v1/datasources/{id}/catalog", api.Authenticate(cfg, h.Catalog))
-	mux.HandleFunc("POST /api/v1/datasources/{id}/nl2sql", api.Authenticate(cfg, h.NL2SQL))
+	mux.HandleFunc("POST /api/v1/query", api.Authenticate(cfg, api.WorkspaceResolver(st, h.Query)))
+	mux.HandleFunc("POST /api/v1/datasources/{id}/query/estimate", api.Authenticate(cfg, api.WorkspaceResolver(st, h.EstimateQuery)))
+	mux.HandleFunc("GET /api/v1/datasources", api.Authenticate(cfg, api.WorkspaceResolver(st, h.ListDataSources)))
+	mux.HandleFunc("GET /api/v1/datasources/{id}/tables", api.Authenticate(cfg, api.WorkspaceResolver(st, h.ListTables)))
+	mux.HandleFunc("GET /api/v1/datasources/{id}/tables/{table}", api.Authenticate(cfg, api.WorkspaceResolver(st, h.DescribeTable)))
+	mux.HandleFunc("GET /api/v1/datasources/{id}/catalog", api.Authenticate(cfg, api.WorkspaceResolver(st, h.Catalog)))
+	mux.HandleFunc("POST /api/v1/datasources/{id}/nl2sql", api.Authenticate(cfg, api.WorkspaceResolver(st, h.NL2SQL)))
+
+	// The caller's own workspaces (authenticated, no admin required).
+	mux.HandleFunc("GET /api/v1/workspaces", api.Authenticate(cfg, h.ListMyWorkspaces))
 
 	// ---- Admin API (admin role only) ----
-	a := func(fn http.HandlerFunc) http.HandlerFunc { return api.Authenticate(cfg, api.RequireAdmin(fn)) }
+	// Admin routes also resolve the workspace so platform admins get the
+	// cross-workspace ("*") view by default (ADR-001).
+	a := func(fn http.HandlerFunc) http.HandlerFunc {
+		return api.Authenticate(cfg, api.WorkspaceResolver(st, api.RequireAdmin(fn)))
+	}
 
 	mux.HandleFunc("GET /admin/api/users", a(h.AdminListUsers))
 	mux.HandleFunc("POST /admin/api/users", a(h.AdminCreateUser))
@@ -202,6 +209,14 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 	mux.HandleFunc("GET /admin/api/datasources/{id}/tables/{table}/permissions", a(h.AdminListTablePermissions))
 	mux.HandleFunc("POST /admin/api/datasources/{id}/tables/{table}/permissions", a(h.AdminCreateTablePermission))
 	mux.HandleFunc("DELETE /admin/api/datasources/{id}/permissions/{perm}", a(h.AdminDeleteTablePermission))
+
+	// ---- Workspaces (multi-tenant boundaries, ADR-001) ----
+	mux.HandleFunc("POST /admin/api/workspaces", a(h.AdminCreateWorkspace))
+	mux.HandleFunc("GET /admin/api/workspaces/{id}", a(h.AdminGetWorkspace))
+	mux.HandleFunc("DELETE /admin/api/workspaces/{id}", a(h.AdminDeleteWorkspace))
+	mux.HandleFunc("GET /admin/api/workspaces/{id}/members", a(h.AdminListWorkspaceMembers))
+	mux.HandleFunc("POST /admin/api/workspaces/{id}/members", a(h.AdminAddWorkspaceMember))
+	mux.HandleFunc("DELETE /admin/api/workspaces/{id}/members/{user_id}", a(h.AdminRemoveWorkspaceMember))
 
 	mux.HandleFunc("GET /admin/api/datasources/{id}/tables/{table}/policies", a(h.AdminListRowPolicies))
 	mux.HandleFunc("POST /admin/api/datasources/{id}/tables/{table}/policies", a(h.AdminCreateRowPolicy))

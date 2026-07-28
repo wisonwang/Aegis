@@ -6,6 +6,7 @@ import (
 
 	"github.com/wisonwang/aegis/internal/datasource"
 	"github.com/wisonwang/aegis/internal/store"
+	"context"
 )
 
 // ---- Users ----
@@ -233,7 +234,7 @@ func (h *Handler) AdminDeleteRole(w http.ResponseWriter, r *http.Request) {
 // ---- DataSources ----
 
 func (h *Handler) AdminListDataSources(w http.ResponseWriter, r *http.Request) {
-	ds, err := h.Store.ListDataSources()
+	ds, err := h.Store.ListDataSources(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -258,7 +259,7 @@ func (h *Handler) AdminCreateDataSource(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	d := &store.DataSource{Name: req.Name, Type: datasource.NormalizeType(req.Type), DSN: req.DSN}
-	if err := h.Store.CreateDataSource(d); err != nil {
+	if err := h.Store.CreateDataSource(r.Context(), d); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -266,12 +267,12 @@ func (h *Handler) AdminCreateDataSource(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) AdminUpdateDataSource(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
 	}
-	d, err := h.Store.GetDataSource(dsID)
+	d, err := h.Store.GetDataSource(r.Context(), dsID)
 	if err != nil || d == nil {
 		writeError(w, http.StatusNotFound, "datasource not found")
 		return
@@ -302,7 +303,7 @@ func (h *Handler) AdminUpdateDataSource(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) AdminDeleteDataSource(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -317,7 +318,7 @@ func (h *Handler) AdminDeleteDataSource(w http.ResponseWriter, r *http.Request) 
 // ---- Table permissions ----
 
 func (h *Handler) AdminListTablePermissions(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -337,7 +338,7 @@ func (h *Handler) listPermView(dsID, table string) ([]map[string]interface{}, er
 	for _, role := range roles {
 		nameByID[role.ID] = role.Name
 	}
-	perms, err := h.Store.ListTablePermissions("", dsID, table)
+	perms, err := h.Store.ListTablePermissions(context.Background(), "", dsID, table)
 	if err != nil {
 		return nil, err
 	}
@@ -364,7 +365,7 @@ type createPermRequest struct {
 }
 
 func (h *Handler) AdminCreateTablePermission(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -390,7 +391,7 @@ func (h *Handler) AdminCreateTablePermission(w http.ResponseWriter, r *http.Requ
 		AllowedCols:  string(allowed),
 		DeniedCols:   string(denied),
 	}
-	if err := h.Store.CreateTablePermission(p); err != nil {
+	if err := h.Store.CreateTablePermission(r.Context(), p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -409,7 +410,7 @@ func (h *Handler) AdminDeleteTablePermission(w http.ResponseWriter, r *http.Requ
 // ---- Row policies ----
 
 func (h *Handler) AdminListRowPolicies(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -420,7 +421,7 @@ func (h *Handler) AdminListRowPolicies(w http.ResponseWriter, r *http.Request) {
 	for _, role := range roles {
 		nameByID[role.ID] = role.Name
 	}
-	pols, err := h.Store.ListRowPolicies("", dsID, table)
+	pols, err := h.Store.ListRowPolicies(r.Context(), "", dsID, table)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -446,7 +447,7 @@ type createPolicyRequest struct {
 }
 
 func (h *Handler) AdminCreateRowPolicy(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -469,7 +470,7 @@ func (h *Handler) AdminCreateRowPolicy(w http.ResponseWriter, r *http.Request) {
 		Predicate:    req.Predicate,
 		Priority:     req.Priority,
 	}
-	if err := h.Store.CreateRowPolicy(p); err != nil {
+	if err := h.Store.CreateRowPolicy(r.Context(), p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -500,7 +501,7 @@ func (h *Handler) AdminListAudits(w http.ResponseWriter, r *http.Request) {
 		Limit:      atoiDefault(q.Get("limit"), 50),
 		Offset:     atoiDefault(q.Get("offset"), 0),
 	}
-	logs, total, err := h.Store.ListAudits(f)
+	logs, total, err := h.Store.ListAudits(r.Context(), f)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -513,7 +514,7 @@ func (h *Handler) AdminListAudits(w http.ResponseWriter, r *http.Request) {
 
 // AdminAuditStats returns aggregate counters (total/ok/denied/error).
 func (h *Handler) AdminAuditStats(w http.ResponseWriter, r *http.Request) {
-	stats, err := h.Store.AuditStats()
+	stats, err := h.Store.AuditStats(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

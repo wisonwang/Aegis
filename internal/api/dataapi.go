@@ -10,6 +10,7 @@ import (
 	"github.com/wisonwang/aegis/internal/datasource"
 	"github.com/wisonwang/aegis/internal/proxy"
 	"github.com/wisonwang/aegis/internal/store"
+	"context"
 )
 
 type loginRequest struct {
@@ -113,12 +114,12 @@ func (h *Handler) Query(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "sql or query is required")
 		return
 	}
-	dsID, err := h.resolveDS(req.DataSource)
+	dsID, err := h.resolveDS(r.Context(), req.DataSource)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	ds, derr := h.Store.GetDataSource(dsID)
+	ds, derr := h.Store.GetDataSource(r.Context(), dsID)
 	if derr != nil || ds == nil {
 		writeError(w, http.StatusBadRequest, "datasource not found")
 		return
@@ -178,7 +179,7 @@ func (h *Handler) NL2SQL(w http.ResponseWriter, r *http.Request) {
 	if target == "" {
 		target = req.DataSource
 	}
-	dsID, err := h.resolveDS(target)
+	dsID, err := h.resolveDS(r.Context(), target)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -210,7 +211,7 @@ func (h *Handler) NL2SQL(w http.ResponseWriter, r *http.Request) {
 
 // ListDataSources returns the registered datasources (id, name, type).
 func (h *Handler) ListDataSources(w http.ResponseWriter, r *http.Request) {
-	ds, err := h.Store.ListDataSources()
+	ds, err := h.Store.ListDataSources(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -224,7 +225,7 @@ func (h *Handler) ListDataSources(w http.ResponseWriter, r *http.Request) {
 
 // ListTables returns tables the principal may access on a datasource.
 func (h *Handler) ListTables(w http.ResponseWriter, r *http.Request) {
-	dsID, err := h.resolveDS(r.PathValue("id"))
+	dsID, err := h.resolveDS(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -240,7 +241,7 @@ func (h *Handler) ListTables(w http.ResponseWriter, r *http.Request) {
 
 // DescribeTable returns column metadata for a table (governed).
 func (h *Handler) DescribeTable(w http.ResponseWriter, r *http.Request) {
-	dsID, err := h.resolveDS(r.PathValue("id"))
+	dsID, err := h.resolveDS(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -260,7 +261,7 @@ func (h *Handler) DescribeTable(w http.ResponseWriter, r *http.Request) {
 // descriptions, synonyms and example values. This is exactly what the NL2SQL
 // gateway feeds to the model.
 func (h *Handler) Catalog(w http.ResponseWriter, r *http.Request) {
-	dsID, err := h.resolveDS(r.PathValue("id"))
+	dsID, err := h.resolveDS(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -284,12 +285,12 @@ type metricRunRequest struct {
 // datasource. Any authenticated principal may list them; executing a metric is
 // still subject to table/row/column governance like any other query.
 func (h *Handler) ListMetrics(w http.ResponseWriter, r *http.Request) {
-	dsID, err := h.resolveDS(r.PathValue("id"))
+	dsID, err := h.resolveDS(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "datasource not found")
 		return
 	}
-	metrics, err := h.Store.ListMetrics(dsID)
+	metrics, err := h.Store.ListMetrics(r.Context(), dsID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -302,7 +303,7 @@ func (h *Handler) ListMetrics(w http.ResponseWriter, r *http.Request) {
 // rendered with SQL-safe literals and executed through the same governed path
 // as Query/NL2SQL, so governance and audit all still apply.
 func (h *Handler) RunMetric(w http.ResponseWriter, r *http.Request) {
-	dsID, err := h.resolveDS(r.PathValue("id"))
+	dsID, err := h.resolveDS(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "datasource not found")
 		return
@@ -365,7 +366,7 @@ func (h *Handler) EstimateQuery(w http.ResponseWriter, r *http.Request) {
 	if target == "" {
 		target = req.DataSource
 	}
-	dsID, err := h.resolveDS(target)
+	dsID, err := h.resolveDS(r.Context(), target)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -385,15 +386,15 @@ func (h *Handler) EstimateQuery(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolveDS resolves a datasource id or name to its id.
-func (h *Handler) resolveDS(idOrName string) (string, error) {
+func (h *Handler) resolveDS(ctx context.Context, idOrName string) (string, error) {
 	if idOrName == "" {
 		return "", errStr("datasource is required")
 	}
-	ds, err := h.Store.GetDataSource(idOrName)
+	ds, err := h.Store.GetDataSource(ctx, idOrName)
 	if err == nil && ds != nil {
 		return ds.ID, nil
 	}
-	all, err := h.Store.ListDataSources()
+	all, err := h.Store.ListDataSources(ctx)
 	if err != nil {
 		return "", err
 	}

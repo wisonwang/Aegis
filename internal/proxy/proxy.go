@@ -122,10 +122,10 @@ func sessionFrom(ctx context.Context) string {
 // local and fast) so entries are never lost on process exit.
 func (p *Proxy) audit(ctx context.Context, dsID string, claims *auth.Claims, sqlText, rewritten, status, errMsg string, rowCount int, started time.Time) {
 	dsName := ""
-	if ds, err := p.store.GetDataSource(dsID); err == nil && ds != nil {
+	if ds, err := p.store.GetDataSource(ctx, dsID); err == nil && ds != nil {
 		dsName = ds.Name
 	}
-	_ = p.store.InsertAudit(&store.AuditLog{
+	_ = p.store.InsertAudit(ctx, &store.AuditLog{
 		UserID:       claims.UserID,
 		Username:     claims.Username,
 		Channel:      channelFrom(ctx),
@@ -205,7 +205,7 @@ func (p *Proxy) Execute(ctx context.Context, dsID string, claims *auth.Claims, s
 		defer cancel()
 	}
 
-	ds, err := p.store.GetDataSource(dsID)
+	ds, err := p.store.GetDataSource(ctx, dsID)
 	if err != nil || ds == nil {
 		p.audit(ctx, dsID, claims, sql, "", "error", "datasource not found", 0, started)
 		return nil, fmt.Errorf("datasource not found")
@@ -216,7 +216,7 @@ func (p *Proxy) Execute(ctx context.Context, dsID string, claims *auth.Claims, s
 	}
 
 	// ---- SQL-family path (mysql/postgres/sqlite/starrocks/clickhouse/trino/presto) ----
-	perms, err := p.store.ResolvePermissions(claims.UserID, dsID)
+	perms, err := p.store.ResolvePermissions(ctx, claims.UserID, dsID)
 	if err != nil {
 		p.audit(ctx, dsID, claims, sql, "", "error", err.Error(), 0, started)
 		return nil, err
@@ -290,7 +290,7 @@ func (p *Proxy) NL2SQL(ctx context.Context, dsID string, claims *auth.Claims, qu
 	if strings.TrimSpace(question) == "" && strings.TrimSpace(sqlHint) == "" {
 		return nil, nil, fmt.Errorf("a question or sql_hint is required")
 	}
-	ds, err := p.store.GetDataSource(dsID)
+	ds, err := p.store.GetDataSource(ctx, dsID)
 	if err != nil || ds == nil {
 		return nil, nil, fmt.Errorf("datasource not found")
 	}
@@ -326,7 +326,7 @@ func (p *Proxy) executeNoSQL(ctx context.Context, ds *store.DataSource, claims *
 	if datasource.IsNoSQLWriteOp(payload) {
 		return p.executeNoSQLWrite(ctx, ds, claims, payload, started, limited)
 	}
-	perms, err := p.store.ResolvePermissions(claims.UserID, ds.ID)
+	perms, err := p.store.ResolvePermissions(ctx, claims.UserID, ds.ID)
 	if err != nil {
 		p.audit(ctx, ds.ID, claims, string(payload), "", "error", err.Error(), 0, started)
 		return nil, err
@@ -360,7 +360,7 @@ func (p *Proxy) executeNoSQL(ctx context.Context, ds *store.DataSource, claims *
 // value masking applies to the result layer. When limits.max_affected_rows is
 // set, an affected-rows guard pre-checks the match count before the write runs.
 func (p *Proxy) executeNoSQLWrite(ctx context.Context, ds *store.DataSource, claims *auth.Claims, payload json.RawMessage, started time.Time, limited bool) (*QueryResult, error) {
-	perms, err := p.store.ResolvePermissions(claims.UserID, ds.ID)
+	perms, err := p.store.ResolvePermissions(ctx, claims.UserID, ds.ID)
 	if err != nil {
 		p.audit(ctx, ds.ID, claims, string(payload), "", "error", err.Error(), 0, started)
 		return nil, err
@@ -429,7 +429,7 @@ func (p *Proxy) maskRaw(raw *datasource.RawResult, denied, allowed []string, mas
 // ListTables returns the tables a principal may access on a datasource,
 // together with the operations granted.
 func (p *Proxy) ListTables(ctx context.Context, dsID string, claims *auth.Claims) ([]TableInfo, error) {
-	ds, err := p.store.GetDataSource(dsID)
+	ds, err := p.store.GetDataSource(ctx, dsID)
 	if err != nil {
 		return nil, err
 	}
@@ -440,7 +440,7 @@ func (p *Proxy) ListTables(ctx context.Context, dsID string, claims *auth.Claims
 	if err != nil {
 		return nil, err
 	}
-	perms, err := p.store.ResolvePermissions(claims.UserID, dsID)
+	perms, err := p.store.ResolvePermissions(ctx, claims.UserID, dsID)
 	if err != nil {
 		return nil, err
 	}
@@ -479,7 +479,7 @@ func (p *Proxy) describeColumns(ctx context.Context, ds *store.DataSource, table
 // DescribeTable returns column metadata for a table, with denied/non-allowed
 // columns removed per the principal's governance.
 func (p *Proxy) DescribeTable(ctx context.Context, dsID, table string, claims *auth.Claims) ([]datasource.ColumnMeta, error) {
-	ds, err := p.store.GetDataSource(dsID)
+	ds, err := p.store.GetDataSource(ctx, dsID)
 	if err != nil {
 		return nil, err
 	}
@@ -493,7 +493,7 @@ func (p *Proxy) DescribeTable(ctx context.Context, dsID, table string, claims *a
 	if claims.IsAdmin() {
 		return cols, nil
 	}
-	perms, err := p.store.ResolvePermissions(claims.UserID, dsID)
+	perms, err := p.store.ResolvePermissions(ctx, claims.UserID, dsID)
 	if err != nil {
 		return nil, err
 	}

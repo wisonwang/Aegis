@@ -10,13 +10,13 @@ import (
 // AdminListClassifications returns all classification (PII / sensitivity) labels
 // for a data source. An optional ?table= filter scopes the result.
 func (h *Handler) AdminListClassifications(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
 	}
 	table := r.URL.Query().Get("table")
-	cls, err := h.Store.ListClassifications(dsID, table)
+	cls, err := h.Store.ListClassifications(r.Context(), dsID, table)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -45,7 +45,7 @@ type upsertClassificationRequest struct {
 // AdminUpsertClassification inserts or updates a classification label for a
 // table or column, keyed by (table_name, column_name).
 func (h *Handler) AdminUpsertClassification(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -63,7 +63,7 @@ func (h *Handler) AdminUpsertClassification(w http.ResponseWriter, r *http.Reque
 		Level:        req.Level,
 		Tags:         string(tags),
 	}
-	if err := h.Store.UpsertClassification(dc); err != nil {
+	if err := h.Store.UpsertClassification(r.Context(), dc); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

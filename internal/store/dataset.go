@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -55,8 +56,8 @@ func migrateDatasets(s *Store) error {
 	return nil
 }
 
-// CreateDataset inserts a new dataset.
-func (s *Store) CreateDataset(d *Dataset) error {
+// CreateDataset inserts a new dataset. Scoped to the active workspace from ctx.
+func (s *Store) CreateDataset(ctx context.Context, d *Dataset) error {
 	if d.ID == "" {
 		d.ID = uid()
 	}
@@ -74,24 +75,36 @@ func (s *Store) CreateDataset(d *Dataset) error {
 		d.Fields = "[]"
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO datasets (id,name,display_name,description,datasource_id,definition,status,fields,created_at,updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		d.ID, d.Name, d.DisplayName, d.Description, d.DataSourceID, d.Definition, d.Status, d.Fields, d.CreatedAt, d.UpdatedAt)
+		`INSERT INTO datasets (id,name,display_name,description,datasource_id,definition,status,fields,created_at,updated_at,workspace_id)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		d.ID, d.Name, d.DisplayName, d.Description, d.DataSourceID, d.Definition, d.Status, d.Fields, d.CreatedAt, d.UpdatedAt, WriteWorkspace(ctx))
 	return err
 }
 
-// GetDataset returns a dataset by id, or nil if not found.
-func (s *Store) GetDataset(id string) (*Dataset, error) {
-	return scanDataset(s.db.QueryRow(
-		`SELECT id,name,display_name,description,datasource_id,definition,status,fields,created_at,updated_at
-		 FROM datasets WHERE id=?`, id))
+// GetDataset returns a dataset by id, or nil if not found. Scoped to the active
+// workspace from ctx (platform admin may pass WorkspaceAll).
+func (s *Store) GetDataset(ctx context.Context, id string) (*Dataset, error) {
+	q := `SELECT id,name,display_name,description,datasource_id,definition,status,fields,created_at,updated_at
+		 FROM datasets WHERE id=?`
+	args := []interface{}{id}
+	if !CrossesWorkspaces(ctx) {
+		q += ` AND workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
+	return scanDataset(s.db.QueryRow(q, args...))
 }
 
 // GetDatasetByName returns a dataset by unique name, or nil if not found.
-func (s *Store) GetDatasetByName(name string) (*Dataset, error) {
-	return scanDataset(s.db.QueryRow(
-		`SELECT id,name,display_name,description,datasource_id,definition,status,fields,created_at,updated_at
-		 FROM datasets WHERE name=?`, name))
+// Scoped to the active workspace from ctx.
+func (s *Store) GetDatasetByName(ctx context.Context, name string) (*Dataset, error) {
+	q := `SELECT id,name,display_name,description,datasource_id,definition,status,fields,created_at,updated_at
+		 FROM datasets WHERE name=?`
+	args := []interface{}{name}
+	if !CrossesWorkspaces(ctx) {
+		q += ` AND workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
+	return scanDataset(s.db.QueryRow(q, args...))
 }
 
 func scanDataset(row *sql.Row) (*Dataset, error) {
@@ -107,11 +120,18 @@ func scanDataset(row *sql.Row) (*Dataset, error) {
 	return d, nil
 }
 
-// ListDatasets returns every dataset, ordered by name.
-func (s *Store) ListDatasets() ([]*Dataset, error) {
-	rows, err := s.db.Query(
-		`SELECT id,name,display_name,description,datasource_id,definition,status,fields,created_at,updated_at
-		 FROM datasets ORDER BY name`)
+// ListDatasets returns every dataset, ordered by name. Scoped to the active
+// workspace from ctx (platform admin may pass WorkspaceAll).
+func (s *Store) ListDatasets(ctx context.Context) ([]*Dataset, error) {
+	q := `SELECT id,name,display_name,description,datasource_id,definition,status,fields,created_at,updated_at
+		 FROM datasets`
+	args := []interface{}{}
+	if !CrossesWorkspaces(ctx) {
+		q += ` WHERE workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
+	q += ` ORDER BY name`
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -130,8 +150,8 @@ func (s *Store) ListDatasets() ([]*Dataset, error) {
 
 // UpdateDataset patches the mutable fields of a dataset. Empty fields are left
 // unchanged; only id is required.
-func (s *Store) UpdateDataset(d *Dataset) error {
-	existing, err := s.GetDataset(d.ID)
+func (s *Store) UpdateDataset(ctx context.Context, d *Dataset) error {
+	existing, err := s.GetDataset(ctx, d.ID)
 	if err != nil {
 		return err
 	}
@@ -168,8 +188,8 @@ func (s *Store) SetDatasetStatus(id, status string) error {
 // DeleteDataset removes a dataset and cascades all governance keyed on
 // (datasource_id, table_name=dataset.Name): permissions, row policies, column
 // masks, and semantic descriptions.
-func (s *Store) DeleteDataset(id string) error {
-	d, err := s.GetDataset(id)
+func (s *Store) DeleteDataset(ctx context.Context, id string) error {
+	d, err := s.GetDataset(ctx, id)
 	if err != nil {
 		return err
 	}

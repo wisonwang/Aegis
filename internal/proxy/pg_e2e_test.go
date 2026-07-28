@@ -45,7 +45,7 @@ func TestPostgresE2E(t *testing.T) {
 	defer st.Close()
 
 	const dsID = "pg-demo"
-	if err := st.CreateDataSource(&store.DataSource{ID: dsID, Name: "pg-demo", Type: "postgres", DSN: dsn}); err != nil {
+	if err := st.CreateDataSource(context.Background(), &store.DataSource{ID: dsID, Name: "pg-demo", Type: "postgres", DSN: dsn}); err != nil {
 		t.Fatalf("create datasource: %v", err)
 	}
 
@@ -75,13 +75,13 @@ func TestPostgresE2E(t *testing.T) {
 		t.Fatalf("add analyst role: %v", err)
 	}
 	for _, tbl := range []string{"orders", "customers"} {
-		if err := st.CreateTablePermission(&store.TablePermission{
+		if err := st.CreateTablePermission(context.Background(), &store.TablePermission{
 			RoleID: analystRole.ID, DataSourceID: dsID, TableName: tbl, Ops: "SELECT",
 		}); err != nil {
 			t.Fatalf("grant %s: %v", tbl, err)
 		}
 		// row policy scoped to the principal's tenant attribute
-		if err := st.CreateRowPolicy(&store.RowPolicy{
+		if err := st.CreateRowPolicy(context.Background(), &store.RowPolicy{
 			RoleID: analystRole.ID, DataSourceID: dsID, TableName: tbl,
 			Predicate: "tenant_id = :tenant", Priority: 10,
 		}); err != nil {
@@ -89,10 +89,10 @@ func TestPostgresE2E(t *testing.T) {
 		}
 	}
 	// dynamic value masking on PII columns
-	if err := st.UpsertColumnMask(&store.ColumnMask{RoleID: analystRole.ID, DataSourceID: dsID, TableName: "customers", ColumnName: "phone", Strategy: "phone"}); err != nil {
+	if err := st.UpsertColumnMask(context.Background(), &store.ColumnMask{RoleID: analystRole.ID, DataSourceID: dsID, TableName: "customers", ColumnName: "phone", Strategy: "phone"}); err != nil {
 		t.Fatalf("mask phone: %v", err)
 	}
-	if err := st.UpsertColumnMask(&store.ColumnMask{RoleID: analystRole.ID, DataSourceID: dsID, TableName: "customers", ColumnName: "email", Strategy: "email"}); err != nil {
+	if err := st.UpsertColumnMask(context.Background(), &store.ColumnMask{RoleID: analystRole.ID, DataSourceID: dsID, TableName: "customers", ColumnName: "email", Strategy: "email"}); err != nil {
 		t.Fatalf("mask email: %v", err)
 	}
 

@@ -18,18 +18,18 @@ const datasetURIPrefix = uriPrefix + "dataset/"
 // access. Reading a resource returns the governed, semantically enriched
 // schema (see proxy.Catalog) that helps an agent write correct SQL.
 func (s *Server) listResources(r *http.Request) ([]map[string]interface{}, error) {
-	claims, err := s.principal(r)
+	ctx, claims, err := s.resolveContext(r)
 	if err != nil {
 		return nil, err
 	}
-	dss, err := s.store.ListDataSources()
+	dss, err := s.store.ListDataSources(ctx)
 	if err != nil {
 		return nil, err
 	}
 	out := []map[string]interface{}{}
 	for _, ds := range dss {
 		// Only surface data sources the caller has at least one accessible table in.
-		schema, err := s.proxy.Catalog(r.Context(), ds.ID, claims)
+		schema, err := s.proxy.Catalog(ctx, ds.ID, claims)
 		if err != nil || schema == nil || len(schema.Tables) == 0 {
 			continue
 		}
@@ -41,7 +41,7 @@ func (s *Server) listResources(r *http.Request) ([]map[string]interface{}, error
 		})
 	}
 	// Datasets the caller may consume are also exposed as resources.
-	datasets, err := s.proxy.ListDatasets(r.Context(), claims)
+	datasets, err := s.proxy.ListDatasets(ctx, claims)
 	if err == nil {
 		for _, d := range datasets {
 			out = append(out, map[string]interface{}{
@@ -76,7 +76,7 @@ func resourceTemplates() []map[string]interface{} {
 // readResource resolves a aegis:// URI and returns the governed schema for the
 // referenced data source or dataset, as both markdown and JSON.
 func (s *Server) readResource(r *http.Request, params json.RawMessage) (interface{}, error) {
-	claims, err := s.principal(r)
+	ctx, claims, err := s.resolveContext(r)
 	if err != nil {
 		return nil, err
 	}
@@ -95,14 +95,14 @@ func (s *Server) readResource(r *http.Request, params json.RawMessage) (interfac
 		if kind != "schema" {
 			return nil, fmt.Errorf("unsupported resource kind %q", kind)
 		}
-		d, err := s.store.GetDatasetByName(name)
+		d, err := s.store.GetDatasetByName(ctx, name)
 		if err != nil {
 			return nil, err
 		}
 		if d == nil {
 			return nil, fmt.Errorf("dataset %q not found", name)
 		}
-		schema, err := s.proxy.DatasetCatalog(r.Context(), d.ID, claims)
+		schema, err := s.proxy.DatasetCatalog(ctx, d.ID, claims)
 		if err != nil {
 			return nil, err
 		}
@@ -121,11 +121,11 @@ func (s *Server) readResource(r *http.Request, params json.RawMessage) (interfac
 	if kind != "schema" {
 		return nil, fmt.Errorf("unsupported resource kind %q", kind)
 	}
-	dsID, err := resolveDatasource(s.store, dsName)
+	dsID, err := resolveDatasource(ctx, s.store, dsName)
 	if err != nil {
 		return nil, err
 	}
-	schema, err := s.proxy.Catalog(r.Context(), dsID, claims)
+	schema, err := s.proxy.Catalog(ctx, dsID, claims)
 	if err != nil {
 		return nil, err
 	}

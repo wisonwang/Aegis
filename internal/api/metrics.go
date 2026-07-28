@@ -9,12 +9,12 @@ import (
 
 // AdminListMetrics returns all curated metric definitions for a datasource.
 func (h *Handler) AdminListMetrics(w http.ResponseWriter, r *http.Request) {
-	id, err := h.resolveDS(r.PathValue("id"))
+	id, err := h.resolveDS(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "datasource not found")
 		return
 	}
-	metrics, err := h.Store.ListMetrics(id)
+	metrics, err := h.Store.ListMetrics(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -34,7 +34,7 @@ type upsertMetricRequest struct {
 // is only ever executed through the governed path, so this is a safe curated
 // surface — admins define the SQL, agents supply typed parameters.
 func (h *Handler) AdminUpsertMetric(w http.ResponseWriter, r *http.Request) {
-	id, err := h.resolveDS(r.PathValue("id"))
+	id, err := h.resolveDS(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "datasource not found")
 		return
@@ -58,7 +58,7 @@ func (h *Handler) AdminUpsertMetric(w http.ResponseWriter, r *http.Request) {
 		Params:       req.Params,
 		Unit:         req.Unit,
 	}
-	if err := h.Store.UpsertMetric(m); err != nil {
+	if err := h.Store.UpsertMetric(r.Context(), m); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

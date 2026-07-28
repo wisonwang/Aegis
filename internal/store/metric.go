@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"time"
@@ -37,8 +38,9 @@ type MetricDefinition struct {
 }
 
 // UpsertMetric inserts or updates a metric definition, keyed by
-// (datasource_id, name). Params are persisted as a JSON column.
-func (s *Store) UpsertMetric(m *MetricDefinition) error {
+// (datasource_id, name). Params are persisted as a JSON column. Scoped to the
+// active workspace.
+func (s *Store) UpsertMetric(ctx context.Context, m *MetricDefinition) error {
 	if m.ID == "" {
 		m.ID = uid()
 	}
@@ -52,27 +54,32 @@ func (s *Store) UpsertMetric(m *MetricDefinition) error {
 	}
 	_, err = s.db.Exec(
 		`INSERT INTO metric_definitions
-			(id,datasource_id,name,description,sql_template,params,unit,created_at,updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,?)
+			(id,datasource_id,name,description,sql_template,params,unit,created_at,updated_at,workspace_id)
+		 VALUES (?,?,?,?,?,?,?,?,?,?)
 		 ON CONFLICT(datasource_id,name) DO UPDATE SET
 			description=excluded.description,
 			sql_template=excluded.sql_template,
 			params=excluded.params,
 			unit=excluded.unit,
-			updated_at=excluded.updated_at`,
+			updated_at=excluded.updated_at,
+			workspace_id=excluded.workspace_id`,
 		m.ID, m.DataSourceID, m.Name, m.Description, m.SQLTemplate, string(paramsJSON),
-		m.Unit, m.CreatedAt, m.UpdatedAt)
+		m.Unit, m.CreatedAt, m.UpdatedAt, WriteWorkspace(ctx))
 	return err
 }
 
 // GetMetric returns the metric for a datasource + name, or nil when absent.
-func (s *Store) GetMetric(dsID, name string) (*MetricDefinition, error) {
+func (s *Store) GetMetric(ctx context.Context, dsID, name string) (*MetricDefinition, error) {
 	m := &MetricDefinition{}
 	var paramsJSON string
-	err := s.db.QueryRow(
-		`SELECT id,datasource_id,name,description,sql_template,params,unit,created_at,updated_at
-		 FROM metric_definitions WHERE datasource_id=? AND name=?`,
-		dsID, name).
+	q := `SELECT id,datasource_id,name,description,sql_template,params,unit,created_at,updated_at
+		 FROM metric_definitions WHERE datasource_id=? AND name=?`
+	args := []interface{}{dsID, name}
+	if !CrossesWorkspaces(ctx) {
+		q += ` AND workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
+	err := s.db.QueryRow(q, args...).
 		Scan(&m.ID, &m.DataSourceID, &m.Name, &m.Description, &m.SQLTemplate,
 			&paramsJSON, &m.Unit, &m.CreatedAt, &m.UpdatedAt)
 	if err == sql.ErrNoRows {
@@ -88,11 +95,17 @@ func (s *Store) GetMetric(dsID, name string) (*MetricDefinition, error) {
 }
 
 // ListMetrics returns all metric definitions for a datasource (order by name).
-func (s *Store) ListMetrics(dsID string) ([]*MetricDefinition, error) {
-	rows, err := s.db.Query(
-		`SELECT id,datasource_id,name,description,sql_template,params,unit,created_at,updated_at
-		 FROM metric_definitions WHERE datasource_id=? ORDER BY name`,
-		dsID)
+// Scoped to the active workspace from ctx.
+func (s *Store) ListMetrics(ctx context.Context, dsID string) ([]*MetricDefinition, error) {
+	q := `SELECT id,datasource_id,name,description,sql_template,params,unit,created_at,updated_at
+		 FROM metric_definitions WHERE datasource_id=?`
+	args := []interface{}{dsID}
+	if !CrossesWorkspaces(ctx) {
+		q += ` AND workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
+	q += ` ORDER BY name`
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}

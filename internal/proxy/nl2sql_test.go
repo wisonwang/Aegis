@@ -37,7 +37,7 @@ func newNL2SQLTestStack(t *testing.T) *Proxy {
 	}
 	raw.Close()
 
-	if err := st.CreateDataSource(&store.DataSource{ID: "ds1", Name: "sqlite1", Type: "sqlite", DSN: dbPath}); err != nil {
+	if err := st.CreateDataSource(context.Background(), &store.DataSource{ID: "ds1", Name: "sqlite1", Type: "sqlite", DSN: dbPath}); err != nil {
 		t.Fatalf("create ds: %v", err)
 	}
 	if err := st.CreateRole(&store.Role{ID: "r1", Name: "analyst"}); err != nil {
@@ -49,12 +49,12 @@ func newNL2SQLTestStack(t *testing.T) *Proxy {
 	if err := st.AddUserRole("u1", "r1"); err != nil {
 		t.Fatalf("add role: %v", err)
 	}
-	if err := st.CreateTablePermission(&store.TablePermission{
+	if err := st.CreateTablePermission(context.Background(), &store.TablePermission{
 		ID: "tp1", RoleID: "r1", DataSourceID: "ds1", TableName: "customers", Ops: "SELECT",
 	}); err != nil {
 		t.Fatalf("perm: %v", err)
 	}
-	if err := st.UpsertColumnMask(&store.ColumnMask{
+	if err := st.UpsertColumnMask(context.Background(), &store.ColumnMask{
 		ID: "m1", RoleID: "r1", DataSourceID: "ds1", TableName: "customers",
 		ColumnName: "phone", Strategy: "phone",
 	}); err != nil {
@@ -104,7 +104,7 @@ func TestNL2SQLRoutesThroughGovernedPath(t *testing.T) {
 		t.Fatalf("phone leaked raw value: %s", phone)
 	}
 	// Audit: an ok entry should record the generated SQL.
-	audits, _, err := p.store.ListAudits(store.AuditFilter{Limit: 10})
+	audits, _, err := p.store.ListAudits(context.Background(), store.AuditFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("list audit: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestNL2SQLRoutesThroughGovernedPath(t *testing.T) {
 
 func TestNL2SQLNotConfigured(t *testing.T) {
 	st, _ := store.Open(":memory:")
-	if err := st.CreateDataSource(&store.DataSource{ID: "ds1", Name: "x", Type: "sqlite", DSN: ":memory:"}); err != nil {
+	if err := st.CreateDataSource(context.Background(), &store.DataSource{ID: "ds1", Name: "x", Type: "sqlite", DSN: ":memory:"}); err != nil {
 		t.Fatal(err)
 	}
 	p := New(st, datasource.NewManager(st)) // no generator installed
@@ -134,7 +134,7 @@ func TestNL2SQLNotConfigured(t *testing.T) {
 func TestNL2SQLGenerationFailureIs5xx(t *testing.T) {
 	// Stub with no default and no keyword match -> generation error (gen nil).
 	st, _ := store.Open(":memory:")
-	if err := st.CreateDataSource(&store.DataSource{ID: "ds1", Name: "x", Type: "sqlite", DSN: ":memory:"}); err != nil {
+	if err := st.CreateDataSource(context.Background(), &store.DataSource{ID: "ds1", Name: "x", Type: "sqlite", DSN: ":memory:"}); err != nil {
 		t.Fatal(err)
 	}
 	p := New(st, datasource.NewManager(st))

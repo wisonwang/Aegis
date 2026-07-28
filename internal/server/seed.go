@@ -12,6 +12,7 @@ import (
 	"github.com/wisonwang/aegis/internal/proxy"
 	"github.com/wisonwang/aegis/internal/store"
 	_ "modernc.org/sqlite"
+	"context"
 )
 
 // seedIfEmpty populates a self-contained demo tenant the first time the
@@ -59,7 +60,7 @@ func seedIfEmpty(st *store.Store, cfg *config.Config) error {
 	if err := buildDemoDB(demoPath); err != nil {
 		return err
 	}
-	_ = st.CreateDataSource(&store.DataSource{Name: "demo", Type: "sqlite", DSN: demoPath})
+	_ = st.CreateDataSource(context.Background(), &store.DataSource{Name: "demo", Type: "sqlite", DSN: demoPath})
 
 	dsID, err := datasourceIDByName(st, "demo")
 	if err != nil || dsID == "" {
@@ -67,24 +68,24 @@ func seedIfEmpty(st *store.Store, cfg *config.Config) error {
 	}
 
 	// Governance: analyst may SELECT orders/customers; orders is row-scoped to :tenant.
-	_ = st.CreateTablePermission(&store.TablePermission{
+	_ = st.CreateTablePermission(context.Background(), &store.TablePermission{
 		RoleID: analyst.ID, DataSourceID: dsID, TableName: "orders", Ops: "SELECT",
 	})
-	_ = st.CreateTablePermission(&store.TablePermission{
+	_ = st.CreateTablePermission(context.Background(), &store.TablePermission{
 		RoleID: analyst.ID, DataSourceID: dsID, TableName: "customers", Ops: "SELECT",
 	})
-	_ = st.CreateRowPolicy(&store.RowPolicy{
+	_ = st.CreateRowPolicy(context.Background(), &store.RowPolicy{
 		RoleID: analyst.ID, DataSourceID: dsID, TableName: "orders",
 		Predicate: "tenant_id = :tenant", Priority: 10,
 	})
 
 	// Dynamic masking: the analyst keeps PII columns (phone/email) visible but
 	// their values are masked, so AI supply stays useful without leaking PII.
-	_ = st.UpsertColumnMask(&store.ColumnMask{
+	_ = st.UpsertColumnMask(context.Background(), &store.ColumnMask{
 		RoleID: analyst.ID, DataSourceID: dsID, TableName: "customers",
 		ColumnName: "phone", Strategy: "phone",
 	})
-	_ = st.UpsertColumnMask(&store.ColumnMask{
+	_ = st.UpsertColumnMask(context.Background(), &store.ColumnMask{
 		RoleID: analyst.ID, DataSourceID: dsID, TableName: "customers",
 		ColumnName: "email", Strategy: "email",
 	})
@@ -106,7 +107,7 @@ func seedIfEmpty(st *store.Store, cfg *config.Config) error {
 	// over the demo source. The analyst may consume it; a row policy scopes it
 	// to the caller's tenant, mirroring how a platform team would publish a
 	// safe extract without exposing the raw table.
-	_ = st.CreateDataset(&store.Dataset{
+	_ = st.CreateDataset(context.Background(), &store.Dataset{
 		Name:         "paid_orders",
 		DisplayName:  "已支付订单",
 		Description:  "已支付订单的只读数据产品，按租户隔离，供分析师消费。",
@@ -115,23 +116,23 @@ func seedIfEmpty(st *store.Store, cfg *config.Config) error {
 		Status:       store.DatasetPublished,
 		Fields:       `[{"name":"id","type":"integer"},{"name":"tenant_id","type":"text"},{"name":"customer","type":"text"},{"name":"amount","type":"real"},{"name":"status","type":"text"}]`,
 	})
-	pd, _ := st.GetDatasetByName("paid_orders")
+	pd, _ := st.GetDatasetByName(context.Background(), "paid_orders")
 	if pd != nil {
-		_ = st.CreateTablePermission(&store.TablePermission{
+		_ = st.CreateTablePermission(context.Background(), &store.TablePermission{
 			RoleID: analyst.ID, DataSourceID: dsID, TableName: "paid_orders", Ops: "SELECT",
 		})
-		_ = st.CreateRowPolicy(&store.RowPolicy{
+		_ = st.CreateRowPolicy(context.Background(), &store.RowPolicy{
 			RoleID: analyst.ID, DataSourceID: dsID, TableName: "paid_orders",
 			Predicate: "tenant_id = :tenant", Priority: 10,
 		})
 		// Dataset-level semantics enrich the catalog the agent sees.
-		_ = st.UpsertSemantic(&store.Semantic{
+		_ = st.UpsertSemantic(context.Background(), &store.Semantic{
 			DataSourceID: dsID, TableName: "paid_orders", ColumnName: "amount",
 			Description: "订单金额（仅含已支付订单），单位人民币元。",
 			Synonyms:    `["金额","成交额"]`,
 			Examples:    `["120.50","340.00"]`,
 		})
-		_ = st.UpsertSemantic(&store.Semantic{
+		_ = st.UpsertSemantic(context.Background(), &store.Semantic{
 			DataSourceID: dsID, TableName: "paid_orders", ColumnName: "customer",
 			Description: "下单客户名称。", Synonyms: `["客户名"]`,
 		})
@@ -153,7 +154,7 @@ func seedClassifications(st *store.Store, dsID string) {
 		return string(b)
 	}
 	up := func(table, col, level string, tags []string) {
-		_ = st.UpsertClassification(&store.DataClassification{
+		_ = st.UpsertClassification(context.Background(), &store.DataClassification{
 			DataSourceID: dsID, TableName: table, ColumnName: col,
 			Level: level, Tags: arr(tags),
 		})
@@ -180,7 +181,7 @@ func seedRecommendedMasks(st *store.Store, dsID, roleID string) {
 	if roleID == "" {
 		return
 	}
-	cls, err := st.ListClassifications(dsID, "")
+	cls, err := st.ListClassifications(context.Background(), dsID, "")
 	if err != nil {
 		return
 	}
@@ -192,7 +193,7 @@ func seedRecommendedMasks(st *store.Store, dsID, roleID string) {
 		if !ok {
 			continue
 		}
-		_ = st.UpsertColumnMask(&store.ColumnMask{
+		_ = st.UpsertColumnMask(context.Background(), &store.ColumnMask{
 			RoleID: roleID, DataSourceID: dsID, TableName: c.TableName,
 			ColumnName: c.ColumnName, Strategy: strategy, Keep: keep,
 		})
@@ -211,7 +212,7 @@ func seedSemantics(st *store.Store, dsID string) {
 		return string(b)
 	}
 	up := func(table, col, desc string, synonyms, examples []string) {
-		_ = st.UpsertSemantic(&store.Semantic{
+		_ = st.UpsertSemantic(context.Background(), &store.Semantic{
 			DataSourceID: dsID, TableName: table, ColumnName: col,
 			Description: desc, Synonyms: arr(synonyms), Examples: arr(examples),
 		})
@@ -232,7 +233,7 @@ func seedSemantics(st *store.Store, dsID string) {
 }
 
 func datasourceIDByName(st *store.Store, name string) (string, error) {
-	all, err := st.ListDataSources()
+	all, err := st.ListDataSources(context.Background())
 	if err != nil {
 		return "", err
 	}

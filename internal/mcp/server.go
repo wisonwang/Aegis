@@ -13,6 +13,7 @@ import (
 	"github.com/wisonwang/aegis/internal/proxy"
 	"github.com/wisonwang/aegis/internal/store"
 	"github.com/google/uuid"
+	"context"
 )
 
 // Server implements the Model Context Protocol over Streamable HTTP so that
@@ -187,7 +188,7 @@ func (s *Server) dispatch(r *http.Request, req jsonrpcRequest) (*jsonrpcResponse
 // callTool resolves the principal, dispatches to a tool, and returns an MCP
 // tool result (content array).
 func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{}, error) {
-	claims, err := s.principal(r)
+	ctx, claims, err := s.resolveContext(r)
 	if err != nil {
 		return nil, err
 	}
@@ -206,18 +207,18 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 	var payload interface{}
 	switch p.Name {
 	case "list_datasources":
-		ds, err := s.store.ListDataSources()
+		ds, err := s.store.ListDataSources(ctx)
 		if err != nil {
 			return nil, err
 		}
 		payload = ds
 	case "list_tables":
 		dsName, _ := args["datasource"].(string)
-		dsID, err := resolveDatasource(s.store, dsName)
+		dsID, err := resolveDatasource(ctx, s.store, dsName)
 		if err != nil {
 			return nil, err
 		}
-		tables, err := s.proxy.ListTables(r.Context(), dsID, claims)
+		tables, err := s.proxy.ListTables(ctx, dsID, claims)
 		if err != nil {
 			return nil, err
 		}
@@ -225,11 +226,11 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 	case "describe_table":
 		dsName, _ := args["datasource"].(string)
 		table, _ := args["table"].(string)
-		dsID, err := resolveDatasource(s.store, dsName)
+		dsID, err := resolveDatasource(ctx, s.store, dsName)
 		if err != nil {
 			return nil, err
 		}
-		cols, err := s.proxy.DescribeTable(r.Context(), dsID, table, claims)
+		cols, err := s.proxy.DescribeTable(ctx, dsID, table, claims)
 		if err != nil {
 			return nil, err
 		}
@@ -238,7 +239,7 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 		dsName, _ := args["datasource"].(string)
 		sql, _ := args["sql"].(string)
 		rawParams, _ := args["params"].([]interface{})
-		dsID, err := resolveDatasource(s.store, dsName)
+		dsID, err := resolveDatasource(ctx, s.store, dsName)
 		if err != nil {
 			return nil, err
 		}
@@ -253,7 +254,7 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 				sessionID = uuid.NewString()
 			}
 		}
-		ctx := proxy.WithSession(proxy.WithChannel(r.Context(), "mcp"), sessionID)
+		ctx := proxy.WithSession(proxy.WithChannel(ctx, "mcp"), sessionID)
 		res, err := s.proxy.Execute(ctx, dsID, claims, sql, rawParams...)
 		if err != nil {
 			return nil, err
@@ -266,7 +267,7 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 		dsName, _ := args["datasource"].(string)
 		question, _ := args["question"].(string)
 		sqlHint, _ := args["sql_hint"].(string)
-		dsID, err := resolveDatasource(s.store, dsName)
+		dsID, err := resolveDatasource(ctx, s.store, dsName)
 		if err != nil {
 			return nil, err
 		}
@@ -279,7 +280,7 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 				sessionID = uuid.NewString()
 			}
 		}
-		ctx := proxy.WithSession(proxy.WithChannel(r.Context(), "mcp"), sessionID)
+		ctx := proxy.WithSession(proxy.WithChannel(ctx, "mcp"), sessionID)
 		res, gen, err := s.proxy.NL2SQL(ctx, dsID, claims, question, sqlHint)
 		if err != nil {
 			return nil, err
@@ -292,11 +293,11 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 		}
 	case "get_catalog":
 		dsName, _ := args["datasource"].(string)
-		dsID, err := resolveDatasource(s.store, dsName)
+		dsID, err := resolveDatasource(ctx, s.store, dsName)
 		if err != nil {
 			return nil, err
 		}
-		schema, err := s.proxy.Catalog(r.Context(), dsID, claims)
+		schema, err := s.proxy.Catalog(ctx, dsID, claims)
 		if err != nil {
 			return nil, err
 		}
@@ -307,7 +308,7 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 		if sql == "" {
 			return nil, fmt.Errorf("sql is required")
 		}
-		dsID, err := resolveDatasource(s.store, dsName)
+		dsID, err := resolveDatasource(ctx, s.store, dsName)
 		if err != nil {
 			return nil, err
 		}
@@ -320,7 +321,7 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 				sessionID = uuid.NewString()
 			}
 		}
-		ctx := proxy.WithSession(proxy.WithChannel(r.Context(), "mcp"), sessionID)
+		ctx := proxy.WithSession(proxy.WithChannel(ctx, "mcp"), sessionID)
 		est, err := s.proxy.Estimate(ctx, dsID, claims, sql)
 		if err != nil {
 			return nil, err
@@ -328,11 +329,11 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 		payload = est
 	case "list_metrics":
 		dsName, _ := args["datasource"].(string)
-		dsID, err := resolveDatasource(s.store, dsName)
+		dsID, err := resolveDatasource(ctx, s.store, dsName)
 		if err != nil {
 			return nil, err
 		}
-		metrics, err := s.store.ListMetrics(dsID)
+		metrics, err := s.store.ListMetrics(ctx, dsID)
 		if err != nil {
 			return nil, err
 		}
@@ -343,7 +344,7 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 		if metricName == "" {
 			return nil, fmt.Errorf("metric is required")
 		}
-		dsID, err := resolveDatasource(s.store, dsName)
+		dsID, err := resolveDatasource(ctx, s.store, dsName)
 		if err != nil {
 			return nil, err
 		}
@@ -361,7 +362,7 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 				sessionID = uuid.NewString()
 			}
 		}
-		ctx := proxy.WithSession(proxy.WithChannel(r.Context(), "mcp"), sessionID)
+		ctx := proxy.WithSession(proxy.WithChannel(ctx, "mcp"), sessionID)
 		res, err := s.proxy.ResolveMetric(ctx, dsID, claims, metricName, params)
 		if err != nil {
 			return nil, err
@@ -373,7 +374,7 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 			"queryResult": res.QueryResult,
 		}
 	case "list_datasets":
-		datasets, err := s.proxy.ListDatasets(r.Context(), claims)
+		datasets, err := s.proxy.ListDatasets(ctx, claims)
 		if err != nil {
 			return nil, err
 		}
@@ -383,14 +384,14 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 		if name == "" {
 			return nil, fmt.Errorf("name is required")
 		}
-		d, err := s.store.GetDatasetByName(name)
+		d, err := s.store.GetDatasetByName(ctx, name)
 		if err != nil {
 			return nil, err
 		}
 		if d == nil {
 			return nil, fmt.Errorf("dataset %q not found", name)
 		}
-		schema, err := s.proxy.DatasetCatalog(r.Context(), d.ID, claims)
+		schema, err := s.proxy.DatasetCatalog(ctx, d.ID, claims)
 		if err != nil {
 			return nil, err
 		}
@@ -441,15 +442,39 @@ func (s *Server) principal(r *http.Request) (*auth.Claims, error) {
 	return nil, fmt.Errorf("unauthorized: provide a Bearer token or MCP API key")
 }
 
-func resolveDatasource(st *store.Store, idOrName string) (string, error) {
+// resolveContext resolves the MCP caller's principal AND the active workspace,
+// returning a context bound with both. It is the MCP equivalent of the HTTP
+// Authenticate + WorkspaceResolver pair, so MCP isolation matches the DataAPI
+// exactly (ADR-001): a non-admin is scoped to their own workspace, an admin
+// with no X-Workspace-Id gets the cross-workspace ("*") view, and an explicit
+// X-Workspace-Id selects a concrete workspace (admin may reach any; a member
+// only one they belong to). Without this, every MCP call would fall back to the
+// "default" workspace regardless of the caller's real tenancy.
+func (s *Server) resolveContext(r *http.Request) (context.Context, *auth.Claims, error) {
+	claims, err := s.principal(r)
+	if err != nil {
+		return nil, nil, err
+	}
+	wsID := r.Header.Get("X-Workspace-Id")
+	if wsID == "" {
+		wsID = r.URL.Query().Get("workspace_id")
+	}
+	eff, err := s.store.ResolveWorkspaceID(claims.UserID, claims.IsAdmin(), wsID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return store.WithWorkspace(r.Context(), eff), claims, nil
+}
+
+func resolveDatasource(ctx context.Context, st *store.Store, idOrName string) (string, error) {
 	if idOrName == "" {
 		return "", fmt.Errorf("datasource is required")
 	}
-	ds, err := st.GetDataSource(idOrName)
+	ds, err := st.GetDataSource(ctx, idOrName)
 	if err == nil && ds != nil {
 		return ds.ID, nil
 	}
-	all, err := st.ListDataSources()
+	all, err := st.ListDataSources(ctx)
 	if err != nil {
 		return "", err
 	}

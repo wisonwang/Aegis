@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 	"time"
@@ -22,32 +23,38 @@ type Semantic struct {
 }
 
 // UpsertSemantic inserts or updates a semantic entry, keyed by
-// (datasource_id, table_name, column_name).
-func (s *Store) UpsertSemantic(sem *Semantic) error {
+// (datasource_id, table_name, column_name). Scoped to the active workspace.
+func (s *Store) UpsertSemantic(ctx context.Context, sem *Semantic) error {
 	if sem.ID == "" {
 		sem.ID = uid()
 	}
 	sem.UpdatedAt = time.Now()
 	_, err := s.db.Exec(
 		`INSERT INTO schema_semantics
-			(id,datasource_id,table_name,column_name,description,synonyms,examples,updated_at)
-		 VALUES (?,?,?,?,?,?,?,?)
+			(id,datasource_id,table_name,column_name,description,synonyms,examples,updated_at,workspace_id)
+		 VALUES (?,?,?,?,?,?,?,?,?)
 		 ON CONFLICT(datasource_id,table_name,column_name) DO UPDATE SET
 			description=excluded.description,
 			synonyms=excluded.synonyms,
 			examples=excluded.examples,
-			updated_at=excluded.updated_at`,
+			updated_at=excluded.updated_at,
+			workspace_id=excluded.workspace_id`,
 		sem.ID, sem.DataSourceID, sem.TableName, sem.ColumnName,
-		sem.Description, sem.Synonyms, sem.Examples, sem.UpdatedAt)
+		sem.Description, sem.Synonyms, sem.Examples, sem.UpdatedAt, WriteWorkspace(ctx))
 	return err
 }
 
 // ListSemantics returns all semantic entries for a datasource. When table is
 // non-empty it is scoped to that table (both table-level and column-level rows).
-func (s *Store) ListSemantics(dsID, table string) ([]*Semantic, error) {
+// Scoped to the active workspace from ctx.
+func (s *Store) ListSemantics(ctx context.Context, dsID, table string) ([]*Semantic, error) {
 	q := `SELECT id,datasource_id,table_name,column_name,description,synonyms,examples,updated_at
 	      FROM schema_semantics WHERE datasource_id=?`
 	args := []interface{}{dsID}
+	if !CrossesWorkspaces(ctx) {
+		q += ` AND workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
 	if table != "" {
 		q += ` AND table_name=?`
 		args = append(args, table)
@@ -91,8 +98,8 @@ func (ix SemanticIndex) Column(table, col string) *Semantic {
 }
 
 // SemanticIndexFor builds a SemanticIndex for a datasource in one query.
-func (s *Store) SemanticIndexFor(dsID string) (SemanticIndex, error) {
-	all, err := s.ListSemantics(dsID, "")
+func (s *Store) SemanticIndexFor(ctx context.Context, dsID string) (SemanticIndex, error) {
+	all, err := s.ListSemantics(ctx, dsID, "")
 	if err != nil {
 		return nil, err
 	}
@@ -114,12 +121,16 @@ func (s *Store) DeleteSemantic(id string) error {
 }
 
 // GetSemantic returns the entry for a specific table/column, or nil.
-func (s *Store) GetSemantic(dsID, table, column string) (*Semantic, error) {
+func (s *Store) GetSemantic(ctx context.Context, dsID, table, column string) (*Semantic, error) {
 	sem := &Semantic{}
-	err := s.db.QueryRow(
-		`SELECT id,datasource_id,table_name,column_name,description,synonyms,examples,updated_at
-		 FROM schema_semantics WHERE datasource_id=? AND table_name=? AND column_name=?`,
-		dsID, table, column).
+	q := `SELECT id,datasource_id,table_name,column_name,description,synonyms,examples,updated_at
+		 FROM schema_semantics WHERE datasource_id=? AND table_name=? AND column_name=?`
+	args := []interface{}{dsID, table, column}
+	if !CrossesWorkspaces(ctx) {
+		q += ` AND workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
+	err := s.db.QueryRow(q, args...).
 		Scan(&sem.ID, &sem.DataSourceID, &sem.TableName, &sem.ColumnName,
 			&sem.Description, &sem.Synonyms, &sem.Examples, &sem.UpdatedAt)
 	if err == sql.ErrNoRows {

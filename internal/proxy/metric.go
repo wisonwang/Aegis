@@ -37,7 +37,7 @@ type MetricResult struct {
 // NL2SQL, this widens *how* an agent can ask but never what it may see: table,
 // row, column governance, value masking, behavior limits and audit all apply.
 func (p *Proxy) ResolveMetric(ctx context.Context, dsID string, claims *auth.Claims, metricName string, params map[string]interface{}) (*MetricResult, error) {
-	def, err := p.store.GetMetric(dsID, metricName)
+	def, err := p.store.GetMetric(ctx, dsID, metricName)
 	if err != nil {
 		return nil, fmt.Errorf("lookup metric: %w", err)
 	}
@@ -216,7 +216,7 @@ func (p *Proxy) computeLineage(ctx context.Context, dsID string, def *store.Metr
 // datasource's classification index. It never blocks execution — it only informs.
 func (p *Proxy) computeLineageForSQL(ctx context.Context, dsID string, sql string) (*MetricLineage, error) {
 	tables := extractTables(sql)
-	classes, err := p.store.ClassificationIndexFor(dsID)
+	classes, err := p.store.ClassificationIndexFor(ctx, dsID)
 	if err != nil {
 		return nil, err
 	}

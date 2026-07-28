@@ -49,7 +49,7 @@ func (m *Manager) Get(dsID string) (*sql.DB, error) {
 	if db, ok := m.pools[dsID]; ok {
 		return db, nil
 	}
-	ds, err := m.store.GetDataSource(dsID)
+	ds, err := m.store.GetDataSource(context.Background(), dsID)
 	if err != nil {
 		return nil, err
 	}

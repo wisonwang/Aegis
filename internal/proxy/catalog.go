@@ -55,7 +55,7 @@ type SemanticColumn struct {
 // It reuses the same table/column governance as Execute/DescribeTable, then
 // layers on any human-authored descriptions, synonyms and example values.
 func (p *Proxy) Catalog(ctx context.Context, dsID string, claims *auth.Claims) (*SemanticSchema, error) {
-	ds, err := p.store.GetDataSource(dsID)
+	ds, err := p.store.GetDataSource(ctx, dsID)
 	if err != nil {
 		return nil, err
 	}
@@ -66,15 +66,15 @@ func (p *Proxy) Catalog(ctx context.Context, dsID string, claims *auth.Claims) (
 	if err != nil {
 		return nil, err
 	}
-	perms, err := p.store.ResolvePermissions(claims.UserID, dsID)
+	perms, err := p.store.ResolvePermissions(ctx, claims.UserID, dsID)
 	if err != nil {
 		return nil, err
 	}
-	semantics, err := p.store.SemanticIndexFor(dsID)
+	semantics, err := p.store.SemanticIndexFor(ctx, dsID)
 	if err != nil {
 		return nil, err
 	}
-	classes, err := p.store.ClassificationIndexFor(dsID)
+	classes, err := p.store.ClassificationIndexFor(ctx, dsID)
 	if err != nil {
 		return nil, err
 	}

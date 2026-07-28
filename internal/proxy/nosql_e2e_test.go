@@ -102,7 +102,7 @@ func newNoSQLTestStack(t *testing.T) (*Proxy, *fakeNoSQLConnector) {
 		t.Fatalf("open store: %v", err)
 	}
 	ds := &store.DataSource{ID: "ds1", Name: "mongo1", Type: "mongo", DSN: "mongodb://localhost/test"}
-	if err := st.CreateDataSource(ds); err != nil {
+	if err := st.CreateDataSource(context.Background(), ds); err != nil {
 		t.Fatalf("create ds: %v", err)
 	}
 	if err := st.CreateRole(&store.Role{ID: "r1", Name: "analyst"}); err != nil {
@@ -114,14 +114,14 @@ func newNoSQLTestStack(t *testing.T) (*Proxy, *fakeNoSQLConnector) {
 	if err := st.AddUserRole("u1", "r1"); err != nil {
 		t.Fatalf("add role: %v", err)
 	}
-	if err := st.CreateTablePermission(&store.TablePermission{
+	if err := st.CreateTablePermission(context.Background(), &store.TablePermission{
 		ID: "tp1", RoleID: "r1", DataSourceID: "ds1", TableName: "orders",
 		Ops: "SELECT,INSERT,UPDATE,DELETE",
 		AllowedCols: `["status","amount","customer"]`,
 	}); err != nil {
 		t.Fatalf("perm: %v", err)
 	}
-	if err := st.UpsertColumnMask(&store.ColumnMask{
+	if err := st.UpsertColumnMask(context.Background(), &store.ColumnMask{
 		ID: "m1", RoleID: "r1", DataSourceID: "ds1", TableName: "orders",
 		ColumnName: "amount", Strategy: "partial", Keep: 2,
 	}); err != nil {
@@ -263,7 +263,7 @@ func TestAuditSessionLink(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 
-	logs, total, err := st.ListAudits(store.AuditFilter{SessionID: sid})
+	logs, total, err := st.ListAudits(context.Background(), store.AuditFilter{SessionID: sid})
 	if err != nil {
 		t.Fatalf("list audits: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestAuditSessionLink(t *testing.T) {
 	}
 
 	// A different session id must not match.
-	other, _, err := st.ListAudits(store.AuditFilter{SessionID: "nobody"})
+	other, _, err := st.ListAudits(context.Background(), store.AuditFilter{SessionID: "nobody"})
 	if err != nil {
 		t.Fatalf("list audits: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestAuditSessionEmptyWhenUntagged(t *testing.T) {
 		`{"collection":"orders","filter":{"status":"open"}}`); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	logs, _, err := st.ListAudits(store.AuditFilter{})
+	logs, _, err := st.ListAudits(context.Background(), store.AuditFilter{})
 	if err != nil {
 		t.Fatalf("list audits: %v", err)
 	}

@@ -38,7 +38,7 @@ const unknownRows int64 = -1
 // datasource type selects the EXPLAIN dialect; NoSQL backends return a note
 // explaining estimates are unavailable.
 func (p *Proxy) Estimate(ctx context.Context, dsID string, claims *auth.Claims, sql string) (*QueryEstimate, error) {
-	ds, err := p.store.GetDataSource(dsID)
+	ds, err := p.store.GetDataSource(ctx, dsID)
 	if err != nil || ds == nil {
 		return nil, fmt.Errorf("datasource not found")
 	}
@@ -51,7 +51,7 @@ func (p *Proxy) Estimate(ctx context.Context, dsID string, claims *auth.Claims, 
 		}, nil
 	}
 
-	perms, err := p.store.ResolvePermissions(claims.UserID, dsID)
+	perms, err := p.store.ResolvePermissions(ctx, claims.UserID, dsID)
 	if err != nil {
 		return nil, err
 	}

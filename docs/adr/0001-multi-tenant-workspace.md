@@ -2,7 +2,7 @@
 
 ## Status
 
-**Proposed** — 待评审。本 ADR 仅为设计决策文档，尚未进入实现；采纳后才会出实现计划与代码。
+**Accepted** — 已采纳并实现（Phase 0 + Task #112）。共享 schema + `workspace_id` 判别列 + 仓储层强制作用域的模型已落地，并通过 `internal/store/workspace_isolation_test.go` 的跨租户隔离测试（"护城河"）验证。
 
 ## Context
 

@@ -10,6 +10,7 @@ import (
 	"github.com/wisonwang/aegis/internal/auth"
 	"github.com/wisonwang/aegis/internal/config"
 	"github.com/wisonwang/aegis/internal/store"
+	"context"
 )
 
 func newApprovalTestStore(t *testing.T) *store.Store {
@@ -63,7 +64,7 @@ func approvalCall(mux http.Handler, method, path, token, body string) *httptest.
 func TestApprovalWorkflow_ClosedLoop(t *testing.T) {
 	st := newApprovalTestStore(t)
 	_ = st.CreateRole(&store.Role{ID: "r-analyst", Name: "analyst"})
-	_ = st.CreateDataSource(&store.DataSource{ID: "ds1", Name: "demo", Type: "sqlite", DSN: ":memory:"})
+	_ = st.CreateDataSource(context.Background(), &store.DataSource{ID: "ds1", Name: "demo", Type: "sqlite", DSN: ":memory:"})
 	cfg := &config.Config{JWTSecret: "test-secret", JWTExpiry: "24h"}
 	h := &Handler{Store: st}
 	mux := approvalMux(h, cfg)
@@ -130,7 +131,7 @@ func TestApprovalWorkflow_ClosedLoop(t *testing.T) {
 	if appr.GrantedPermID == "" {
 		t.Fatal("expected granted_perm_id")
 	}
-	perms, err := st.ListTablePermissions("r-analyst", "ds1", "orders")
+	perms, err := st.ListTablePermissions(context.Background(), "r-analyst", "ds1", "orders")
 	if err != nil {
 		t.Fatalf("list perms: %v", err)
 	}
@@ -152,7 +153,7 @@ func TestApprovalWorkflow_ClosedLoop(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("revoke: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	perms, _ = st.ListTablePermissions("r-analyst", "ds1", "orders")
+	perms, _ = st.ListTablePermissions(context.Background(), "r-analyst", "ds1", "orders")
 	if len(perms) != 0 {
 		t.Fatalf("expected grant removed, got %d", len(perms))
 	}
@@ -165,7 +166,7 @@ func TestApprovalWorkflow_ClosedLoop(t *testing.T) {
 func TestApprovalWorkflow_RejectCreatesNoGrant(t *testing.T) {
 	st := newApprovalTestStore(t)
 	_ = st.CreateRole(&store.Role{ID: "r-analyst", Name: "analyst"})
-	_ = st.CreateDataSource(&store.DataSource{ID: "ds1", Name: "demo", Type: "sqlite", DSN: ":memory:"})
+	_ = st.CreateDataSource(context.Background(), &store.DataSource{ID: "ds1", Name: "demo", Type: "sqlite", DSN: ":memory:"})
 	cfg := &config.Config{JWTSecret: "test-secret", JWTExpiry: "24h"}
 	h := &Handler{Store: st}
 	mux := approvalMux(h, cfg)
@@ -184,7 +185,7 @@ func TestApprovalWorkflow_RejectCreatesNoGrant(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("reject: expected 200, got %d", w.Code)
 	}
-	perms, _ := st.ListTablePermissions("r-analyst", "ds1", "customers")
+	perms, _ := st.ListTablePermissions(context.Background(), "r-analyst", "ds1", "customers")
 	if len(perms) != 0 {
 		t.Fatalf("reject must not create a grant, got %d", len(perms))
 	}
@@ -197,7 +198,7 @@ func TestApprovalWorkflow_RejectCreatesNoGrant(t *testing.T) {
 func TestApprovalWorkflow_Validation(t *testing.T) {
 	st := newApprovalTestStore(t)
 	_ = st.CreateRole(&store.Role{ID: "r-analyst", Name: "analyst"})
-	_ = st.CreateDataSource(&store.DataSource{ID: "ds1", Name: "demo", Type: "sqlite", DSN: ":memory:"})
+	_ = st.CreateDataSource(context.Background(), &store.DataSource{ID: "ds1", Name: "demo", Type: "sqlite", DSN: ":memory:"})
 	cfg := &config.Config{JWTSecret: "test-secret", JWTExpiry: "24h"}
 	h := &Handler{Store: st}
 	mux := approvalMux(h, cfg)

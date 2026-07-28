@@ -48,7 +48,7 @@ type DatasetSchema struct {
 func (p *Proxy) ExecuteDataset(ctx context.Context, datasetID string, claims *auth.Claims, params []interface{}) (*QueryResult, error) {
 	started := time.Now()
 
-	dsMeta, err := p.store.GetDataset(datasetID)
+	dsMeta, err := p.store.GetDataset(ctx, datasetID)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (p *Proxy) ExecuteDataset(ctx context.Context, datasetID string, claims *au
 	if dsMeta.Status != store.DatasetPublished && !claims.IsAdmin() {
 		return nil, fmt.Errorf("dataset %q is not published", dsMeta.Name)
 	}
-	ds, err := p.store.GetDataSource(dsMeta.DataSourceID)
+	ds, err := p.store.GetDataSource(ctx, dsMeta.DataSourceID)
 	if err != nil || ds == nil {
 		return nil, fmt.Errorf("dataset's datasource not found")
 	}
@@ -83,7 +83,7 @@ func (p *Proxy) ExecuteDataset(ctx context.Context, datasetID string, claims *au
 }
 
 func (p *Proxy) executeDatasetSQL(ctx context.Context, dsMeta *store.Dataset, ds *store.DataSource, claims *auth.Claims, params []interface{}, started time.Time, limited bool) (*QueryResult, error) {
-	perms, err := p.store.ResolvePermissions(claims.UserID, dsMeta.DataSourceID)
+	perms, err := p.store.ResolvePermissions(ctx, claims.UserID, dsMeta.DataSourceID)
 	if err != nil {
 		p.auditDataset(ctx, dsMeta, claims, dsMeta.Definition, "", "error", err.Error(), 0, started)
 		return nil, err
@@ -113,7 +113,7 @@ func (p *Proxy) executeDatasetSQL(ctx context.Context, dsMeta *store.Dataset, ds
 }
 
 func (p *Proxy) executeDatasetNoSQL(ctx context.Context, dsMeta *store.Dataset, ds *store.DataSource, claims *auth.Claims, started time.Time, limited bool) (*QueryResult, error) {
-	perms, err := p.store.ResolvePermissions(claims.UserID, dsMeta.DataSourceID)
+	perms, err := p.store.ResolvePermissions(ctx, claims.UserID, dsMeta.DataSourceID)
 	if err != nil {
 		p.auditDataset(ctx, dsMeta, claims, dsMeta.Definition, "", "error", err.Error(), 0, started)
 		return nil, err
@@ -145,7 +145,7 @@ func (p *Proxy) executeDatasetNoSQL(ctx context.Context, dsMeta *store.Dataset, 
 // ListDatasets returns the datasets a principal may consume: published datasets
 // for which the principal (or, for admin, all published) holds a SELECT grant.
 func (p *Proxy) ListDatasets(ctx context.Context, claims *auth.Claims) ([]DatasetInfo, error) {
-	all, err := p.store.ListDatasets()
+	all, err := p.store.ListDatasets(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -155,14 +155,14 @@ func (p *Proxy) ListDatasets(ctx context.Context, claims *auth.Claims) ([]Datase
 		if d.Status != store.DatasetPublished {
 			continue
 		}
-		ds, err := p.store.GetDataSource(d.DataSourceID)
+		ds, err := p.store.GetDataSource(ctx, d.DataSourceID)
 		if err != nil || ds == nil {
 			continue
 		}
 		if !claims.IsAdmin() {
 			perms, ok := permCache[d.DataSourceID]
 			if !ok {
-				perms, err = p.store.ResolvePermissions(claims.UserID, d.DataSourceID)
+				perms, err = p.store.ResolvePermissions(ctx, claims.UserID, d.DataSourceID)
 				if err != nil {
 					return nil, err
 				}
@@ -192,7 +192,7 @@ func (p *Proxy) ListDatasets(ctx context.Context, claims *auth.Claims) ([]Datase
 // non-admin callers; business descriptions come from the semantic layer keyed
 // on the dataset name.
 func (p *Proxy) DatasetCatalog(ctx context.Context, datasetID string, claims *auth.Claims) (*DatasetSchema, error) {
-	d, err := p.store.GetDataset(datasetID)
+	d, err := p.store.GetDataset(ctx, datasetID)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +202,7 @@ func (p *Proxy) DatasetCatalog(ctx context.Context, datasetID string, claims *au
 	if d.Status != store.DatasetPublished && !claims.IsAdmin() {
 		return nil, fmt.Errorf("dataset %q is not published", d.Name)
 	}
-	ds, err := p.store.GetDataSource(d.DataSourceID)
+	ds, err := p.store.GetDataSource(ctx, d.DataSourceID)
 	if err != nil || ds == nil {
 		return nil, fmt.Errorf("dataset's datasource not found")
 	}
@@ -210,11 +210,11 @@ func (p *Proxy) DatasetCatalog(ctx context.Context, datasetID string, claims *au
 	// Determine the field contract: explicit fields first, else derive from
 	// the semantic layer (column-level entries keyed on the dataset name).
 	fields := d.DatasetFields()
-	semantics, err := p.store.SemanticIndexFor(d.DataSourceID)
+	semantics, err := p.store.SemanticIndexFor(ctx, d.DataSourceID)
 	if err != nil {
 		return nil, err
 	}
-	classes, err := p.store.ClassificationIndexFor(d.DataSourceID)
+	classes, err := p.store.ClassificationIndexFor(ctx, d.DataSourceID)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +247,7 @@ func (p *Proxy) DatasetCatalog(ctx context.Context, datasetID string, claims *au
 	allowActive := false
 	masked := map[string]string{}
 	if !claims.IsAdmin() {
-		perms, err := p.store.ResolvePermissions(claims.UserID, d.DataSourceID)
+		perms, err := p.store.ResolvePermissions(ctx, claims.UserID, d.DataSourceID)
 		if err != nil {
 			return nil, err
 		}
@@ -346,10 +346,10 @@ func (s *DatasetSchema) CatalogMarkdown() string {
 // stamps the dataset name so audit entries are attributable to the dataset.
 func (p *Proxy) auditDataset(ctx context.Context, dsMeta *store.Dataset, claims *auth.Claims, sqlText, rewritten, status, errMsg string, rowCount int, started time.Time) {
 	dsName := ""
-	if ds, err := p.store.GetDataSource(dsMeta.DataSourceID); err == nil && ds != nil {
+	if ds, err := p.store.GetDataSource(ctx, dsMeta.DataSourceID); err == nil && ds != nil {
 		dsName = ds.Name
 	}
-	_ = p.store.InsertAudit(&store.AuditLog{
+	_ = p.store.InsertAudit(ctx, &store.AuditLog{
 		UserID:       claims.UserID,
 		Username:     claims.Username,
 		Channel:      channelFrom(ctx),

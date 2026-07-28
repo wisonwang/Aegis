@@ -7,12 +7,13 @@ import (
 
 	"github.com/wisonwang/aegis/internal/proxy"
 	"github.com/wisonwang/aegis/internal/store"
+	"context"
 )
 
 // ---- Admin: dataset management -------------------------------------------
 
 func (h *Handler) AdminListDatasets(w http.ResponseWriter, r *http.Request) {
-	ds, err := h.Store.ListDatasets()
+	ds, err := h.Store.ListDatasets(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -41,11 +42,11 @@ func (h *Handler) AdminCreateDataset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name must be a valid identifier (letters, digits, underscores)")
 		return
 	}
-	if existing, _ := h.Store.GetDatasetByName(req.Name); existing != nil {
+	if existing, _ := h.Store.GetDatasetByName(r.Context(), req.Name); existing != nil {
 		writeError(w, http.StatusConflict, "a dataset with this name already exists")
 		return
 	}
-	ds, err := h.Store.GetDataSource(req.DataSourceID)
+	ds, err := h.Store.GetDataSource(r.Context(), req.DataSourceID)
 	if err != nil || ds == nil {
 		writeError(w, http.StatusBadRequest, "datasource not found")
 		return
@@ -76,7 +77,7 @@ func (h *Handler) AdminCreateDataset(w http.ResponseWriter, r *http.Request) {
 	if d.Fields == "" {
 		d.Fields = "[]"
 	}
-	if err := h.Store.CreateDataset(d); err != nil {
+	if err := h.Store.CreateDataset(r.Context(), d); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -84,7 +85,7 @@ func (h *Handler) AdminCreateDataset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) AdminGetDataset(w http.ResponseWriter, r *http.Request) {
-	d, err := h.Store.GetDataset(r.PathValue("id"))
+	d, err := h.Store.GetDataset(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -106,7 +107,7 @@ type updateDatasetRequest struct {
 
 func (h *Handler) AdminUpdateDataset(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	d, err := h.Store.GetDataset(id)
+	d, err := h.Store.GetDataset(r.Context(), id)
 	if err != nil || d == nil {
 		writeError(w, http.StatusNotFound, "dataset not found")
 		return
@@ -123,7 +124,7 @@ func (h *Handler) AdminUpdateDataset(w http.ResponseWriter, r *http.Request) {
 		d.Description = req.Description
 	}
 	if req.Definition != "" {
-		ds, err := h.Store.GetDataSource(d.DataSourceID)
+		ds, err := h.Store.GetDataSource(r.Context(), d.DataSourceID)
 		if err != nil || ds == nil {
 			writeError(w, http.StatusBadRequest, "dataset's datasource not found")
 			return
@@ -144,7 +145,7 @@ func (h *Handler) AdminUpdateDataset(w http.ResponseWriter, r *http.Request) {
 	if req.Status != "" {
 		d.Status = strings.ToLower(req.Status)
 	}
-	if err := h.Store.UpdateDataset(d); err != nil {
+	if err := h.Store.UpdateDataset(r.Context(), d); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -152,7 +153,7 @@ func (h *Handler) AdminUpdateDataset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) AdminDeleteDataset(w http.ResponseWriter, r *http.Request) {
-	if err := h.Store.DeleteDataset(r.PathValue("id")); err != nil {
+	if err := h.Store.DeleteDataset(r.Context(), r.PathValue("id")); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -161,12 +162,12 @@ func (h *Handler) AdminDeleteDataset(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) AdminPublishDataset(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	d, err := h.Store.GetDataset(id)
+	d, err := h.Store.GetDataset(r.Context(), id)
 	if err != nil || d == nil {
 		writeError(w, http.StatusNotFound, "dataset not found")
 		return
 	}
-	ds, err := h.Store.GetDataSource(d.DataSourceID)
+	ds, err := h.Store.GetDataSource(r.Context(), d.DataSourceID)
 	if err != nil || ds == nil {
 		writeError(w, http.StatusBadRequest, "dataset's datasource not found")
 		return
@@ -184,7 +185,7 @@ func (h *Handler) AdminPublishDataset(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) AdminUnpublishDataset(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, err := h.Store.GetDataset(id); err != nil {
+	if _, err := h.Store.GetDataset(r.Context(), id); err != nil {
 		writeError(w, http.StatusNotFound, "dataset not found")
 		return
 	}
@@ -198,15 +199,15 @@ func (h *Handler) AdminUnpublishDataset(w http.ResponseWriter, r *http.Request) 
 // ---- Admin: dataset governance (reuses the table-level stores, keyed by
 // datasource_id + table_name = dataset.Name) ----
 
-func (h *Handler) datasetCtx(id string) (*store.Dataset, *store.DataSource, error) {
-	d, err := h.Store.GetDataset(id)
+func (h *Handler) datasetCtx(ctx context.Context, id string) (*store.Dataset, *store.DataSource, error) {
+	d, err := h.Store.GetDataset(ctx, id)
 	if err != nil {
 		return nil, nil, err
 	}
 	if d == nil {
 		return nil, nil, errNotFound("dataset")
 	}
-	ds, err := h.Store.GetDataSource(d.DataSourceID)
+	ds, err := h.Store.GetDataSource(ctx, d.DataSourceID)
 	if err != nil || ds == nil {
 		return nil, nil, errNotFound("datasource")
 	}
@@ -220,7 +221,7 @@ type simpleErr struct{ msg string }
 func (e *simpleErr) Error() string { return e.msg }
 
 func (h *Handler) AdminListDatasetPermissions(w http.ResponseWriter, r *http.Request) {
-	d, _, err := h.datasetCtx(r.PathValue("id"))
+	d, _, err := h.datasetCtx(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -234,7 +235,7 @@ func (h *Handler) AdminListDatasetPermissions(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) AdminCreateDatasetPermission(w http.ResponseWriter, r *http.Request) {
-	d, _, err := h.datasetCtx(r.PathValue("id"))
+	d, _, err := h.datasetCtx(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -259,7 +260,7 @@ func (h *Handler) AdminCreateDatasetPermission(w http.ResponseWriter, r *http.Re
 		AllowedCols:  string(allowed),
 		DeniedCols:   string(denied),
 	}
-	if err := h.Store.CreateTablePermission(p); err != nil {
+	if err := h.Store.CreateTablePermission(r.Context(), p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -275,7 +276,7 @@ func (h *Handler) AdminDeleteDatasetPermission(w http.ResponseWriter, r *http.Re
 }
 
 func (h *Handler) AdminListDatasetPolicies(w http.ResponseWriter, r *http.Request) {
-	d, _, err := h.datasetCtx(r.PathValue("id"))
+	d, _, err := h.datasetCtx(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -285,7 +286,7 @@ func (h *Handler) AdminListDatasetPolicies(w http.ResponseWriter, r *http.Reques
 	for _, role := range roles {
 		nameByID[role.ID] = role.Name
 	}
-	pols, err := h.Store.ListRowPolicies("", d.DataSourceID, d.Name)
+	pols, err := h.Store.ListRowPolicies(r.Context(), "", d.DataSourceID, d.Name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -304,7 +305,7 @@ func (h *Handler) AdminListDatasetPolicies(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) AdminCreateDatasetPolicy(w http.ResponseWriter, r *http.Request) {
-	d, _, err := h.datasetCtx(r.PathValue("id"))
+	d, _, err := h.datasetCtx(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -326,7 +327,7 @@ func (h *Handler) AdminCreateDatasetPolicy(w http.ResponseWriter, r *http.Reques
 		Predicate:    req.Predicate,
 		Priority:     req.Priority,
 	}
-	if err := h.Store.CreateRowPolicy(p); err != nil {
+	if err := h.Store.CreateRowPolicy(r.Context(), p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -342,7 +343,7 @@ func (h *Handler) AdminDeleteDatasetPolicy(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) AdminListDatasetMasks(w http.ResponseWriter, r *http.Request) {
-	d, _, err := h.datasetCtx(r.PathValue("id"))
+	d, _, err := h.datasetCtx(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -352,7 +353,7 @@ func (h *Handler) AdminListDatasetMasks(w http.ResponseWriter, r *http.Request) 
 	for _, role := range roles {
 		nameByID[role.ID] = role.Name
 	}
-	masks, err := h.Store.ListColumnMasks("", d.DataSourceID, d.Name)
+	masks, err := h.Store.ListColumnMasks(r.Context(), "", d.DataSourceID, d.Name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -373,7 +374,7 @@ func (h *Handler) AdminListDatasetMasks(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) AdminUpsertDatasetMask(w http.ResponseWriter, r *http.Request) {
-	d, _, err := h.datasetCtx(r.PathValue("id"))
+	d, _, err := h.datasetCtx(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -401,7 +402,7 @@ func (h *Handler) AdminUpsertDatasetMask(w http.ResponseWriter, r *http.Request)
 		Strategy:     req.Strategy,
 		Keep:         req.Keep,
 	}
-	if err := h.Store.UpsertColumnMask(m); err != nil {
+	if err := h.Store.UpsertColumnMask(r.Context(), m); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -417,12 +418,12 @@ func (h *Handler) AdminDeleteDatasetMask(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) AdminListDatasetSemantics(w http.ResponseWriter, r *http.Request) {
-	d, _, err := h.datasetCtx(r.PathValue("id"))
+	d, _, err := h.datasetCtx(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	all, err := h.Store.ListSemantics(d.DataSourceID, d.Name)
+	all, err := h.Store.ListSemantics(r.Context(), d.DataSourceID, d.Name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -431,7 +432,7 @@ func (h *Handler) AdminListDatasetSemantics(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) AdminUpsertDatasetSemantic(w http.ResponseWriter, r *http.Request) {
-	d, _, err := h.datasetCtx(r.PathValue("id"))
+	d, _, err := h.datasetCtx(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -451,7 +452,7 @@ func (h *Handler) AdminUpsertDatasetSemantic(w http.ResponseWriter, r *http.Requ
 		Synonyms:     string(syn),
 		Examples:     string(ex),
 	}
-	if err := h.Store.UpsertSemantic(sem); err != nil {
+	if err := h.Store.UpsertSemantic(r.Context(), sem); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

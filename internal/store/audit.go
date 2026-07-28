@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"time"
 )
 
@@ -34,7 +35,7 @@ type AuditFilter struct {
 	Offset     int
 }
 
-func (s *Store) InsertAudit(a *AuditLog) error {
+func (s *Store) InsertAudit(ctx context.Context, a *AuditLog) error {
 	if a.ID == "" {
 		a.ID = uid()
 	}
@@ -43,18 +44,23 @@ func (s *Store) InsertAudit(a *AuditLog) error {
 	}
 	_, err := s.db.Exec(
 		`INSERT INTO audit_logs
-		 (id,ts,user_id,username,channel,datasource_id,datasource,session_id,sql_text,rewritten_sql,status,error,row_count,duration_ms)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 (id,ts,user_id,username,channel,datasource_id,datasource,session_id,sql_text,rewritten_sql,status,error,row_count,duration_ms,workspace_id)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.ID, a.TS, a.UserID, a.Username, a.Channel, a.DataSourceID, a.DataSource, a.SessionID,
-		a.SQLText, a.RewrittenSQL, a.Status, a.Error, a.RowCount, a.DurationMS)
+		a.SQLText, a.RewrittenSQL, a.Status, a.Error, a.RowCount, a.DurationMS, WorkspaceID(ctx))
 	return err
 }
 
 // ListAudits returns the newest-first audit entries matching the filter,
-// plus the total match count for pagination.
-func (s *Store) ListAudits(f AuditFilter) ([]*AuditLog, int, error) {
+// plus the total match count for pagination. Scoped to the active workspace
+// from ctx unless the caller is a platform admin requesting WorkspaceAll.
+func (s *Store) ListAudits(ctx context.Context, f AuditFilter) ([]*AuditLog, int, error) {
 	where := ` WHERE 1=1`
 	args := []interface{}{}
+	if !CrossesWorkspaces(ctx) {
+		where += ` AND workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
 	if f.Username != "" {
 		where += ` AND username=?`
 		args = append(args, f.Username)
@@ -107,10 +113,18 @@ func (s *Store) ListAudits(f AuditFilter) ([]*AuditLog, int, error) {
 	return out, total, nil
 }
 
-// AuditStats returns quick aggregate counters for the dashboard.
-func (s *Store) AuditStats() (map[string]int, error) {
+// AuditStats returns quick aggregate counters for the dashboard, scoped to the
+// active workspace from ctx unless WorkspaceAll is requested.
+func (s *Store) AuditStats(ctx context.Context) (map[string]int, error) {
+	q := `SELECT status, COUNT(*) FROM audit_logs`
+	args := []interface{}{}
+	if !CrossesWorkspaces(ctx) {
+		q += ` WHERE workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
+	q += ` GROUP BY status`
 	stats := map[string]int{"total": 0, "ok": 0, "denied": 0, "error": 0}
-	rows, err := s.db.Query(`SELECT status, COUNT(*) FROM audit_logs GROUP BY status`)
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 	"time"
@@ -22,31 +23,37 @@ type DataClassification struct {
 }
 
 // UpsertClassification inserts or updates a classification entry, keyed by
-// (datasource_id, table_name, column_name).
-func (s *Store) UpsertClassification(dc *DataClassification) error {
+// (datasource_id, table_name, column_name). Scoped to the active workspace.
+func (s *Store) UpsertClassification(ctx context.Context, dc *DataClassification) error {
 	if dc.ID == "" {
 		dc.ID = uid()
 	}
 	dc.UpdatedAt = time.Now()
 	_, err := s.db.Exec(
 		`INSERT INTO data_classifications
-			(id,datasource_id,table_name,column_name,level,tags,updated_at)
-		 VALUES (?,?,?,?,?,?,?)
+			(id,datasource_id,table_name,column_name,level,tags,updated_at,workspace_id)
+		 VALUES (?,?,?,?,?,?,?,?)
 		 ON CONFLICT(datasource_id,table_name,column_name) DO UPDATE SET
 			level=excluded.level,
 			tags=excluded.tags,
-			updated_at=excluded.updated_at`,
+			updated_at=excluded.updated_at,
+			workspace_id=excluded.workspace_id`,
 		dc.ID, dc.DataSourceID, dc.TableName, dc.ColumnName,
-		dc.Level, dc.Tags, dc.UpdatedAt)
+		dc.Level, dc.Tags, dc.UpdatedAt, WriteWorkspace(ctx))
 	return err
 }
 
 // ListClassifications returns classification entries for a datasource. When
 // table is non-empty it is scoped to that table (both table- and column-level).
-func (s *Store) ListClassifications(dsID, table string) ([]*DataClassification, error) {
+// Scoped to the active workspace from ctx.
+func (s *Store) ListClassifications(ctx context.Context, dsID, table string) ([]*DataClassification, error) {
 	q := `SELECT id,datasource_id,table_name,column_name,level,tags,updated_at
 	      FROM data_classifications WHERE datasource_id=?`
 	args := []interface{}{dsID}
+	if !CrossesWorkspaces(ctx) {
+		q += ` AND workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
 	if table != "" {
 		q += ` AND table_name=?`
 		args = append(args, table)
@@ -90,8 +97,8 @@ func (ix ClassificationIndex) Column(table, col string) *DataClassification {
 }
 
 // ClassificationIndexFor builds a ClassificationIndex for a datasource in one query.
-func (s *Store) ClassificationIndexFor(dsID string) (ClassificationIndex, error) {
-	all, err := s.ListClassifications(dsID, "")
+func (s *Store) ClassificationIndexFor(ctx context.Context, dsID string) (ClassificationIndex, error) {
+	all, err := s.ListClassifications(ctx, dsID, "")
 	if err != nil {
 		return nil, err
 	}
@@ -107,12 +114,16 @@ func (s *Store) ClassificationIndexFor(dsID string) (ClassificationIndex, error)
 }
 
 // GetClassification returns the entry for a specific table/column, or nil.
-func (s *Store) GetClassification(dsID, table, column string) (*DataClassification, error) {
+func (s *Store) GetClassification(ctx context.Context, dsID, table, column string) (*DataClassification, error) {
 	dc := &DataClassification{}
-	err := s.db.QueryRow(
-		`SELECT id,datasource_id,table_name,column_name,level,tags,updated_at
-		 FROM data_classifications WHERE datasource_id=? AND table_name=? AND column_name=?`,
-		dsID, table, column).
+	q := `SELECT id,datasource_id,table_name,column_name,level,tags,updated_at
+		 FROM data_classifications WHERE datasource_id=? AND table_name=? AND column_name=?`
+	args := []interface{}{dsID, table, column}
+	if !CrossesWorkspaces(ctx) {
+		q += ` AND workspace_id=?`
+		args = append(args, WorkspaceID(ctx))
+	}
+	err := s.db.QueryRow(q, args...).
 		Scan(&dc.ID, &dc.DataSourceID, &dc.TableName, &dc.ColumnName,
 			&dc.Level, &dc.Tags, &dc.UpdatedAt)
 	if err == sql.ErrNoRows {

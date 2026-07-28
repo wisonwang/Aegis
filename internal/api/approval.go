@@ -61,12 +61,12 @@ func (h *Handler) UserSubmitApproval(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "ops must be a subset of SELECT,INSERT,UPDATE,DELETE")
 		return
 	}
-	dsID, rerr := h.resolveDS(req.DataSourceID)
+	dsID, rerr := h.resolveDS(r.Context(), req.DataSourceID)
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
 	}
-	ds, err := h.Store.GetDataSource(dsID)
+	ds, err := h.Store.GetDataSource(r.Context(), dsID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -98,7 +98,7 @@ func (h *Handler) UserSubmitApproval(w http.ResponseWriter, r *http.Request) {
 		Ops:            ops,
 		Justification:  req.Justification,
 	}
-	if err := h.Store.CreateApprovalRequest(ar); err != nil {
+	if err := h.Store.CreateApprovalRequest(r.Context(), ar); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -108,7 +108,7 @@ func (h *Handler) UserSubmitApproval(w http.ResponseWriter, r *http.Request) {
 // UserListMyApprovals returns the current user's own requests.
 func (h *Handler) UserListMyApprovals(w http.ResponseWriter, r *http.Request) {
 	c := claimsFromContext(r.Context())
-	list, err := h.Store.ListApprovalRequests("", "", c.UserID)
+	list, err := h.Store.ListApprovalRequests(r.Context(), "", "", c.UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -119,7 +119,7 @@ func (h *Handler) UserListMyApprovals(w http.ResponseWriter, r *http.Request) {
 // AdminListApprovals lists all requests (admin). Optional status / datasource filter.
 func (h *Handler) AdminListApprovals(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	list, err := h.Store.ListApprovalRequests(q.Get("status"), q.Get("datasource_id"), "")
+	list, err := h.Store.ListApprovalRequests(r.Context(), q.Get("status"), q.Get("datasource_id"), "")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -153,7 +153,7 @@ func (h *Handler) AdminApproveApproval(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "target role no longer exists")
 		return
 	}
-	ds, err := h.Store.GetDataSource(ar.DataSourceID)
+	ds, err := h.Store.GetDataSource(r.Context(), ar.DataSourceID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -168,7 +168,7 @@ func (h *Handler) AdminApproveApproval(w http.ResponseWriter, r *http.Request) {
 		TableName:    ar.TableName,
 		Ops:          ar.Ops,
 	}
-	if err := h.Store.CreateTablePermission(perm); err != nil {
+	if err := h.Store.CreateTablePermission(r.Context(), perm); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

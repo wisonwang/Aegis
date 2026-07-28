@@ -21,7 +21,7 @@ func validMaskStrategy(s string) bool {
 // AdminListMasks returns all column-masking rules for a data source (across
 // roles), with the role name resolved for readability.
 func (h *Handler) AdminListMasks(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -32,7 +32,7 @@ func (h *Handler) AdminListMasks(w http.ResponseWriter, r *http.Request) {
 	for _, role := range roles {
 		nameByID[role.ID] = role.Name
 	}
-	masks, err := h.Store.ListColumnMasks("", dsID, table)
+	masks, err := h.Store.ListColumnMasks(r.Context(), "", dsID, table)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -63,7 +63,7 @@ type upsertMaskRequest struct {
 
 // AdminUpsertMask inserts or updates a column-masking rule for a role.
 func (h *Handler) AdminUpsertMask(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -91,7 +91,7 @@ func (h *Handler) AdminUpsertMask(w http.ResponseWriter, r *http.Request) {
 		Strategy:     req.Strategy,
 		Keep:         req.Keep,
 	}
-	if err := h.Store.UpsertColumnMask(m); err != nil {
+	if err := h.Store.UpsertColumnMask(r.Context(), m); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -133,7 +133,7 @@ type maskRecommendation struct {
 // rows for the chosen role(s). admin bypasses masking, so the meaningful
 // default when apply_to_all_roles is set is every non-admin role.
 func (h *Handler) AdminRecommendMasks(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -141,7 +141,7 @@ func (h *Handler) AdminRecommendMasks(w http.ResponseWriter, r *http.Request) {
 	var req recommendMasksRequest
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
-	cls, err := h.Store.ListClassifications(dsID, req.Table)
+	cls, err := h.Store.ListClassifications(r.Context(), dsID, req.Table)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -196,7 +196,7 @@ func (h *Handler) AdminRecommendMasks(w http.ResponseWriter, r *http.Request) {
 					RoleID: role.ID, DataSourceID: dsID, TableName: c.TableName,
 					ColumnName: c.ColumnName, Strategy: strategy, Keep: keep,
 				}
-				if e := h.Store.UpsertColumnMask(m); e != nil {
+				if e := h.Store.UpsertColumnMask(r.Context(), m); e != nil {
 					writeError(w, http.StatusInternalServerError, e.Error())
 					return
 				}
