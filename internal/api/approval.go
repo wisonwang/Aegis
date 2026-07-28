@@ -61,7 +61,12 @@ func (h *Handler) UserSubmitApproval(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "ops must be a subset of SELECT,INSERT,UPDATE,DELETE")
 		return
 	}
-	ds, err := h.Store.GetDataSource(req.DataSourceID)
+	dsID, rerr := h.resolveDS(req.DataSourceID)
+	if rerr != nil {
+		writeError(w, http.StatusNotFound, rerr.Error())
+		return
+	}
+	ds, err := h.Store.GetDataSource(dsID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

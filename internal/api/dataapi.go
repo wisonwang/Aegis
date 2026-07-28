@@ -224,9 +224,9 @@ func (h *Handler) ListDataSources(w http.ResponseWriter, r *http.Request) {
 
 // ListTables returns tables the principal may access on a datasource.
 func (h *Handler) ListTables(w http.ResponseWriter, r *http.Request) {
-	dsID := r.PathValue("id")
-	if _, err := h.Store.GetDataSource(dsID); err != nil || dsID == "" {
-		writeError(w, http.StatusNotFound, "datasource not found")
+	dsID, err := h.resolveDS(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
 	c := claimsFromContext(r.Context())
@@ -240,7 +240,11 @@ func (h *Handler) ListTables(w http.ResponseWriter, r *http.Request) {
 
 // DescribeTable returns column metadata for a table (governed).
 func (h *Handler) DescribeTable(w http.ResponseWriter, r *http.Request) {
-	dsID := r.PathValue("id")
+	dsID, err := h.resolveDS(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
 	table := r.PathValue("table")
 	c := claimsFromContext(r.Context())
 	cols, err := h.Proxy.DescribeTable(r.Context(), dsID, table, c)
@@ -256,9 +260,9 @@ func (h *Handler) DescribeTable(w http.ResponseWriter, r *http.Request) {
 // descriptions, synonyms and example values. This is exactly what the NL2SQL
 // gateway feeds to the model.
 func (h *Handler) Catalog(w http.ResponseWriter, r *http.Request) {
-	dsID := r.PathValue("id")
-	if _, err := h.Store.GetDataSource(dsID); err != nil || dsID == "" {
-		writeError(w, http.StatusNotFound, "datasource not found")
+	dsID, err := h.resolveDS(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
 	c := claimsFromContext(r.Context())

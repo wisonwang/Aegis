@@ -10,9 +10,13 @@ import (
 // AdminListSemantics returns all semantic entries (table & column business
 // descriptions) for a data source.
 func (h *Handler) AdminListSemantics(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	dsID, rerr := h.resolveDS(r.PathValue("id"))
+	if rerr != nil {
+		writeError(w, http.StatusNotFound, rerr.Error())
+		return
+	}
 	table := r.URL.Query().Get("table")
-	sems, err := h.Store.ListSemantics(id, table)
+	sems, err := h.Store.ListSemantics(dsID, table)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -42,7 +46,11 @@ type upsertSemanticRequest struct {
 
 // AdminUpsertSemantic inserts or updates a table/column semantic description.
 func (h *Handler) AdminUpsertSemantic(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	dsID, rerr := h.resolveDS(r.PathValue("id"))
+	if rerr != nil {
+		writeError(w, http.StatusNotFound, rerr.Error())
+		return
+	}
 	var req upsertSemanticRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TableName == "" {
 		writeError(w, http.StatusBadRequest, "table_name is required")
@@ -51,7 +59,7 @@ func (h *Handler) AdminUpsertSemantic(w http.ResponseWriter, r *http.Request) {
 	syn, _ := json.Marshal(req.Synonyms)
 	ex, _ := json.Marshal(req.Examples)
 	sem := &store.Semantic{
-		DataSourceID: id,
+		DataSourceID: dsID,
 		TableName:    req.TableName,
 		ColumnName:   req.ColumnName,
 		Description:  req.Description,

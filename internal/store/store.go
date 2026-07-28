@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
+
+	"github.com/wisonwang/aegis/internal/logging"
 )
 
 // Models ---------------------------------------------------------------------
@@ -189,12 +191,12 @@ func (s *Store) migrate() error {
 	// already present, which we safely ignore.
 	if _, err := s.db.Exec(`ALTER TABLE audit_logs ADD COLUMN session_id TEXT`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column") {
-			_ = err
+			logging.With("error", err.Error()).Warn("migration: add session_id to audit_logs failed")
 		}
 	}
 	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN external_id TEXT UNIQUE`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column") {
-			_ = err
+			logging.With("error", err.Error()).Warn("migration: add external_id to users failed")
 		}
 	}
 	if err := migrateDatasets(s); err != nil {
