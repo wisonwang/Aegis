@@ -13,10 +13,16 @@ import (
 
 // provisionOrLinkExternalUser creates a platform user from an external identity
 // (OIDC subject, LDAP DN, SAML nameID, ...) on first login, and links subsequent
-// logins via the unique externalID. Roles are derived from the caller-resolved
-// role names (already mapped from the identity provider); missing roles are
+// logins via the unique externalID. Platform roles and workspace memberships are
+// derived from the caller-resolved mappings and applied on EVERY login so that
+// changes in the identity provider's group membership propagate to the platform
+// (idempotent: duplicate inserts are ignored). Missing platform roles are
 // auto-created so a freshly mapped group just works without manual setup.
-func provisionOrLinkExternalUser(st *store.Store, externalID, username, displayName string, attrs map[string]string, roleNames []string) (*store.User, error) {
+//
+// Workspace bindings are resolved by slug; a binding whose workspace does not
+// exist yet is skipped rather than auto-created (a fail-safe default for a
+// governance product — we never spawn tenants as a side effect of a login).
+func provisionOrLinkExternalUser(st *store.Store, externalID, username, displayName string, attrs map[string]string, roleNames []string, wsBindings []config.WorkspaceBinding) (*store.User, error) {
 	u, err := st.GetUserByExternalID(externalID)
 	if err != nil {
 		return nil, err
@@ -34,25 +40,44 @@ func provisionOrLinkExternalUser(st *store.Store, externalID, username, displayN
 		if err := st.CreateUser(u); err != nil {
 			return nil, err
 		}
-		for _, roleName := range roleNames {
-			role, err := st.GetRole(roleName)
-			if err != nil {
-				continue
-			}
-			if role == nil {
-				role = &store.Role{ID: uuid.NewString(), Name: roleName}
-				if err := st.CreateRole(role); err != nil {
-					continue
-				}
-			}
-			_ = st.AddUserRole(u.ID, role.ID)
-		}
-		return u, nil
 	}
 	// Existing external user: keep the display name in sync.
 	if displayName != "" && u.DisplayName != displayName {
 		u.DisplayName = displayName
 		_ = st.UpdateUser(u)
+	}
+
+	// Platform roles (idempotent).
+	for _, roleName := range roleNames {
+		role, err := st.GetRole(roleName)
+		if err != nil {
+			continue
+		}
+		if role == nil {
+			role = &store.Role{ID: uuid.NewString(), Name: roleName}
+			if err := st.CreateRole(role); err != nil {
+				continue
+			}
+		}
+		_ = st.AddUserRole(u.ID, role.ID)
+	}
+
+	// Workspace membership (idempotent). Every principal always gets the
+	// default workspace so the fail-closed resolver has something to fall back
+	// to; group-derived bindings add the tenant(s) the identity belongs to.
+	if err := st.EnsureDefaultMembership(u.ID); err != nil {
+		return nil, err
+	}
+	for _, wb := range wsBindings {
+		ws, err := st.GetWorkspaceBySlug(wb.Slug)
+		if err != nil || ws == nil {
+			continue
+		}
+		role := wb.Role
+		if role == "" {
+			role = store.WsRoleMember
+		}
+		_ = st.AddWorkspaceMember(ws.ID, u.ID, role, false)
 	}
 	return u, nil
 }

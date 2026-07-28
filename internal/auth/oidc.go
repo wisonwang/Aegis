@@ -129,10 +129,10 @@ func (id *OIDCIdentity) DisplayName() string {
 	return id.Subject
 }
 
-// ResolveRoles maps OIDC claims to platform roles using the configured
-// claim_mappings. It inspects the "groups" claim (array of strings) first,
-// then falls back to a single string claim named "groups" or "roles".
-func (id *OIDCIdentity) ResolveRoles(mappings map[string]string) []string {
+// groupSources returns the normalized list of group/role claim values carried
+// by the identity. It inspects the "groups" claim (array or string) first,
+// then falls back to a "roles" claim.
+func (id *OIDCIdentity) groupSources() []string {
 	var sources []string
 	if g, ok := id.RawClaims["groups"]; ok {
 		switch v := g.(type) {
@@ -162,15 +162,48 @@ func (id *OIDCIdentity) ResolveRoles(mappings map[string]string) []string {
 			sources = append(sources, v)
 		}
 	}
+	return sources
+}
+
+// ResolveRoles maps OIDC claims to platform roles using the configured
+// claim_mappings (group value -> ClaimMapping; only the Role field is used
+// here).
+func (id *OIDCIdentity) ResolveRoles(mappings map[string]config.ClaimMapping) []string {
 	set := map[string]bool{}
-	for _, src := range sources {
-		if mapped, ok := mappings[src]; ok {
-			set[mapped] = true
+	for _, src := range id.groupSources() {
+		if cm, ok := mappings[src]; ok && cm.Role != "" {
+			set[cm.Role] = true
 		}
 	}
 	out := make([]string, 0, len(set))
 	for r := range set {
 		out = append(out, r)
+	}
+	return out
+}
+
+// ResolveWorkspaces maps OIDC claims to workspace memberships using the
+// configured claim_mappings. Each matching group contributes its Workspaces
+// bindings; duplicates (same slug+role) are collapsed.
+func (id *OIDCIdentity) ResolveWorkspaces(mappings map[string]config.ClaimMapping) []config.WorkspaceBinding {
+	var out []config.WorkspaceBinding
+	seen := map[string]bool{}
+	for _, src := range id.groupSources() {
+		cm, ok := mappings[src]
+		if !ok {
+			continue
+		}
+		for _, wb := range cm.Workspaces {
+			if wb.Slug == "" {
+				continue
+			}
+			key := wb.Slug + "/" + wb.Role
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, wb)
+		}
 	}
 	return out
 }

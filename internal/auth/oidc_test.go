@@ -1,8 +1,11 @@
 package auth
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/wisonwang/aegis/internal/config"
 )
 
 func TestSessionStateRoundTrip(t *testing.T) {
@@ -70,9 +73,9 @@ func TestOIDCIdentityDisplayName(t *testing.T) {
 }
 
 func TestResolveRoles(t *testing.T) {
-	mappings := map[string]string{
-		"admins":   "admin",
-		"analysts": "analyst",
+	mappings := map[string]config.ClaimMapping{
+		"admins":   {Role: "admin"},
+		"analysts": {Role: "analyst"},
 	}
 	id := &OIDCIdentity{
 		RawClaims: map[string]interface{}{
@@ -93,11 +96,66 @@ func TestResolveRoles(t *testing.T) {
 }
 
 func TestResolveRolesStringClaim(t *testing.T) {
-	mappings := map[string]string{"staff": "analyst"}
+	mappings := map[string]config.ClaimMapping{"staff": {Role: "analyst"}}
 	id := &OIDCIdentity{RawClaims: map[string]interface{}{"roles": "staff"}}
 	roles := id.ResolveRoles(mappings)
 	if len(roles) != 1 || roles[0] != "analyst" {
 		t.Errorf("expected [analyst], got %v", roles)
+	}
+}
+
+func TestResolveWorkspaces(t *testing.T) {
+	mappings := map[string]config.ClaimMapping{
+		"acme-admins": {
+			Role: "admin",
+			Workspaces: []config.WorkspaceBinding{
+				{Slug: "acme", Role: "workspace_admin"},
+				{Slug: "globex", Role: "member"},
+			},
+		},
+		"shared": {Role: "viewer", Workspaces: []config.WorkspaceBinding{{Slug: "acme", Role: "member"}}},
+	}
+	id := &OIDCIdentity{
+		RawClaims: map[string]interface{}{
+			"groups": []interface{}{"acme-admins", "shared"},
+		},
+	}
+	got := id.ResolveWorkspaces(mappings)
+	set := map[string]bool{}
+	for _, wb := range got {
+		set[wb.Slug+"/"+wb.Role] = true
+	}
+	// acme/member is contributed by both groups but must collapse to one entry.
+	if len(got) != 3 {
+		t.Fatalf("expected 3 unique bindings (collapsed), got %v", got)
+	}
+	if !set["acme/workspace_admin"] || !set["globex/member"] || !set["acme/member"] {
+		t.Errorf("missing expected bindings: %v", got)
+	}
+}
+
+func TestClaimMappingUnmarshalLegacyString(t *testing.T) {
+	var m map[string]config.ClaimMapping
+	if err := json.Unmarshal([]byte(`{"admins":"admin","analysts":"analyst"}`), &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if m["admins"].Role != "admin" || m["analysts"].Role != "analyst" {
+		t.Fatalf("legacy string form not parsed: %+v", m)
+	}
+	if len(m["admins"].Workspaces) != 0 {
+		t.Errorf("legacy form should have no workspaces")
+	}
+}
+
+func TestClaimMappingUnmarshalStructured(t *testing.T) {
+	var m map[string]config.ClaimMapping
+	raw := `{"acme-admins":{"role":"admin","workspaces":[{"slug":"acme","role":"workspace_admin"}]}}`
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	cm := m["acme-admins"]
+	if cm.Role != "admin" || len(cm.Workspaces) != 1 || cm.Workspaces[0].Slug != "acme" {
+		t.Fatalf("structured form not parsed: %+v", cm)
 	}
 }
 

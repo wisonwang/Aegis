@@ -38,6 +38,45 @@ type LoggingConfig struct {
 	Level  string `json:"level"`  // "debug" | "info" (default) | "warn" | "error"
 }
 
+// WorkspaceBinding links an identity-provider group to a workspace with a
+// workspace-scoped role. It is the workspace half of a ClaimMapping.
+type WorkspaceBinding struct {
+	Slug string `json:"slug"` // target workspace slug (must already exist)
+	Role string `json:"role"` // workspace role: workspace_admin | member | viewer (empty => member)
+}
+
+// ClaimMapping binds an identity-provider group/claim value to platform
+// entitlements. It supports two JSON shapes for backward compatibility:
+//
+//	legacy string form:  "admins": "admin"
+//	structured form:     "admins": {"role": "admin", "workspaces": [{"slug":"acme","role":"workspace_admin"}]}
+//
+// The structured form lets a single IdP group grant both a platform role and
+// membership in one or more workspaces (ADR-001 Phase 1: group -> workspace).
+type ClaimMapping struct {
+	Role      string            `json:"role"`      // platform role granted by this group
+	Workspaces []WorkspaceBinding `json:"workspaces"` // workspaces the user joins on login
+}
+
+// UnmarshalJSON accepts both the legacy string form and the structured form so
+// existing config files keep working after this type was extended.
+func (m *ClaimMapping) UnmarshalJSON(b []byte) error {
+	// Try the legacy string form first.
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		m.Role = s
+		return nil
+	}
+	// Structured form.
+	type alias ClaimMapping
+	var a alias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return err
+	}
+	*m = ClaimMapping(a)
+	return nil
+}
+
 // OIDCConfig configures OpenID Connect single sign-on. When Enabled, the
 // platform delegates authentication to an external IdP and auto-provisions
 // users on first login.
@@ -48,7 +87,7 @@ type OIDCConfig struct {
 	ClientSecret  string            `json:"client_secret"`  // OAuth2 client secret
 	RedirectURL   string            `json:"redirect_url"`   // callback URL registered with the IdP, e.g. "http://localhost:8080/api/v1/auth/oidc/callback"
 	Scopes        []string          `json:"scopes"`         // additional scopes beyond openid,profile,email
-	ClaimMappings map[string]string `json:"claim_mappings"` // map OIDC claim values to platform roles, e.g. {"admins":"admin","analysts":"analyst"}
+	ClaimMappings map[string]ClaimMapping `json:"claim_mappings"` // map OIDC claim values to platform roles (+ optional workspaces). Legacy string form still supported.
 }
 
 // NL2SQLConfig configures the natural-language-to-SQL gateway. When Enabled
@@ -110,7 +149,7 @@ type LDAPConfig struct {
 	GroupBaseDN   string            `json:"group_base_dn"`   // search base for groups, e.g. "ou=groups,dc=example,dc=com"
 	GroupFilter   string            `json:"group_filter"`    // group filter with %d for the user DN, e.g. "(member=%d)"
 	GroupNameAttr string            `json:"group_name_attr"` // attribute holding the group name, e.g. "cn"
-	ClaimMappings map[string]string `json:"claim_mappings"`  // map directory group values to platform roles, e.g. {"aegis-admins":"admin","aegis-analysts":"analyst"}
+	ClaimMappings map[string]ClaimMapping `json:"claim_mappings"`  // map directory group values to platform roles (+ optional workspaces). Legacy string form still supported.
 	DefaultRoles  []string          `json:"default_roles"`   // roles granted to every LDAP-authenticated user
 	SkipTLSVerify bool              `json:"skip_tls_verify"` // insecure: skip TLS cert verification (dev only)
 }

@@ -50,7 +50,7 @@ func TestLDAPLogin_SuccessProvisionsRoleAndToken(t *testing.T) {
 		Groups:      []string{"aegis-analysts"},
 	}}
 	cfg := &config.Config{JWTSecret: "test-secret", JWTExpiry: "24h", LDAP: config.LDAPConfig{
-		ClaimMappings: map[string]string{"aegis-analysts": "analyst"},
+		ClaimMappings: map[string]config.ClaimMapping{"aegis-analysts": {Role: "analyst"}},
 	}}
 	h := &LDAPHandler{Dir: dir, Store: st, Cfg: cfg}
 
@@ -132,7 +132,7 @@ func TestLDAPLogin_UnmappedGroupAutoCreatesRole(t *testing.T) {
 		Groups:   []string{"aegis-viewer"},
 	}}
 	cfg := &config.Config{JWTSecret: "s", JWTExpiry: "24h", LDAP: config.LDAPConfig{
-		ClaimMappings: map[string]string{"aegis-viewer": "viewer"},
+		ClaimMappings: map[string]config.ClaimMapping{"aegis-viewer": {Role: "viewer"}},
 	}}
 	h := &LDAPHandler{Dir: dir, Store: st, Cfg: cfg}
 
@@ -160,6 +160,58 @@ func TestLDAPLogin_InvalidCredentials(t *testing.T) {
 	h.LDAPLogin(w, req)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+// TestLDAPLogin_ProvisionsWorkspaceMembership verifies that an IdP group mapped
+// to a workspace (ADR-001 Phase 1) lands the SSO user in that tenant on login,
+// while an unmapped/slug-not-found binding is safely skipped (no auto-create).
+func TestLDAPLogin_ProvisionsWorkspaceMembership(t *testing.T) {
+	st := newLDAPTestStore(t)
+	_ = st.CreateRole(&store.Role{ID: "r-analyst", Name: "analyst"})
+	// Pre-create the "acme" workspace (binding requires the workspace to exist).
+	if err := st.CreateWorkspace(&store.Workspace{ID: "ws-acme", Name: "Acme", Slug: "acme"}); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	dir := &mockDirectory{id: &auth.LDAPIdentity{
+		DN:       "uid=dave,ou=people,dc=example,dc=com",
+		Username: "dave",
+		Groups:   []string{"aegis-acme"},
+	}}
+	cfg := &config.Config{JWTSecret: "s", JWTExpiry: "24h", LDAP: config.LDAPConfig{
+		ClaimMappings: map[string]config.ClaimMapping{
+			"aegis-acme": {Role: "analyst", Workspaces: []config.WorkspaceBinding{{Slug: "acme", Role: "member"}}},
+		},
+	}}
+	h := &LDAPHandler{Dir: dir, Store: st, Cfg: cfg}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/ldap/login", strings.NewReader(`{"username":"dave","password":"x"}`))
+	w := httptest.NewRecorder()
+	h.LDAPLogin(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	u, err := st.GetUserByExternalID("ldap:uid=dave,ou=people,dc=example,dc=com")
+	if err != nil || u == nil {
+		t.Fatalf("user not provisioned: %v", err)
+	}
+	// Must be a member of the mapped workspace.
+	ok, err := st.IsWorkspaceMember("ws-acme", u.ID)
+	if err != nil {
+		t.Fatalf("membership check: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected user to be a member of workspace acme")
+	}
+	// And always in the default workspace (fail-closed resolver fallback).
+	def, err := st.IsWorkspaceMember("default", u.ID)
+	if err != nil {
+		t.Fatalf("default membership check: %v", err)
+	}
+	if !def {
+		t.Fatal("expected user to also be in the default workspace")
 	}
 }
 

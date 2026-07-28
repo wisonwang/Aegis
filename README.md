@@ -592,11 +592,19 @@ Aegis 支持通过 **OpenID Connect** 接入外部身份提供商（IdP），实
     "scopes": ["profile", "email"],
     "claim_mappings": {
       "admins": "admin",
-      "analysts": "analyst"
+      "analysts": {
+        "role": "analyst",
+        "workspaces": [
+          {"slug": "acme", "role": "member"},
+          {"slug": "globex", "role": "viewer"}
+        ]
+      }
     }
   }
 }
 ```
+
+> `claim_mappings` 的值既可以是遗留的字符串形式（仅授予平台角色，如 `"admins":"admin"`），也可以是结构化形式（同时授予平台角色 + 工作区成员关系，见 `analysts` 示例）。ADR-001 Phase 1 起，结构化形式可让 SSO 用户登录即落入对应工作区——目标工作区须已存在（slug 匹配），不存在则跳过该绑定，不会自动创建租户。
 
 | 配置项              | 环境变量                       | 说明                                                     |
 | ---------------- | -------------------------- | ------------------------------------------------------ |
@@ -606,7 +614,7 @@ Aegis 支持通过 **OpenID Connect** 接入外部身份提供商（IdP），实
 | `client_secret`  | `AEGIS_OIDC_CLIENT_SECRET` | OAuth2 client secret                                   |
 | `redirect_url`   | `AEGIS_OIDC_REDIRECT_URL`  | 回调地址，必须在 IdP 中注册                                       |
 | `scopes`         | —                          | 额外 scope，默认含 `openid` + `profile` + `email`            |
-| `claim_mappings` | —                          | 将 IdP claim 值映射到平台角色，如 `{"admins":"admin"}`            |
+| `claim_mappings` | —                          | 将 IdP claim 值映射到平台角色，如 `{"admins":"admin"}`；亦支持结构化形式 `{"g":{"role":"analyst","workspaces":[{"slug":"acme","role":"member"}]}}` 同时授予工作区成员关系（ADR-001 Phase 1） |
 
 ### 登录流程
 
@@ -658,7 +666,12 @@ Aegis 支持通过 **LDAP / Active Directory** 做基于密码的目录单点登
     "group_name_attr": "cn",
     "claim_mappings": {
       "aegis-admins": "admin",
-      "aegis-analysts": "analyst"
+      "aegis-analysts": {
+        "role": "analyst",
+        "workspaces": [
+          {"slug": "acme", "role": "member"}
+        ]
+      }
     },
     "default_roles": ["analyst"],
     "skip_tls_verify": false
@@ -679,7 +692,7 @@ Aegis 支持通过 **LDAP / Active Directory** 做基于密码的目录单点登
 | `group_base_dn`             | `AEGIS_LDAP_GROUP_BASE_DN`                        | 组检索基                                                   |
 | `group_filter`              | `AEGIS_LDAP_GROUP_FILTER`                         | 组过滤器，`%d` 为用户 DN，如 `(member=%d)` 或 `(memberOf=%d)`     |
 | `group_name_attr`           | `AEGIS_LDAP_GROUP_NAME_ATTR`                      | 组名属性，如 `cn`                                            |
-| `claim_mappings`            | —                                                 | 将目录组值映射到平台角色，如 `{"aegis-admins":"admin"}`              |
+| `claim_mappings`            | —                                                 | 将目录组值映射到平台角色，如 `{"aegis-admins":"admin"}`；亦支持结构化形式同时授予工作区成员关系（ADR-001 Phase 1） |
 | `default_roles`             | —                                                 | 所有 LDAP 登录用户都授予的角色                                     |
 | `skip_tls_verify`           | `AEGIS_LDAP_SKIP_TLS_VERIFY`                      | 跳过 TLS 证书校验（仅开发环境）                                     |
 

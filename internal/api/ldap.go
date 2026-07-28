@@ -58,8 +58,9 @@ func (h *LDAPHandler) LDAPLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	roleNames := id.ResolveRoles(h.Cfg.LDAP.ClaimMappings)
 	roleNames = append(roleNames, h.Cfg.LDAP.DefaultRoles...)
+	wsBindings := id.ResolveWorkspaces(h.Cfg.LDAP.ClaimMappings)
 
-	u, err := provisionOrLinkExternalUser(h.Store, externalID, id.Username, id.DisplayName, attrs, roleNames)
+	u, err := provisionOrLinkExternalUser(h.Store, externalID, id.Username, id.DisplayName, attrs, roleNames, wsBindings)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "user provisioning failed")
 		return

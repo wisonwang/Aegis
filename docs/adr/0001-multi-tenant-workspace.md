@@ -2,7 +2,7 @@
 
 ## Status
 
-**Accepted** — 已采纳并实现（Phase 0 + Task #112）。共享 schema + `workspace_id` 判别列 + 仓储层强制作用域的模型已落地，并通过 `internal/store/workspace_isolation_test.go` 的跨租户隔离测试（"护城河"）验证。
+**Accepted** — 已采纳并实现（Phase 0 + Task #112 + Phase 1 / Task #113）。共享 schema + `workspace_id` 判别列 + 仓储层强制作用域的模型已落地并通过跨租户隔离测试；OIDC/LDAP 组→工作区映射（Phase 1）已实现：复用并扩展 `claim_mappings`，SSO 登录即按组归属落入对应租户。
 
 ## Context
 
@@ -88,10 +88,27 @@ Aegis 当前是**单租户**形态：一个部署实例服务一个组织，控�
 
 ## 演进策略（不重写）
 
-1. **Phase 0（本 ADR 若采纳）**：单默认工作区 + 判别列 + 仓储作用域。现有部署零变化。
-2. **Phase 1**：显式多工作区 CRUD + 成员邀请 + OIDC/LDAP 组→工作区映射（复用现有 `claim_mappings`）。
+1. **Phase 0（本 ADR 若采纳）**：单默认工作区 + 判别列 + 仓储作用域。现有部署零变化。✅ 已落地（含 Task #112 的 WorkspaceResolver + 工作区 CRUD）。
+2. **Phase 1**：显式多工作区 CRUD + 成员邀请 + OIDC/LDAP 组→工作区映射（复用并扩展现有 `claim_mappings`）。✅ 已落地（Task #113）。
 3. **Phase 2（企业增强，可选）**：对高隔离需求客户提供**每租户数据库**（方案 C）作为部署档位，应用层接口不变，仅仓储后端切换。
 4. 每个 Phase 独立可交付、可逆。
+
+### Phase 1 实现说明（Task #113）
+
+**目标**：SSO（OIDC / LDAP）用户登录时，依据 IdP 组归属自动加入对应工作区，无需手动邀请。
+
+**决策：扩展 `claim_mappings` 而非新增配置块。**
+- `claim_mappings` 的值类型由 `string` 升级为 `config.ClaimMapping`，并配自定义 `UnmarshalJSON`：
+  - 遗留字符串形式 `"admins":"admin"` **仍合法**（向后兼容，现有配置零改动）；
+  - 新结构形式 `"admins":{"role":"admin","workspaces":[{"slug":"acme","role":"workspace_admin"}]}` 同时授予平台角色 + 工作区成员关系。
+- 新增 `ResolveWorkspaces(mappings)`：从 IdP 组解析出 `[]WorkspaceBinding`（按 `slug/role` 去重）。
+- `provisionOrLinkExternalUser` 在**每次登录**幂等应用：平台角色（`AddUserRole`）+ 工作区成员（`EnsureDefaultMembership` + 按 slug 查 `GetWorkspaceBySlug` 后 `AddWorkspaceMember`）。组变更可随下次登录动态生效。
+
+**关键权衡（fail-safe 默认）**：
+- **不自动创建工作区**：绑定目标 slug 不存在时跳过该绑定，而非凭登录副作用新建租户（避免组名拼错就炸出空租户）。管理员需先建好工作区再配映射——符合 ADR 的"治理默认开启、无惊喜副作用"基调。
+- 工作区角色（`workspace_admin` / `member` / `viewer`）与平台角色（如 `admin`）解耦；空 `role` 回落 `member`。
+
+**验证**：`internal/auth/*_test.go`（`ResolveWorkspaces` 解析 + `ClaimMapping` 双形态反序列化）、`internal/api/ldap_test.go`（`TestLDAPLogin_ProvisionsWorkspaceMembership` 端到端断言 SSO 用户落入映射工作区且仍在 `default`）。
 
 ## Open Questions / Risks
 

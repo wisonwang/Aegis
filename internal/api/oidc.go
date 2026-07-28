@@ -104,7 +104,8 @@ func (h *OIDCHandler) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		attrs["email"] = identity.Email
 	}
 	mappedRoles := identity.ResolveRoles(h.Cfg.OIDC.ClaimMappings)
-	u, err := provisionOrLinkExternalUser(h.Store, identity.Subject, identity.Username(), identity.DisplayName(), attrs, mappedRoles)
+	wsBindings := identity.ResolveWorkspaces(h.Cfg.OIDC.ClaimMappings)
+	u, err := provisionOrLinkExternalUser(h.Store, identity.Subject, identity.Username(), identity.DisplayName(), attrs, mappedRoles, wsBindings)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "user provisioning failed")
 		return

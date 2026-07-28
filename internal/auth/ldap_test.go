@@ -9,9 +9,9 @@ import (
 
 func TestLDAPIdentity_ResolveRoles(t *testing.T) {
 	id := &LDAPIdentity{Groups: []string{"aegis-admins", "aegis-analysts", "other"}}
-	mappings := map[string]string{
-		"aegis-admins":   "admin",
-		"aegis-analysts": "analyst",
+	mappings := map[string]config.ClaimMapping{
+		"aegis-admins":   {Role: "admin"},
+		"aegis-analysts": {Role: "analyst"},
 	}
 	roles := id.ResolveRoles(mappings)
 	if !contains(roles, "admin") {
@@ -29,6 +29,31 @@ func TestLDAPIdentity_ResolveRoles_NoMapping(t *testing.T) {
 	id := &LDAPIdentity{Groups: []string{"nobody"}}
 	if roles := id.ResolveRoles(nil); len(roles) != 0 {
 		t.Fatalf("expected no roles, got %v", roles)
+	}
+}
+
+func TestLDAPIdentity_ResolveWorkspaces(t *testing.T) {
+	id := &LDAPIdentity{Groups: []string{"aegis-acme", "aegis-shared"}}
+	mappings := map[string]config.ClaimMapping{
+		"aegis-acme": {
+			Role:        "member",
+			Workspaces:  []config.WorkspaceBinding{{Slug: "acme", Role: "member"}},
+		},
+		"aegis-shared": {
+			Role:       "viewer",
+			Workspaces: []config.WorkspaceBinding{{Slug: "acme", Role: "member"}, {Slug: "globex", Role: "viewer"}},
+		},
+	}
+	got := id.ResolveWorkspaces(mappings)
+	set := map[string]bool{}
+	for _, wb := range got {
+		set[wb.Slug+"/"+wb.Role] = true
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 unique bindings (acme/member collapsed), got %v", got)
+	}
+	if !set["acme/member"] || !set["globex/viewer"] {
+		t.Errorf("missing expected bindings: %v", got)
 	}
 }
 

@@ -31,19 +31,51 @@ type LDAPIdentity struct {
 	Groups      []string          // group membership values (GroupNameAttr)
 }
 
+// groupSources returns the list of directory group values carried by the
+// identity.
+func (id *LDAPIdentity) groupSources() []string {
+	return id.Groups
+}
+
 // ResolveRoles maps directory group memberships to platform roles using the
-// configured claim_mappings (group value -> role name). Each group value is
-// tried verbatim; a configured mapping contributes its target role.
-func (id *LDAPIdentity) ResolveRoles(mappings map[string]string) []string {
+// configured claim_mappings (group value -> ClaimMapping; only the Role field
+// is used here). Each group value is tried verbatim.
+func (id *LDAPIdentity) ResolveRoles(mappings map[string]config.ClaimMapping) []string {
 	set := map[string]bool{}
 	for _, g := range id.Groups {
-		if mapped, ok := mappings[g]; ok {
-			set[mapped] = true
+		if cm, ok := mappings[g]; ok && cm.Role != "" {
+			set[cm.Role] = true
 		}
 	}
 	out := make([]string, 0, len(set))
 	for r := range set {
 		out = append(out, r)
+	}
+	return out
+}
+
+// ResolveWorkspaces maps directory group memberships to workspace
+// memberships using the configured claim_mappings (group value -> ClaimMapping;
+// only the Workspaces field is used here). Duplicates (same slug+role) collapse.
+func (id *LDAPIdentity) ResolveWorkspaces(mappings map[string]config.ClaimMapping) []config.WorkspaceBinding {
+	var out []config.WorkspaceBinding
+	seen := map[string]bool{}
+	for _, g := range id.Groups {
+		cm, ok := mappings[g]
+		if !ok {
+			continue
+		}
+		for _, wb := range cm.Workspaces {
+			if wb.Slug == "" {
+				continue
+			}
+			key := wb.Slug + "/" + wb.Role
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, wb)
+		}
 	}
 	return out
 }
