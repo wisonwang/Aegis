@@ -12,6 +12,7 @@ package enterprise
 import (
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/wisonwang/aegis/internal/api"
 	"github.com/wisonwang/aegis/internal/capabilities"
 	"github.com/wisonwang/aegis/internal/config"
@@ -25,7 +26,7 @@ import (
 // a platform admin gets the cross-workspace ("*") view, while non-admins
 // are scoped to their own workspace. Without this, dataset/metric/approval
 // management would have been pinned to the default workspace.
-func Register(mux *http.ServeMux, cfg *config.Config, st *store.Store, h *api.Handler, caps *capabilities.Capabilities) {
+func Register(engine *gin.Engine, cfg *config.Config, st *store.Store, h *api.Handler, caps *capabilities.Capabilities) {
 	require := func(cap capabilities.Capability) func(http.HandlerFunc) http.HandlerFunc {
 		return requireCap(caps, cap)
 	}
@@ -35,44 +36,44 @@ func Register(mux *http.ServeMux, cfg *config.Config, st *store.Store, h *api.Ha
 	}
 
 	// ---- Datasets (data products) : CapDataProducts ----
-	mux.HandleFunc("GET /api/v1/datasets", auth(require(capabilities.CapDataProducts)(h.ListDatasets)))
-	mux.HandleFunc("GET /api/v1/datasets/{id}", auth(require(capabilities.CapDataProducts)(h.GetDataset)))
-	mux.HandleFunc("POST /api/v1/datasets/{id}/query", auth(require(capabilities.CapDataProducts)(h.QueryDataset)))
+	engine.GET("/api/v1/datasets", gin.WrapF(auth(require(capabilities.CapDataProducts)(h.ListDatasets))))
+	engine.GET("/api/v1/datasets/:id", gin.WrapF(auth(require(capabilities.CapDataProducts)(h.GetDataset))))
+	engine.POST("/api/v1/datasets/:id/query", gin.WrapF(auth(require(capabilities.CapDataProducts)(h.QueryDataset))))
 
-	mux.HandleFunc("GET /admin/api/datasets", admin(require(capabilities.CapDataProducts)(h.AdminListDatasets)))
-	mux.HandleFunc("POST /admin/api/datasets", admin(require(capabilities.CapDataProducts)(h.AdminCreateDataset)))
-	mux.HandleFunc("GET /admin/api/datasets/{id}", admin(require(capabilities.CapDataProducts)(h.AdminGetDataset)))
-	mux.HandleFunc("PUT /admin/api/datasets/{id}", admin(require(capabilities.CapDataProducts)(h.AdminUpdateDataset)))
-	mux.HandleFunc("DELETE /admin/api/datasets/{id}", admin(require(capabilities.CapDataProducts)(h.AdminDeleteDataset)))
-	mux.HandleFunc("POST /admin/api/datasets/{id}/publish", admin(require(capabilities.CapDataProducts)(h.AdminPublishDataset)))
-	mux.HandleFunc("POST /admin/api/datasets/{id}/unpublish", admin(require(capabilities.CapDataProducts)(h.AdminUnpublishDataset)))
-	mux.HandleFunc("GET /admin/api/datasets/{id}/permissions", admin(require(capabilities.CapDataProducts)(h.AdminListDatasetPermissions)))
-	mux.HandleFunc("POST /admin/api/datasets/{id}/permissions", admin(require(capabilities.CapDataProducts)(h.AdminCreateDatasetPermission)))
-	mux.HandleFunc("DELETE /admin/api/datasets/{id}/permissions/{perm}", admin(require(capabilities.CapDataProducts)(h.AdminDeleteDatasetPermission)))
-	mux.HandleFunc("GET /admin/api/datasets/{id}/policies", admin(require(capabilities.CapDataProducts)(h.AdminListDatasetPolicies)))
-	mux.HandleFunc("POST /admin/api/datasets/{id}/policies", admin(require(capabilities.CapDataProducts)(h.AdminCreateDatasetPolicy)))
-	mux.HandleFunc("DELETE /admin/api/datasets/{id}/policies/{policy}", admin(require(capabilities.CapDataProducts)(h.AdminDeleteDatasetPolicy)))
-	mux.HandleFunc("GET /admin/api/datasets/{id}/masks", admin(require(capabilities.CapDataProducts)(h.AdminListDatasetMasks)))
-	mux.HandleFunc("POST /admin/api/datasets/{id}/masks", admin(require(capabilities.CapDataProducts)(h.AdminUpsertDatasetMask)))
-	mux.HandleFunc("DELETE /admin/api/datasets/{id}/masks/{mask}", admin(require(capabilities.CapDataProducts)(h.AdminDeleteDatasetMask)))
-	mux.HandleFunc("GET /admin/api/datasets/{id}/semantics", admin(require(capabilities.CapDataProducts)(h.AdminListDatasetSemantics)))
-	mux.HandleFunc("POST /admin/api/datasets/{id}/semantics", admin(require(capabilities.CapDataProducts)(h.AdminUpsertDatasetSemantic)))
-	mux.HandleFunc("DELETE /admin/api/datasets/{id}/semantics/{sem}", admin(require(capabilities.CapDataProducts)(h.AdminDeleteDatasetSemantic)))
+	engine.GET("/admin/api/datasets", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminListDatasets))))
+	engine.POST("/admin/api/datasets", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminCreateDataset))))
+	engine.GET("/admin/api/datasets/:id", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminGetDataset))))
+	engine.PUT("/admin/api/datasets/:id", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminUpdateDataset))))
+	engine.DELETE("/admin/api/datasets/:id", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminDeleteDataset))))
+	engine.POST("/admin/api/datasets/:id/publish", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminPublishDataset))))
+	engine.POST("/admin/api/datasets/:id/unpublish", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminUnpublishDataset))))
+	engine.GET("/admin/api/datasets/:id/permissions", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminListDatasetPermissions))))
+	engine.POST("/admin/api/datasets/:id/permissions", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminCreateDatasetPermission))))
+	engine.DELETE("/admin/api/datasets/:id/permissions/:perm", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminDeleteDatasetPermission))))
+	engine.GET("/admin/api/datasets/:id/policies", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminListDatasetPolicies))))
+	engine.POST("/admin/api/datasets/:id/policies", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminCreateDatasetPolicy))))
+	engine.DELETE("/admin/api/datasets/:id/policies/:policy", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminDeleteDatasetPolicy))))
+	engine.GET("/admin/api/datasets/:id/masks", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminListDatasetMasks))))
+	engine.POST("/admin/api/datasets/:id/masks", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminUpsertDatasetMask))))
+	engine.DELETE("/admin/api/datasets/:id/masks/:mask", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminDeleteDatasetMask))))
+	engine.GET("/admin/api/datasets/:id/semantics", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminListDatasetSemantics))))
+	engine.POST("/admin/api/datasets/:id/semantics", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminUpsertDatasetSemantic))))
+	engine.DELETE("/admin/api/datasets/:id/semantics/:sem", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminDeleteDatasetSemantic))))
 
 	// ---- Semantic metric layer (part of data products) : CapDataProducts ----
-	mux.HandleFunc("GET /api/v1/datasources/{id}/metrics", auth(require(capabilities.CapDataProducts)(h.ListMetrics)))
-	mux.HandleFunc("POST /api/v1/datasources/{id}/metrics/{name}/run", auth(require(capabilities.CapDataProducts)(h.RunMetric)))
-	mux.HandleFunc("GET /admin/api/datasources/{id}/metrics", admin(require(capabilities.CapDataProducts)(h.AdminListMetrics)))
-	mux.HandleFunc("POST /admin/api/datasources/{id}/metrics", admin(require(capabilities.CapDataProducts)(h.AdminUpsertMetric)))
-	mux.HandleFunc("DELETE /admin/api/datasources/{id}/metrics/{mid}", admin(require(capabilities.CapDataProducts)(h.AdminDeleteMetric)))
+	engine.GET("/api/v1/datasources/:id/metrics", gin.WrapF(auth(require(capabilities.CapDataProducts)(h.ListMetrics))))
+	engine.POST("/api/v1/datasources/:id/metrics/:name/run", gin.WrapF(auth(require(capabilities.CapDataProducts)(h.RunMetric))))
+	engine.GET("/admin/api/datasources/:id/metrics", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminListMetrics))))
+	engine.POST("/admin/api/datasources/:id/metrics", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminUpsertMetric))))
+	engine.DELETE("/admin/api/datasources/:id/metrics/:mid", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminDeleteMetric))))
 
 	// ---- Access approval workflow : CapApprovalWorkflow ----
-	mux.HandleFunc("GET /api/v1/me/approvals", auth(require(capabilities.CapApprovalWorkflow)(h.UserListMyApprovals)))
-	mux.HandleFunc("POST /admin/api/approvals", auth(require(capabilities.CapApprovalWorkflow)(h.UserSubmitApproval)))
-	mux.HandleFunc("GET /admin/api/approvals", admin(require(capabilities.CapApprovalWorkflow)(h.AdminListApprovals)))
-	mux.HandleFunc("POST /admin/api/approvals/{id}/approve", admin(require(capabilities.CapApprovalWorkflow)(h.AdminApproveApproval)))
-	mux.HandleFunc("POST /admin/api/approvals/{id}/reject", admin(require(capabilities.CapApprovalWorkflow)(h.AdminRejectApproval)))
-	mux.HandleFunc("POST /admin/api/approvals/{id}/revoke", admin(require(capabilities.CapApprovalWorkflow)(h.AdminRevokeApproval)))
+	engine.GET("/api/v1/me/approvals", gin.WrapF(auth(require(capabilities.CapApprovalWorkflow)(h.UserListMyApprovals))))
+	engine.POST("/admin/api/approvals", gin.WrapF(auth(require(capabilities.CapApprovalWorkflow)(h.UserSubmitApproval))))
+	engine.GET("/admin/api/approvals", gin.WrapF(admin(require(capabilities.CapApprovalWorkflow)(h.AdminListApprovals))))
+	engine.POST("/admin/api/approvals/:id/approve", gin.WrapF(admin(require(capabilities.CapApprovalWorkflow)(h.AdminApproveApproval))))
+	engine.POST("/admin/api/approvals/:id/reject", gin.WrapF(admin(require(capabilities.CapApprovalWorkflow)(h.AdminRejectApproval))))
+	engine.POST("/admin/api/approvals/:id/revoke", gin.WrapF(admin(require(capabilities.CapApprovalWorkflow)(h.AdminRevokeApproval))))
 }
 
 // requireCap wraps a handler so it only runs when the capability is entitled.

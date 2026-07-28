@@ -9,8 +9,15 @@ import (
 
 // AdminListSemantics returns all semantic entries (table & column business
 // descriptions) for a data source.
+// @Summary admin List Semantics
+// @Tags semantics
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/semantics [get]
 func (h *Handler) AdminListSemantics(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -45,8 +52,16 @@ type upsertSemanticRequest struct {
 }
 
 // AdminUpsertSemantic inserts or updates a table/column semantic description.
+// @Summary admin Upsert Semantic
+// @Tags semantics
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/semantics [post]
 func (h *Handler) AdminUpsertSemantic(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -74,8 +89,16 @@ func (h *Handler) AdminUpsertSemantic(w http.ResponseWriter, r *http.Request) {
 }
 
 // AdminDeleteSemantic removes a semantic entry by id.
+// @Summary admin Delete Semantic
+// @Tags semantics
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Param sem path string true "sem"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/semantics/{sem} [delete]
 func (h *Handler) AdminDeleteSemantic(w http.ResponseWriter, r *http.Request) {
-	sem := r.PathValue("sem")
+	sem := pathParam(r, "sem")
 	if err := h.Store.DeleteSemantic(sem); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

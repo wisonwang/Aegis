@@ -9,8 +9,15 @@ import (
 
 // AdminListClassifications returns all classification (PII / sensitivity) labels
 // for a data source. An optional ?table= filter scopes the result.
+// @Summary admin List Classifications
+// @Tags classifications
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/classifications [get]
 func (h *Handler) AdminListClassifications(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -44,8 +51,16 @@ type upsertClassificationRequest struct {
 
 // AdminUpsertClassification inserts or updates a classification label for a
 // table or column, keyed by (table_name, column_name).
+// @Summary admin Upsert Classification
+// @Tags classifications
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/classifications [post]
 func (h *Handler) AdminUpsertClassification(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -71,8 +86,16 @@ func (h *Handler) AdminUpsertClassification(w http.ResponseWriter, r *http.Reque
 }
 
 // AdminDeleteClassification removes a classification entry by id.
+// @Summary admin Delete Classification
+// @Tags classifications
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Param cls path string true "cls"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/classifications/{cls} [delete]
 func (h *Handler) AdminDeleteClassification(w http.ResponseWriter, r *http.Request) {
-	cls := r.PathValue("cls")
+	cls := pathParam(r, "cls")
 	if err := h.Store.DeleteClassification(cls); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

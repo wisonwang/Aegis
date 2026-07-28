@@ -20,8 +20,15 @@ func validMaskStrategy(s string) bool {
 
 // AdminListMasks returns all column-masking rules for a data source (across
 // roles), with the role name resolved for readability.
+// @Summary admin List Masks
+// @Tags masks
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/masks [get]
 func (h *Handler) AdminListMasks(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -62,8 +69,16 @@ type upsertMaskRequest struct {
 }
 
 // AdminUpsertMask inserts or updates a column-masking rule for a role.
+// @Summary admin Upsert Mask
+// @Tags masks
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/masks [post]
 func (h *Handler) AdminUpsertMask(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -102,8 +117,16 @@ func (h *Handler) AdminUpsertMask(w http.ResponseWriter, r *http.Request) {
 }
 
 // AdminDeleteMask removes a column-masking rule by id.
+// @Summary admin Delete Mask
+// @Tags masks
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Param mask path string true "mask"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/masks/{mask} [delete]
 func (h *Handler) AdminDeleteMask(w http.ResponseWriter, r *http.Request) {
-	mask := r.PathValue("mask")
+	mask := pathParam(r, "mask")
 	if err := h.Store.DeleteColumnMask(mask); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -135,8 +158,16 @@ type maskRecommendation struct {
 // default) it only returns proposals; with apply=true it persists ColumnMask
 // rows for the chosen role(s). admin bypasses masking, so the meaningful
 // default when apply_to_all_roles is set is every non-admin role.
+// @Summary admin Recommend Masks
+// @Tags masks
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/masks/recommend [post]
 func (h *Handler) AdminRecommendMasks(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return

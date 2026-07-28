@@ -8,8 +8,15 @@ import (
 )
 
 // AdminListMetrics returns all curated metric definitions for a datasource.
+// @Summary admin List Metrics
+// @Tags metrics
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/metrics [get]
 func (h *Handler) AdminListMetrics(w http.ResponseWriter, r *http.Request) {
-	id, err := h.resolveDS(r.Context(), r.PathValue("id"))
+	id, err := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "datasource not found")
 		return
@@ -33,8 +40,16 @@ type upsertMetricRequest struct {
 // AdminUpsertMetric inserts or updates a curated metric definition. The metric
 // is only ever executed through the governed path, so this is a safe curated
 // surface — admins define the SQL, agents supply typed parameters.
+// @Summary admin Upsert Metric
+// @Tags metrics
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/metrics [post]
 func (h *Handler) AdminUpsertMetric(w http.ResponseWriter, r *http.Request) {
-	id, err := h.resolveDS(r.Context(), r.PathValue("id"))
+	id, err := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "datasource not found")
 		return
@@ -66,8 +81,16 @@ func (h *Handler) AdminUpsertMetric(w http.ResponseWriter, r *http.Request) {
 }
 
 // AdminDeleteMetric removes a metric by id.
+// @Summary admin Delete Metric
+// @Tags metrics
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Param mid path string true "mid"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/metrics/{mid} [delete]
 func (h *Handler) AdminDeleteMetric(w http.ResponseWriter, r *http.Request) {
-	mid := r.PathValue("mid")
+	mid := pathParam(r, "mid")
 	if err := h.Store.DeleteMetric(mid); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

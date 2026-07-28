@@ -45,6 +45,13 @@ type createApprovalRequest struct {
 // UserSubmitApproval lets any authenticated user raise an access-grant request
 // (grant a chosen role access to a table on a datasource). The request sits in
 // pending until an admin approves/rejects it.
+// @Summary user Submit Approval
+// @Tags approvals
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/approvals [post]
 func (h *Handler) UserSubmitApproval(w http.ResponseWriter, r *http.Request) {
 	c := claimsFromContext(r.Context())
 	var req createApprovalRequest
@@ -106,6 +113,12 @@ func (h *Handler) UserSubmitApproval(w http.ResponseWriter, r *http.Request) {
 }
 
 // UserListMyApprovals returns the current user's own requests.
+// @Summary user List My Approvals
+// @Tags approvals
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/me/approvals [get]
 func (h *Handler) UserListMyApprovals(w http.ResponseWriter, r *http.Request) {
 	c := claimsFromContext(r.Context())
 	list, err := h.Store.ListApprovalRequests(r.Context(), "", "", c.UserID)
@@ -117,6 +130,12 @@ func (h *Handler) UserListMyApprovals(w http.ResponseWriter, r *http.Request) {
 }
 
 // AdminListApprovals lists all requests (admin). Optional status / datasource filter.
+// @Summary admin List Approvals
+// @Tags approvals
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/approvals [get]
 func (h *Handler) AdminListApprovals(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	list, err := h.Store.ListApprovalRequests(r.Context(), q.Get("status"), q.Get("datasource_id"), "")
@@ -129,8 +148,16 @@ func (h *Handler) AdminListApprovals(w http.ResponseWriter, r *http.Request) {
 
 // AdminApproveApproval approves a pending request and creates the actual
 // role->table grant, recording it for later revocation.
+// @Summary admin Approve Approval
+// @Tags approvals
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/approvals/{id}/approve [post]
 func (h *Handler) AdminApproveApproval(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := pathParam(r, "id")
 	ar, err := h.Store.GetApprovalRequest(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -185,8 +212,16 @@ func (h *Handler) AdminApproveApproval(w http.ResponseWriter, r *http.Request) {
 }
 
 // AdminRejectApproval rejects a pending request (no grant created).
+// @Summary admin Reject Approval
+// @Tags approvals
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/approvals/{id}/reject [post]
 func (h *Handler) AdminRejectApproval(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := pathParam(r, "id")
 	ar, err := h.Store.GetApprovalRequest(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -214,8 +249,16 @@ func (h *Handler) AdminRejectApproval(w http.ResponseWriter, r *http.Request) {
 
 // AdminRevokeApproval revokes an approved request and removes the grant it
 // created, closing the governance loop.
+// @Summary admin Revoke Approval
+// @Tags approvals
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/approvals/{id}/revoke [post]
 func (h *Handler) AdminRevokeApproval(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := pathParam(r, "id")
 	ar, err := h.Store.GetApprovalRequest(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

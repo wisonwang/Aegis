@@ -11,6 +11,12 @@ import (
 
 // ---- Users ----
 
+// @Summary admin List Users
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/users [get]
 func (h *Handler) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := h.Store.ListUsers()
 	if err != nil {
@@ -49,6 +55,13 @@ type createUserRequest struct {
 	Roles       []string          `json:"roles"`
 }
 
+// @Summary admin Create User
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/users [post]
 func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req createUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -95,8 +108,16 @@ type updateUserRequest struct {
 	Attributes  map[string]string `json:"attributes"`
 }
 
+// @Summary admin Update User
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/users/{id} [put]
 func (h *Handler) AdminUpdateUser(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := pathParam(r, "id")
 	u, err := h.Store.GetUser(id)
 	if err != nil || u == nil {
 		writeError(w, http.StatusNotFound, "user not found")
@@ -128,8 +149,16 @@ type passwordRequest struct {
 	Password string `json:"password"`
 }
 
+// @Summary admin Set Password
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/users/{id}/password [post]
 func (h *Handler) AdminSetPassword(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := pathParam(r, "id")
 	var req passwordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Password == "" {
 		writeError(w, http.StatusBadRequest, "password required")
@@ -147,8 +176,15 @@ func (h *Handler) AdminSetPassword(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// @Summary admin Delete User
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/users/{id} [delete]
 func (h *Handler) AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := pathParam(r, "id")
 	if err := h.Store.DeleteUser(id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -160,8 +196,16 @@ type roleRef struct {
 	Role string `json:"role"`
 }
 
+// @Summary admin Add User Role
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/users/{id}/roles [post]
 func (h *Handler) AdminAddUserRole(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := pathParam(r, "id")
 	var req roleRef
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Role == "" {
 		writeError(w, http.StatusBadRequest, "role required")
@@ -179,9 +223,17 @@ func (h *Handler) AdminAddUserRole(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// @Summary admin Remove User Role
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Param role path string true "role"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/users/{id}/roles/{role} [delete]
 func (h *Handler) AdminRemoveUserRole(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	role, err := h.Store.GetRole(r.PathValue("role"))
+	id := pathParam(r, "id")
+	role, err := h.Store.GetRole(pathParam(r, "role"))
 	if err != nil || role == nil {
 		writeError(w, http.StatusNotFound, "role not found")
 		return
@@ -195,6 +247,12 @@ func (h *Handler) AdminRemoveUserRole(w http.ResponseWriter, r *http.Request) {
 
 // ---- Roles ----
 
+// @Summary admin List Roles
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/roles [get]
 func (h *Handler) AdminListRoles(w http.ResponseWriter, r *http.Request) {
 	roles, err := h.Store.ListRoles()
 	if err != nil {
@@ -209,6 +267,13 @@ type createRoleRequest struct {
 	Description string `json:"description"`
 }
 
+// @Summary admin Create Role
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/roles [post]
 func (h *Handler) AdminCreateRole(w http.ResponseWriter, r *http.Request) {
 	var req createRoleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
@@ -222,8 +287,15 @@ func (h *Handler) AdminCreateRole(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
 }
 
+// @Summary admin Delete Role
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/roles/{id} [delete]
 func (h *Handler) AdminDeleteRole(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := pathParam(r, "id")
 	if err := h.Store.DeleteRole(id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -233,6 +305,12 @@ func (h *Handler) AdminDeleteRole(w http.ResponseWriter, r *http.Request) {
 
 // ---- DataSources ----
 
+// @Summary admin List Data Sources
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources [get]
 func (h *Handler) AdminListDataSources(w http.ResponseWriter, r *http.Request) {
 	ds, err := h.Store.ListDataSources(r.Context())
 	if err != nil {
@@ -248,6 +326,13 @@ type createDSRequest struct {
 	DSN  string `json:"dsn"`
 }
 
+// @Summary admin Create Data Source
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources [post]
 func (h *Handler) AdminCreateDataSource(w http.ResponseWriter, r *http.Request) {
 	var req createDSRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.Type == "" {
@@ -266,8 +351,16 @@ func (h *Handler) AdminCreateDataSource(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusCreated, map[string]string{"id": d.ID})
 }
 
+// @Summary admin Update Data Source
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id} [put]
 func (h *Handler) AdminUpdateDataSource(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -302,8 +395,15 @@ func (h *Handler) AdminUpdateDataSource(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// @Summary admin Delete Data Source
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id} [delete]
 func (h *Handler) AdminDeleteDataSource(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -317,13 +417,21 @@ func (h *Handler) AdminDeleteDataSource(w http.ResponseWriter, r *http.Request) 
 
 // ---- Table permissions ----
 
+// @Summary admin List Table Permissions
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Param table path string true "table"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/tables/{table}/permissions [get]
 func (h *Handler) AdminListTablePermissions(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
 	}
-	table := r.PathValue("table")
+	table := pathParam(r, "table")
 	out, err := h.listPermView(dsID, table)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -364,13 +472,22 @@ type createPermRequest struct {
 	DeniedCols  []string `json:"denied_cols"`
 }
 
+// @Summary admin Create Table Permission
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Param table path string true "table"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/tables/{table}/permissions [post]
 func (h *Handler) AdminCreateTablePermission(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
 	}
-	table := r.PathValue("table")
+	table := pathParam(r, "table")
 	var req createPermRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Role == "" || req.Ops == "" {
 		writeError(w, http.StatusBadRequest, "role and ops required")
@@ -398,8 +515,16 @@ func (h *Handler) AdminCreateTablePermission(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusCreated, map[string]string{"id": p.ID})
 }
 
+// @Summary admin Delete Table Permission
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Param perm path string true "perm"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/permissions/{perm} [delete]
 func (h *Handler) AdminDeleteTablePermission(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("perm")
+	id := pathParam(r, "perm")
 	if err := h.Store.DeleteTablePermission(id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -409,13 +534,21 @@ func (h *Handler) AdminDeleteTablePermission(w http.ResponseWriter, r *http.Requ
 
 // ---- Row policies ----
 
+// @Summary admin List Row Policies
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Param table path string true "table"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/tables/{table}/policies [get]
 func (h *Handler) AdminListRowPolicies(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
 	}
-	table := r.PathValue("table")
+	table := pathParam(r, "table")
 	roles, _ := h.Store.ListRoles()
 	nameByID := map[string]string{}
 	for _, role := range roles {
@@ -446,13 +579,22 @@ type createPolicyRequest struct {
 	Priority  int    `json:"priority"`
 }
 
+// @Summary admin Create Row Policy
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Param table path string true "table"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/tables/{table}/policies [post]
 func (h *Handler) AdminCreateRowPolicy(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
 	}
-	table := r.PathValue("table")
+	table := pathParam(r, "table")
 	var req createPolicyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Role == "" || req.Predicate == "" {
 		writeError(w, http.StatusBadRequest, "role and predicate required")
@@ -477,8 +619,16 @@ func (h *Handler) AdminCreateRowPolicy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"id": p.ID})
 }
 
+// @Summary admin Delete Row Policy
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Param policy path string true "policy"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/policies/{policy} [delete]
 func (h *Handler) AdminDeleteRowPolicy(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("policy")
+	id := pathParam(r, "policy")
 	if err := h.Store.DeleteRowPolicy(id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -490,6 +640,12 @@ func (h *Handler) AdminDeleteRowPolicy(w http.ResponseWriter, r *http.Request) {
 
 // AdminListAudits returns governed-query audit entries, newest first.
 // Query params: user, datasource, status, channel, session_id, limit, offset.
+// @Summary admin List Audits
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/audit [get]
 func (h *Handler) AdminListAudits(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	f := store.AuditFilter{
@@ -513,6 +669,12 @@ func (h *Handler) AdminListAudits(w http.ResponseWriter, r *http.Request) {
 }
 
 // AdminAuditStats returns aggregate counters (total/ok/denied/error).
+// @Summary admin Audit Stats
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/audit/stats [get]
 func (h *Handler) AdminAuditStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := h.Store.AuditStats(r.Context())
 	if err != nil {
@@ -526,6 +688,12 @@ func (h *Handler) AdminAuditStats(w http.ResponseWriter, r *http.Request) {
 
 // AdminListAlerts returns raised security alerts, newest first.
 // Query params: level, resolved (open|resolved), limit, offset.
+// @Summary admin List Alerts
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/alerts [get]
 func (h *Handler) AdminListAlerts(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	f := store.SecurityAlertFilter{
@@ -546,8 +714,16 @@ func (h *Handler) AdminListAlerts(w http.ResponseWriter, r *http.Request) {
 }
 
 // AdminResolveAlert marks an alert as handled.
+// @Summary admin Resolve Alert
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/alerts/{id}/resolve [post]
 func (h *Handler) AdminResolveAlert(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := pathParam(r, "id")
 	if err := h.Store.ResolveSecurityAlert(id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -556,6 +732,12 @@ func (h *Handler) AdminResolveAlert(w http.ResponseWriter, r *http.Request) {
 }
 
 // AdminAlertStats returns aggregate counters for the alert dashboard.
+// @Summary admin Alert Stats
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/alerts/stats [get]
 func (h *Handler) AdminAlertStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := h.Store.SecurityAlertStats()
 	if err != nil {

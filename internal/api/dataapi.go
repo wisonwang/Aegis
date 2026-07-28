@@ -47,6 +47,13 @@ type queryResponse struct {
 }
 
 // Login authenticates a principal and returns a JWT.
+// @Summary Authenticate and obtain a JWT
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body loginRequest true "login credentials"
+// @Success 200 {object} loginResponse
+// @Router /api/v1/login [post]
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -91,6 +98,12 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 // Me returns the authenticated principal's profile.
+// @Summary Get the current principal's profile
+// @Tags auth
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} meResponse
+// @Router /api/v1/me [get]
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	c := claimsFromContext(r.Context())
 	u, err := h.Store.GetUser(c.UserID)
@@ -104,6 +117,14 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 // Query executes a governed statement. For SQL-family backends it takes `sql`;
 // for NoSQL backends (mongo/es) it takes `query` (a backend-specific JSON
 // document, e.g. {"collection":...,"filter":...} for Mongo).
+// @Summary Execute a governed query
+// @Tags dataapi
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body queryRequest true "query request"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/query [post]
 func (h *Handler) Query(w http.ResponseWriter, r *http.Request) {
 	var req queryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -162,6 +183,15 @@ type nl2sqlRequest struct {
 // NL2SQL turns a natural-language question into a governed SQL query and runs
 // it. The generated SQL is executed through the same governed path as Query,
 // so table/row/column governance, masking and the audit trail all still apply.
+// @Summary Natural-language question to governed SQL
+// @Tags dataapi
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "datasource id or name"
+// @Param request body nl2sqlRequest true "nl2sql request"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/datasources/{id}/nl2sql [post]
 func (h *Handler) NL2SQL(w http.ResponseWriter, r *http.Request) {
 	var req nl2sqlRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -175,7 +205,7 @@ func (h *Handler) NL2SQL(w http.ResponseWriter, r *http.Request) {
 	// Prefer the datasource id/name from the URL path; allow an explicit body
 	// field for callers that POST to a fixed endpoint. resolveDS accepts an
 	// id or a name.
-	target := r.PathValue("id")
+	target := pathParam(r, "id")
 	if target == "" {
 		target = req.DataSource
 	}
@@ -210,6 +240,12 @@ func (h *Handler) NL2SQL(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListDataSources returns the registered datasources (id, name, type).
+// @Summary List registered datasources
+// @Tags dataapi
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/datasources [get]
 func (h *Handler) ListDataSources(w http.ResponseWriter, r *http.Request) {
 	ds, err := h.Store.ListDataSources(r.Context())
 	if err != nil {
@@ -224,8 +260,15 @@ func (h *Handler) ListDataSources(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListTables returns tables the principal may access on a datasource.
+// @Summary List accessible tables on a datasource
+// @Tags dataapi
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "datasource id or name"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/datasources/{id}/tables [get]
 func (h *Handler) ListTables(w http.ResponseWriter, r *http.Request) {
-	dsID, err := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, err := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -240,13 +283,21 @@ func (h *Handler) ListTables(w http.ResponseWriter, r *http.Request) {
 }
 
 // DescribeTable returns column metadata for a table (governed).
+// @Summary Describe table columns (governed)
+// @Tags dataapi
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "datasource id or name"
+// @Param table path string true "table name"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/datasources/{id}/tables/{table} [get]
 func (h *Handler) DescribeTable(w http.ResponseWriter, r *http.Request) {
-	dsID, err := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, err := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	table := r.PathValue("table")
+	table := pathParam(r, "table")
 	c := claimsFromContext(r.Context())
 	cols, err := h.Proxy.DescribeTable(r.Context(), dsID, table, c)
 	if err != nil {
@@ -260,8 +311,15 @@ func (h *Handler) DescribeTable(w http.ResponseWriter, r *http.Request) {
 // for the caller: the tables/columns they may access, with business
 // descriptions, synonyms and example values. This is exactly what the NL2SQL
 // gateway feeds to the model.
+// @Summary Governed, semantically enriched schema catalog
+// @Tags dataapi
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "datasource id or name"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/datasources/{id}/catalog [get]
 func (h *Handler) Catalog(w http.ResponseWriter, r *http.Request) {
-	dsID, err := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, err := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -284,8 +342,15 @@ type metricRunRequest struct {
 // ListMetrics returns the curated metric definitions registered on a
 // datasource. Any authenticated principal may list them; executing a metric is
 // still subject to table/row/column governance like any other query.
+// @Summary List curated metrics on a datasource
+// @Tags dataapi
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "datasource id or name"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/datasources/{id}/metrics [get]
 func (h *Handler) ListMetrics(w http.ResponseWriter, r *http.Request) {
-	dsID, err := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, err := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "datasource not found")
 		return
@@ -302,13 +367,23 @@ func (h *Handler) ListMetrics(w http.ResponseWriter, r *http.Request) {
 // returns the governed result plus lineage. The metric's SQL template is
 // rendered with SQL-safe literals and executed through the same governed path
 // as Query/NL2SQL, so governance and audit all still apply.
+// @Summary Run a curated metric with parameters
+// @Tags dataapi
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "datasource id or name"
+// @Param name path string true "metric name"
+// @Param request body metricRunRequest true "metric run request"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/datasources/{id}/metrics/{name}/run [post]
 func (h *Handler) RunMetric(w http.ResponseWriter, r *http.Request) {
-	dsID, err := h.resolveDS(r.Context(), r.PathValue("id"))
+	dsID, err := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "datasource not found")
 		return
 	}
-	metricName := r.PathValue("name")
+	metricName := pathParam(r, "name")
 	if metricName == "" {
 		writeError(w, http.StatusBadRequest, "metric name is required")
 		return
@@ -350,6 +425,15 @@ type estimateRequest struct {
 // EXPLAIN plan, but no data is read or written. Agents use it to decide
 // whether to run a query — tighten a filter, avoid a large scan, or
 // handle PII carefully.
+// @Summary Estimate query cost/risk without executing
+// @Tags dataapi
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "datasource id or name"
+// @Param request body estimateRequest true "estimate request"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/datasources/{id}/query/estimate [post]
 func (h *Handler) EstimateQuery(w http.ResponseWriter, r *http.Request) {
 	var req estimateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -362,7 +446,7 @@ func (h *Handler) EstimateQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	// Prefer the datasource id/name from the URL path; allow an explicit
 	// body field for callers that POST to a fixed endpoint.
-	target := r.PathValue("id")
+	target := pathParam(r, "id")
 	if target == "" {
 		target = req.DataSource
 	}

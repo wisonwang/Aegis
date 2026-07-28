@@ -18,6 +18,12 @@ func slugify(name string) string {
 }
 
 // ListMyWorkspaces returns the workspaces the caller is a member of.
+// @Summary list My Workspaces
+// @Tags workspaces
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/workspaces [get]
 func (h *Handler) ListMyWorkspaces(w http.ResponseWriter, r *http.Request) {
 	claims := ClaimsFromContext(r.Context())
 	if claims == nil {
@@ -41,6 +47,13 @@ type createWorkspaceRequest struct {
 }
 
 // AdminCreateWorkspace creates a workspace and makes the caller its admin.
+// @Summary admin Create Workspace
+// @Tags workspaces
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/workspaces [post]
 func (h *Handler) AdminCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	claims := ClaimsFromContext(r.Context())
 	var req createWorkspaceRequest
@@ -65,8 +78,15 @@ func (h *Handler) AdminCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 }
 
 // AdminGetWorkspace returns a single workspace (admin may read any).
+// @Summary admin Get Workspace
+// @Tags workspaces
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/workspaces/{id} [get]
 func (h *Handler) AdminGetWorkspace(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := pathParam(r, "id")
 	ws, err := h.Store.GetWorkspace(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -82,8 +102,15 @@ func (h *Handler) AdminGetWorkspace(w http.ResponseWriter, r *http.Request) {
 // AdminDeleteWorkspace deletes a workspace. The platform default workspace is
 // protected — it can never be removed (it is the upgrade target for
 // single-tenant deployments).
+// @Summary admin Delete Workspace
+// @Tags workspaces
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/workspaces/{id} [delete]
 func (h *Handler) AdminDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := pathParam(r, "id")
 	if id == store.DefaultWorkspaceID {
 		writeError(w, http.StatusBadRequest, "cannot delete the default workspace")
 		return
@@ -101,8 +128,16 @@ type memberRequest struct {
 }
 
 // AdminAddWorkspaceMember invites a user into a workspace with a workspace role.
+// @Summary admin Add Workspace Member
+// @Tags workspaces
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/workspaces/{id}/members [post]
 func (h *Handler) AdminAddWorkspaceMember(w http.ResponseWriter, r *http.Request) {
-	wsID := r.PathValue("id")
+	wsID := pathParam(r, "id")
 	var req memberRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.UserID == "" {
 		writeError(w, http.StatusBadRequest, "user_id required")
@@ -124,8 +159,15 @@ func (h *Handler) AdminAddWorkspaceMember(w http.ResponseWriter, r *http.Request
 }
 
 // AdminListWorkspaceMembers lists the members of a workspace.
+// @Summary admin List Workspace Members
+// @Tags workspaces
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/workspaces/{id}/members [get]
 func (h *Handler) AdminListWorkspaceMembers(w http.ResponseWriter, r *http.Request) {
-	wsID := r.PathValue("id")
+	wsID := pathParam(r, "id")
 	members, err := h.Store.ListWorkspaceMembers(wsID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -138,9 +180,17 @@ func (h *Handler) AdminListWorkspaceMembers(w http.ResponseWriter, r *http.Reque
 }
 
 // AdminRemoveWorkspaceMember removes a user from a workspace.
+// @Summary admin Remove Workspace Member
+// @Tags workspaces
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Param user_id path string true "user_id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/workspaces/{id}/members/{user_id} [delete]
 func (h *Handler) AdminRemoveWorkspaceMember(w http.ResponseWriter, r *http.Request) {
-	wsID := r.PathValue("id")
-	userID := r.PathValue("user_id")
+	wsID := pathParam(r, "id")
+	userID := pathParam(r, "user_id")
 	if err := h.Store.RemoveWorkspaceMember(wsID, userID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
