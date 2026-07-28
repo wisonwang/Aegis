@@ -10,8 +10,10 @@ import (
 
 	"github.com/wisonwang/aegis/internal/alerting"
 	"github.com/wisonwang/aegis/internal/api"
+	"github.com/wisonwang/aegis/internal/capabilities"
 	"github.com/wisonwang/aegis/internal/config"
 	"github.com/wisonwang/aegis/internal/datasource"
+	"github.com/wisonwang/aegis/internal/enterprise"
 	"github.com/wisonwang/aegis/internal/logging"
 	"github.com/wisonwang/aegis/internal/mcp"
 	"github.com/wisonwang/aegis/internal/metrics"
@@ -107,8 +109,17 @@ func Run(cfg *config.Config) error {
 		logging.With("error", err.Error()).Warn("ldap init failed")
 	}
 
+	// Resolve the open-core tier (community by default). A bad license degrades
+	// to community and is logged; it never bricks the free tier (ADR-002).
+	caps, err := capabilities.New(cfg)
+	if err != nil {
+		logging.With("error", err.Error()).Warn("license invalid; running community edition")
+		caps = capabilities.Community()
+	}
+	logging.With("edition", string(caps.Edition())).Info("edition resolved")
+
 	mux := http.NewServeMux()
-	registerRoutes(mux, h, st, px, cfg, oidcH, ldapH)
+	registerRoutes(mux, h, st, px, cfg, oidcH, ldapH, caps)
 
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -125,7 +136,7 @@ func Run(cfg *config.Config) error {
 	return srv.ListenAndServe()
 }
 
-func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *proxy.Proxy, cfg *config.Config, oidcH *api.OIDCHandler, ldapH *api.LDAPHandler) {
+func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *proxy.Proxy, cfg *config.Config, oidcH *api.OIDCHandler, ldapH *api.LDAPHandler, caps *capabilities.Capabilities) {
 	// ---- Health probes ----
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		api.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -137,6 +148,12 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 			return
 		}
 		api.WriteJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	})
+	mux.HandleFunc("GET /api/v1/capabilities", func(w http.ResponseWriter, r *http.Request) {
+		api.WriteJSON(w, http.StatusOK, map[string]interface{}{
+			"edition":      caps.Edition(),
+			"capabilities": caps.Strings(),
+		})
 	})
 	mux.Handle("GET /metrics", metrics.Handler())
 
@@ -154,21 +171,13 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 	// ---- DataAPI (requires authentication) ----
 	mux.HandleFunc("POST /api/v1/login", h.Login)
 	mux.HandleFunc("GET /api/v1/me", api.Authenticate(cfg, h.Me))
-	mux.HandleFunc("GET /api/v1/me/approvals", api.Authenticate(cfg, h.UserListMyApprovals))
 	mux.HandleFunc("POST /api/v1/query", api.Authenticate(cfg, h.Query))
 	mux.HandleFunc("POST /api/v1/datasources/{id}/query/estimate", api.Authenticate(cfg, h.EstimateQuery))
 	mux.HandleFunc("GET /api/v1/datasources", api.Authenticate(cfg, h.ListDataSources))
 	mux.HandleFunc("GET /api/v1/datasources/{id}/tables", api.Authenticate(cfg, h.ListTables))
 	mux.HandleFunc("GET /api/v1/datasources/{id}/tables/{table}", api.Authenticate(cfg, h.DescribeTable))
 	mux.HandleFunc("GET /api/v1/datasources/{id}/catalog", api.Authenticate(cfg, h.Catalog))
-	mux.HandleFunc("GET /api/v1/datasources/{id}/metrics", api.Authenticate(cfg, h.ListMetrics))
-	mux.HandleFunc("POST /api/v1/datasources/{id}/metrics/{name}/run", api.Authenticate(cfg, h.RunMetric))
 	mux.HandleFunc("POST /api/v1/datasources/{id}/nl2sql", api.Authenticate(cfg, h.NL2SQL))
-
-	// ---- Datasets (agent-facing consumption) ----
-	mux.HandleFunc("GET /api/v1/datasets", api.Authenticate(cfg, h.ListDatasets))
-	mux.HandleFunc("GET /api/v1/datasets/{id}", api.Authenticate(cfg, h.GetDataset))
-	mux.HandleFunc("POST /api/v1/datasets/{id}/query", api.Authenticate(cfg, h.QueryDataset))
 
 	// ---- Admin API (admin role only) ----
 	a := func(fn http.HandlerFunc) http.HandlerFunc { return api.Authenticate(cfg, api.RequireAdmin(fn)) }
@@ -206,23 +215,10 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 	mux.HandleFunc("GET /admin/api/alerts/stats", a(h.AdminAlertStats))
 	mux.HandleFunc("POST /admin/api/alerts/{id}/resolve", a(h.AdminResolveAlert))
 
-	// ---- Access approval workflow (申请 -> 审批 -> 生效 -> 回收) ----
-	// Any authenticated user may raise a request; only admins resolve them.
-	mux.HandleFunc("POST /admin/api/approvals", api.Authenticate(cfg, h.UserSubmitApproval))
-	mux.HandleFunc("GET /admin/api/approvals", a(h.AdminListApprovals))
-	mux.HandleFunc("POST /admin/api/approvals/{id}/approve", a(h.AdminApproveApproval))
-	mux.HandleFunc("POST /admin/api/approvals/{id}/reject", a(h.AdminRejectApproval))
-	mux.HandleFunc("POST /admin/api/approvals/{id}/revoke", a(h.AdminRevokeApproval))
-
 	// ---- Schema semantics (AI data-supply layer) ----
 	mux.HandleFunc("GET /admin/api/datasources/{id}/semantics", a(h.AdminListSemantics))
 	mux.HandleFunc("POST /admin/api/datasources/{id}/semantics", a(h.AdminUpsertSemantic))
 	mux.HandleFunc("DELETE /admin/api/datasources/{id}/semantics/{sem}", a(h.AdminDeleteSemantic))
-
-	// ---- Curated metrics (semantic metric layer) ----
-	mux.HandleFunc("GET /admin/api/datasources/{id}/metrics", a(h.AdminListMetrics))
-	mux.HandleFunc("POST /admin/api/datasources/{id}/metrics", a(h.AdminUpsertMetric))
-	mux.HandleFunc("DELETE /admin/api/datasources/{id}/metrics/{mid}", a(h.AdminDeleteMetric))
 
 	// ---- Column masks (dynamic masking / PII supply) ----
 	mux.HandleFunc("GET /admin/api/datasources/{id}/masks", a(h.AdminListMasks))
@@ -235,26 +231,8 @@ func registerRoutes(mux *http.ServeMux, h *api.Handler, st *store.Store, px *pro
 	mux.HandleFunc("POST /admin/api/datasources/{id}/classifications", a(h.AdminUpsertClassification))
 	mux.HandleFunc("DELETE /admin/api/datasources/{id}/classifications/{cls}", a(h.AdminDeleteClassification))
 
-	// ---- Dataset management (curated, governed data products) ----
-	mux.HandleFunc("GET /admin/api/datasets", a(h.AdminListDatasets))
-	mux.HandleFunc("POST /admin/api/datasets", a(h.AdminCreateDataset))
-	mux.HandleFunc("GET /admin/api/datasets/{id}", a(h.AdminGetDataset))
-	mux.HandleFunc("PUT /admin/api/datasets/{id}", a(h.AdminUpdateDataset))
-	mux.HandleFunc("DELETE /admin/api/datasets/{id}", a(h.AdminDeleteDataset))
-	mux.HandleFunc("POST /admin/api/datasets/{id}/publish", a(h.AdminPublishDataset))
-	mux.HandleFunc("POST /admin/api/datasets/{id}/unpublish", a(h.AdminUnpublishDataset))
-	mux.HandleFunc("GET /admin/api/datasets/{id}/permissions", a(h.AdminListDatasetPermissions))
-	mux.HandleFunc("POST /admin/api/datasets/{id}/permissions", a(h.AdminCreateDatasetPermission))
-	mux.HandleFunc("DELETE /admin/api/datasets/{id}/permissions/{perm}", a(h.AdminDeleteDatasetPermission))
-	mux.HandleFunc("GET /admin/api/datasets/{id}/policies", a(h.AdminListDatasetPolicies))
-	mux.HandleFunc("POST /admin/api/datasets/{id}/policies", a(h.AdminCreateDatasetPolicy))
-	mux.HandleFunc("DELETE /admin/api/datasets/{id}/policies/{policy}", a(h.AdminDeleteDatasetPolicy))
-	mux.HandleFunc("GET /admin/api/datasets/{id}/masks", a(h.AdminListDatasetMasks))
-	mux.HandleFunc("POST /admin/api/datasets/{id}/masks", a(h.AdminUpsertDatasetMask))
-	mux.HandleFunc("DELETE /admin/api/datasets/{id}/masks/{mask}", a(h.AdminDeleteDatasetMask))
-	mux.HandleFunc("GET /admin/api/datasets/{id}/semantics", a(h.AdminListDatasetSemantics))
-	mux.HandleFunc("POST /admin/api/datasets/{id}/semantics", a(h.AdminUpsertDatasetSemantic))
-	mux.HandleFunc("DELETE /admin/api/datasets/{id}/semantics/{sem}", a(h.AdminDeleteDatasetSemantic))
+	// ---- Enterprise-only routes (gated by capability, ADR-002) ----
+	enterprise.Register(mux, cfg, h, caps)
 
 	// ---- MCP endpoint for AI agents ----
 	if cfg.MCP.Enabled {

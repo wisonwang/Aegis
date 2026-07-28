@@ -63,6 +63,13 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]interface{}{"error": msg})
 }
 
+// ClaimsFromContext is the exported form of claimsFromContext, for use by the
+// enterprise route package (which cannot reach the unexported helper).
+func ClaimsFromContext(ctx context.Context) *auth.Claims { return claimsFromContext(ctx) }
+
+// WriteError is the exported form of writeError, for use by the enterprise route package.
+func WriteError(w http.ResponseWriter, status int, msg string) { writeError(w, status, msg) }
+
 // Handler bundles dependencies shared by all HTTP handlers.
 type Handler struct {
 	Store *store.Store

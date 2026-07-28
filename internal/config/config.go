@@ -25,6 +25,9 @@ type Config struct {
 	NL2SQL     NL2SQLConfig   `json:"nl2sql"`
 	Logging    LoggingConfig  `json:"logging"`
 	MaskSecret string         `json:"mask_secret"` // server key for keyed masking (tokenize/fpe); source from KMS in prod
+	Edition    string         `json:"edition"`      // "community" (default) | "enterprise"
+	LicenseKey string         `json:"license_key"`  // signed enterprise license token (alternative to edition=enterprise)
+	LicenseFile string        `json:"license_file"` // path to a file containing the license token
 }
 
 // LoggingConfig selects the structured-log output format and minimum level.
@@ -356,5 +359,15 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("AEGIS_LDAP_SKIP_TLS_VERIFY"); v != "" {
 		cfg.LDAP.SkipTLSVerify = v == "true" || v == "1"
+	}
+	// Edition / license (open-core tiering, ADR-002)
+	if v := os.Getenv("AEGIS_EDITION"); v != "" {
+		cfg.Edition = v
+	}
+	if v := os.Getenv("AEGIS_LICENSE_KEY"); v != "" {
+		cfg.LicenseKey = v
+	}
+	if v := os.Getenv("AEGIS_LICENSE_FILE"); v != "" {
+		cfg.LicenseFile = v
 	}
 }

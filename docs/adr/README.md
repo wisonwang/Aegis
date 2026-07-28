@@ -9,6 +9,7 @@
 | 编号 | 标题 | 状态 | 主题 |
 |---|---|---|---|
 | [ADR-001](0001-multi-tenant-workspace.md) | 多租户工作区隔离模型 | Proposed | 企业门槛 / 数据隔离 / 演进策略 |
+| [ADR-002](0002-open-core-tiering.md) | 开源核心与企业功能分层及隔离机制 | Proposed | 商业化 / open-core / 能力门禁 |
 
 ## 决策原则（适用于本目录所有 ADR）
 

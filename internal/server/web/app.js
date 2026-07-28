@@ -52,11 +52,28 @@ function showApp() {
   document.getElementById('app').classList.remove('hidden');
   document.getElementById('userbox').innerHTML =
     esc(me.display_name || me.username) + ' (' + esc(me.roles.join(',')) + ') <button class="sec" onclick="logout()">退出</button>';
+  applyCapabilities();
   loadDataSources('#qDs');
   loadDataSources('#gDs');
   loadRolesInto('#gRole'); loadRolesInto('#gPolicyRole');
   loadUsers(); loadRoles(); loadDataSourcesTable();
   loadDataSources('#apDs'); loadRolesInto('#apRole'); loadMyApprovals();
+}
+
+// Hide enterprise tabs/panels the current license does not entitle.
+// The backend still enforces the gate (402); this is UX-only defense.
+async function applyCapabilities() {
+  let caps = [];
+  try {
+    const data = await fetch('/api/v1/capabilities').then(r => r.json());
+    caps = data.capabilities || [];
+  } catch (e) { caps = []; } // community default; nothing hidden
+  document.querySelectorAll('.tab[data-cap]').forEach(t => {
+    if (caps.includes(t.dataset.cap)) return;
+    t.style.display = 'none';
+    const panel = document.getElementById('tab-' + t.dataset.tab);
+    if (panel) panel.style.display = 'none';
+  });
 }
 
 // ---- tabs ----
