@@ -7,7 +7,7 @@
 dist/
 
 # local agent memory (project-private, do not publish)
-.workbuddy/
+.workbuddy/memory/
 
 # local config overrides (keep placeholders out of VCS if desired)
 # config.json
