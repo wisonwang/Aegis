@@ -13,6 +13,7 @@ import (
 //   - RatePerMin: sliding-window per-principal rate limit
 //   - MaxAffectedRows: hard cap on rows a single UPDATE/DELETE may touch
 //   - AllowNoWhere: when false (default), UPDATE/DELETE without a WHERE is rejected
+//   - MaxBytes: hard cap on serialized response body size (prevents wide-row bypass)
 //
 // A zero-value Guard (nil limiter) disables all behavior limits.
 type Guard struct {
@@ -22,6 +23,7 @@ type Guard struct {
 	AdminExempt     bool
 	MaxAffectedRows int
 	AllowNoWhere    bool
+	MaxBytes        int // response body size cap in bytes; 0 = no cap
 
 	mu      sync.Mutex
 	windows map[string][]time.Time // principal ID -> timestamps within last minute
@@ -35,13 +37,20 @@ func NewGuard(l config.Limits) *Guard {
 		AdminExempt:     l.AdminExempt,
 		MaxAffectedRows: l.MaxAffectedRows,
 		AllowNoWhere:    l.AllowNoWhere,
+		MaxBytes:        l.MaxBytes,
 		windows:         map[string][]time.Time{},
 	}
 	if g.MaxRows <= 0 {
-		g.MaxRows = 1000
+		g.MaxRows = 10000
+	}
+	if g.MaxAffectedRows <= 0 {
+		g.MaxAffectedRows = 10000
+	}
+	if g.MaxBytes <= 0 {
+		g.MaxBytes = 4194304 // 4MB
 	}
 	if g.RatePerMin <= 0 {
-		g.RatePerMin = 120
+		g.RatePerMin = 60
 	}
 	g.Timeout = 30 * time.Second
 	if l.QueryTimeout != "" {

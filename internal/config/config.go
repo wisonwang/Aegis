@@ -107,14 +107,20 @@ type NL2SQLConfig struct {
 	MaxRetries int    `json:"max_retries"` // retry count on transient errors (0 = default 2)
 }
 
-// limiting. Zero values fall back to platform defaults; admin can be exempted.
+// Limiting. Zero values fall back to platform defaults; admin can be exempted.
+// MaxRows caps the number of rows returned per query to prevent bulk export
+// (drag-database attacks). MaxAffectedRows caps the rows a single write may
+// touch. MaxBytes caps the serialized response body size (prevents wide-row
+// bypass of the row-count cap). All three are enforced in proxy.Execute and
+// every derived path (MCP, NL2SQL, datasets, metrics).
 type Limits struct {
-	MaxRows         int    `json:"max_rows"`              // max result rows per query (0 = default 1000)
+	MaxRows         int    `json:"max_rows"`              // max result rows per query (0 = default 10000)
 	QueryTimeout    string `json:"query_timeout"`         // per-query timeout, e.g. "30s" (0/"" = default 30s)
-	RatePerMin      int    `json:"rate_per_min"`          // max queries per principal per minute (0 = default 120)
-	AdminExempt     bool   `json:"admin_exempt"`          // admin bypasses limits (default true via Default())
-	MaxAffectedRows int    `json:"max_affected_rows"`     // max rows a single UPDATE/DELETE may touch (0 = no cap)
+	RatePerMin      int    `json:"rate_per_min"`          // max queries per principal per minute (0 = default 60)
+	AdminExempt     bool   `json:"admin_exempt"`          // admin bypasses limits (default false; row/timeout/rate all enforced)
+	MaxAffectedRows int    `json:"max_affected_rows"`     // max rows a single UPDATE/DELETE may touch (0 = default 10000)
 	AllowNoWhere    bool   `json:"allow_no_where_writes"` // permit UPDATE/DELETE without WHERE (unsafe; default false => blocked)
+	MaxBytes        int    `json:"max_bytes"`             // max response body size in bytes (0 = default 4MB = 4194304)
 }
 
 // AlertingConfig tunes the anomaly-detection engine that watches the audit
@@ -201,12 +207,13 @@ func Default() *Config {
 			RequireAuth: true,
 		},
 		Limits: Limits{
-			MaxRows:         1000,
+			MaxRows:         10000,
 			QueryTimeout:    "30s",
-			RatePerMin:      120,
-			AdminExempt:     true,
-			MaxAffectedRows: 0,
+			RatePerMin:      60,
+			AdminExempt:     false,
+			MaxAffectedRows: 10000,
 			AllowNoWhere:    false,
+			MaxBytes:        4194304, // 4MB
 		},
 		Alerting: AlertingConfig{
 			DeniedCount:   10,
@@ -273,6 +280,11 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("AEGIS_ALLOW_NO_WHERE_WRITES"); v != "" {
 		cfg.Limits.AllowNoWhere = v == "true" || v == "1"
+	}
+	if v := os.Getenv("AEGIS_MAX_BYTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Limits.MaxBytes = n
+		}
 	}
 	if v := os.Getenv("AEGIS_ALERT_DENIED_COUNT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {

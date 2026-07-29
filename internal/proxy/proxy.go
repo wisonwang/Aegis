@@ -261,14 +261,19 @@ func (p *Proxy) Execute(ctx context.Context, dsID string, claims *auth.Claims, s
 	}
 
 	maxRows := 0
+	maxBytes := 0
 	if limited {
 		maxRows = p.guard.MaxRows
+		maxBytes = p.guard.MaxBytes
 	}
-	res, truncated := p.maskRaw(raw, rr.DeniedCols, rr.AllowedCols, rr.Masks, maxRows)
+	res, truncated, oversized := p.maskRaw(raw, rr.DeniedCols, rr.AllowedCols, rr.Masks, maxRows, maxBytes)
 	res.RewrittenSQL = rr.SQL
 	note := ""
 	if truncated {
 		note = fmt.Sprintf("result truncated at max_rows=%d", maxRows)
+	}
+	if oversized {
+		note = "result body exceeds max_bytes limit"
 	}
 	p.audit(ctx, dsID, claims, sql, rr.SQL, "ok", note, len(res.Rows), started)
 	return res, nil
@@ -342,14 +347,19 @@ func (p *Proxy) executeNoSQL(ctx context.Context, ds *store.DataSource, claims *
 		return nil, fmt.Errorf("execute: %w", err)
 	}
 	maxRows := 0
+	maxBytes := 0
 	if limited {
 		maxRows = p.guard.MaxRows
+		maxBytes = p.guard.MaxBytes
 	}
-	res, truncated := p.maskRaw(raw, nil, nil, gov.Masks, maxRows)
+	res, truncated, oversized := p.maskRaw(raw, nil, nil, gov.Masks, maxRows, maxBytes)
 	res.RewrittenSQL = string(gov.Payload.Raw)
 	note := ""
 	if truncated {
 		note = fmt.Sprintf("result truncated at max_rows=%d", maxRows)
+	}
+	if oversized {
+		note = "result body exceeds max_bytes limit"
 	}
 	p.audit(ctx, ds.ID, claims, string(payload), string(gov.Payload.Raw), "ok", note, len(res.Rows), started)
 	return res, nil
@@ -399,10 +409,15 @@ func (p *Proxy) executeNoSQLWrite(ctx context.Context, ds *store.DataSource, cla
 
 // maskRaw applies column governance (denied/allowed) and value masking to a
 // RawResult, producing the final QueryResult. Denied columns are dropped; masks
-// transform surviving cell values. Truncation honours maxRows.
-func (p *Proxy) maskRaw(raw *datasource.RawResult, denied, allowed []string, masks map[string]store.MaskSpec, maxRows int) (*QueryResult, bool) {
+// transform surviving cell values. Truncation honours maxRows and maxBytes:
+// rows are dropped once the accumulated row count hits maxRows, and once the
+// estimated serialized body size exceeds maxBytes further rows are also cut.
+// oversized is set when maxBytes triggered the cut (distinct from row-count truncation).
+func (p *Proxy) maskRaw(raw *datasource.RawResult, denied, allowed []string, masks map[string]store.MaskSpec, maxRows, maxBytes int) (*QueryResult, bool, bool) {
 	actions, outCols := columnActions(raw.Columns, denied, allowed, masks)
 	truncated := false
+	oversized := false
+	estBytes := 0
 	out := []map[string]interface{}{}
 	for _, row := range raw.Rows {
 		if maxRows > 0 && len(out) >= maxRows {
@@ -410,6 +425,7 @@ func (p *Proxy) maskRaw(raw *datasource.RawResult, denied, allowed []string, mas
 			break
 		}
 		nr := map[string]interface{}{}
+		rowBytes := 0
 		for i, c := range raw.Columns {
 			a := actions[i]
 			if !a.keep {
@@ -420,10 +436,25 @@ func (p *Proxy) maskRaw(raw *datasource.RawResult, denied, allowed []string, mas
 				v = applyMask(a.mask.Strategy, a.mask.Keep, v)
 			}
 			nr[c] = v
+			// Estimate serialized size: string values count their length,
+			// numeric values count 8 bytes, nil counts 0.
+			switch x := v.(type) {
+			case string:
+				rowBytes += len(c) + len(x) + 6 // key + value + JSON overhead
+			case nil:
+				rowBytes += len(c) + 4
+			default:
+				rowBytes += len(c) + 14 // key + number overhead
+			}
+		}
+		estBytes += rowBytes
+		if maxBytes > 0 && estBytes > maxBytes {
+			oversized = true
+			break
 		}
 		out = append(out, nr)
 	}
-	return &QueryResult{Columns: outCols, Rows: out, Truncated: truncated}, truncated
+	return &QueryResult{Columns: outCols, Rows: out, Truncated: truncated || oversized}, truncated, oversized
 }
 
 // ListTables returns the tables a principal may access on a datasource,

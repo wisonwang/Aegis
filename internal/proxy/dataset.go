@@ -99,14 +99,19 @@ func (p *Proxy) executeDatasetSQL(ctx context.Context, dsMeta *store.Dataset, ds
 		return nil, fmt.Errorf("execute dataset: %w", err)
 	}
 	maxRows := 0
+	maxBytes := 0
 	if limited {
 		maxRows = p.guard.MaxRows
+		maxBytes = p.guard.MaxBytes
 	}
-	res, truncated := p.maskRaw(raw, rr.DeniedCols, rr.AllowedCols, rr.Masks, maxRows)
+	res, truncated, oversized := p.maskRaw(raw, rr.DeniedCols, rr.AllowedCols, rr.Masks, maxRows, maxBytes)
 	res.RewrittenSQL = rr.SQL
 	note := ""
 	if truncated {
 		note = fmt.Sprintf("result truncated at max_rows=%d", maxRows)
+	}
+	if oversized {
+		note = "result body exceeds max_bytes limit"
 	}
 	p.auditDataset(ctx, dsMeta, claims, dsMeta.Definition, rr.SQL, "ok", note, len(res.Rows), started)
 	return res, nil
@@ -129,14 +134,19 @@ func (p *Proxy) executeDatasetNoSQL(ctx context.Context, dsMeta *store.Dataset, 
 		return nil, fmt.Errorf("execute dataset: %w", err)
 	}
 	maxRows := 0
+	maxBytes := 0
 	if limited {
 		maxRows = p.guard.MaxRows
+		maxBytes = p.guard.MaxBytes
 	}
-	res, truncated := p.maskRaw(raw, nil, nil, gov.Masks, maxRows)
+	res, truncated, oversized := p.maskRaw(raw, nil, nil, gov.Masks, maxRows, maxBytes)
 	res.RewrittenSQL = string(gov.Payload.Raw)
 	note := ""
 	if truncated {
 		note = fmt.Sprintf("result truncated at max_rows=%d", maxRows)
+	}
+	if oversized {
+		note = "result body exceeds max_bytes limit"
 	}
 	p.auditDataset(ctx, dsMeta, claims, dsMeta.Definition, string(gov.Payload.Raw), "ok", note, len(res.Rows), started)
 	return res, nil
