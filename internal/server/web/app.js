@@ -627,7 +627,7 @@ async function loadDataSourceMap() {
 function dsName(id) { return (window.__dsMap && window.__dsMap[id]) || id || '—'; }
 
 async function loadDatasetsTable() {
-  const t = document.getElementById('dsTable');
+  const t = document.getElementById('datasetTable');
   try {
     const data = await api('/admin/api/datasets');
     const sets = data.datasets || [];
@@ -655,8 +655,8 @@ async function loadDatasetsTable() {
 
 function dsResetForm() {
   window.__dsEditId = null;
-  document.getElementById('dsName').value = '';
-  document.getElementById('dsName').disabled = false;
+  document.getElementById('datasetName').value = '';
+  document.getElementById('datasetName').disabled = false;
   document.getElementById('dsDisp').value = '';
   document.getElementById('dsDef').value = '';
   document.getElementById('dsFields').value = '';
@@ -673,7 +673,7 @@ document.getElementById('dsCancel').addEventListener('click', dsResetForm);
 document.getElementById('dsSave').addEventListener('click', async () => {
   const msg = document.getElementById('dsMsg');
   msg.textContent = '';
-  const name = document.getElementById('dsName').value.trim();
+  const name = document.getElementById('datasetName').value.trim();
   const dsId = document.getElementById('dsDs').value;
   const def = document.getElementById('dsDef').value;
   const fields = document.getElementById('dsFields').value.trim();
@@ -694,7 +694,7 @@ document.getElementById('dsSave').addEventListener('click', async () => {
   } catch (e) { msg.textContent = e.message; }
 });
 
-document.getElementById('dsTable').addEventListener('click', async (e) => {
+document.getElementById('datasetTable').addEventListener('click', async (e) => {
   const act = e.target.dataset.act;
   if (!act) return;
   const id = e.target.dataset.id;
@@ -712,8 +712,8 @@ document.getElementById('dsTable').addEventListener('click', async (e) => {
     } else if (act === 'dsedit') {
       const data = await api('/admin/api/datasets/' + id);
       window.__dsEditId = id;
-      document.getElementById('dsName').value = data.name;
-      document.getElementById('dsName').disabled = true;
+      document.getElementById('datasetName').value = data.name;
+      document.getElementById('datasetName').disabled = true;
       document.getElementById('dsDisp').value = data.display_name || '';
       document.getElementById('dsDs').value = data.datasource_id || '';
       document.getElementById('dsDef').value = data.definition || '';

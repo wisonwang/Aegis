@@ -204,7 +204,7 @@
       <h3>数据集管理</h3>
       <p class="hint">数据集是构建在数据源之上的<strong>受治理数据产品</strong>：有稳定名称（消费句柄）、有定义 SQL、有生命周期（草稿 → 发布）。Agent 消费已发布且已授权的数据集；其表/行/列治理与底层表共用同一套引擎（按 table_name = 数据集名称 关联）。</p>
       <div class="row">
-        <input id="dsName" placeholder="名称（标识符，如 orders_v" />
+        <input id="datasetName" placeholder="名称（标识符，如 orders_v" />
         <input id="dsDisp" placeholder="显示名" />
         <select id="dsDs"></select>
         <select id="dsStatus">
@@ -220,7 +220,7 @@
         <textarea id="dsDef" rows="5" placeholder="SELECT ... 作为数据集定义（需为合法 SELECT）"></textarea>
         <input id="dsFields" placeholder='字段契约 JSON, 如 [{"name":"order_id","type":"int","description":"订单号"}]' style="width:100%" />
       </details>
-      <table id="dsTable" class="grid"></table>
+      <table id="datasetTable" class="grid"></table>
 
       <div id="dsGov" class="hidden">
         <hr />
