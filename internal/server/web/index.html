@@ -28,6 +28,7 @@
       <button class="tab active" data-tab="query">数据查询</button>
       <button class="tab" data-tab="users">用户</button>
       <button class="tab" data-tab="roles">角色</button>
+      <button class="tab" data-tab="ws">工作区</button>
       <button class="tab" data-tab="ds">数据源</button>
       <button class="tab" data-tab="gov">权限治理</button>
       <button class="tab" data-tab="audit">审计日志</button>
@@ -57,7 +58,12 @@
         <input id="uDisp" placeholder="显示名" />
         <input id="uPass" type="password" placeholder="密码" />
         <input id="uAttrs" placeholder='属性JSON, 如 {"tenant":"acme"}' />
+        <select id="uStatus" class="hidden">
+          <option value="active">active</option>
+          <option value="disabled">disabled</option>
+        </select>
         <button id="uCreate">创建用户</button>
+        <button id="uCancel" class="sec hidden">取消编辑</button>
       </div>
       <table id="usersTable" class="grid"></table>
     </section>
@@ -71,12 +77,40 @@
       <table id="rolesTable" class="grid"></table>
     </section>
 
+    <section id="tab-ws" class="panel">
+      <h3>工作区管理</h3>
+      <p class="hint">工作区是多租户隔离边界（ADR-001）。每个工作区有独立的用户成员和角色；平台管理员可跨工作区管理。默认工作区不可删除。</p>
+      <div class="row">
+        <input id="wsName" placeholder="工作区名称" />
+        <input id="wsSlug" placeholder="slug（留空自动生成）" />
+        <button id="wsCreate">创建工作区</button>
+        <button id="wsLoad">刷新列表</button>
+      </div>
+      <table id="wsTable" class="grid"></table>
+
+      <div id="wsMembers" class="hidden">
+        <hr />
+        <h4>成员管理：<b id="wsMemName"></b></h4>
+        <div class="row">
+          <select id="wsMemUser"></select>
+          <select id="wsMemRole">
+            <option value="member">member</option>
+            <option value="workspace_admin">workspace_admin</option>
+            <option value="viewer">viewer</option>
+          </select>
+          <button id="wsAddMem">添加成员</button>
+        </div>
+        <table id="wsMemTable" class="grid"></table>
+      </div>
+    </section>
+
     <section id="tab-ds" class="panel">
       <div class="row">
         <input id="dsName" placeholder="名称" />
         <input id="dsType" placeholder="类型: mysql|postgres|sqlite" />
         <input id="dsDSN" placeholder="连接串 DSN" style="flex:2" />
         <button id="dsCreate">创建数据源</button>
+        <button id="dsCancelEdit" class="sec hidden">取消编辑</button>
       </div>
       <table id="dsTable" class="grid"></table>
     </section>
@@ -107,6 +141,55 @@
             <button id="gAddPolicy">添加</button>
           </div>
           <table id="policyTable" class="grid"></table>
+        </div>
+        <div>
+          <h3>列脱敏</h3>
+          <div class="row">
+            <select id="gMaskRole"></select>
+            <input id="gMaskCol" placeholder="列名" />
+            <select id="gMaskStrat">
+              <option value="phone">phone</option>
+              <option value="email">email</option>
+              <option value="card">card</option>
+              <option value="partial">partial</option>
+              <option value="hash">hash</option>
+              <option value="redact">redact</option>
+              <option value="tokenize">tokenize</option>
+              <option value="fpe">fpe</option>
+            </select>
+            <input id="gMaskKeep" placeholder="keep" type="number" min="0" style="width:70px" title="partial 策略保留位数" />
+            <button id="gAddMask">添加</button>
+          </div>
+          <table id="maskTable" class="grid"></table>
+        </div>
+        <div>
+          <h3>数据分类</h3>
+          <div class="row">
+            <input id="gClsCol" placeholder="列名（空=表级）" />
+            <select id="gClsLevel">
+              <option value="public">public</option>
+              <option value="internal">internal</option>
+              <option value="confidential">confidential</option>
+              <option value="restricted">restricted</option>
+              <option value="pii">pii</option>
+            </select>
+            <input id="gClsTags" placeholder='标签JSON ["phone","id"]' />
+            <button id="gAddCls">添加</button>
+          </div>
+          <table id="clsTable" class="grid"></table>
+        </div>
+        <div>
+          <h3>业务语义</h3>
+          <div class="row">
+            <input id="gSemCol" placeholder="列名（空=表级）" />
+            <input id="gSemDesc" placeholder="业务描述" style="flex:2" />
+            <button id="gAddSem">添加</button>
+          </div>
+          <div class="row">
+            <input id="gSemSyn" placeholder='同义词JSON ["a","b"]' />
+            <input id="gSemEx" placeholder='示例JSON ["x","y"]' />
+          </div>
+          <table id="semTable" class="grid"></table>
         </div>
       </div>
     </section>
@@ -298,6 +381,26 @@
       </div>
       <div id="mtLineage" class="result"></div>
       <div id="mtResult" class="result"></div>
+
+      <hr />
+      <h3>指标定义管理（管理员）</h3>
+      <p class="hint">管理员可在此创建、删除指标定义。指标名称在数据源内唯一，参数在 SQL 模板中以 <code>:name</code> 引用。</p>
+      <table id="mtAdminTable" class="grid"></table>
+      <details>
+        <summary>新建 / 编辑指标</summary>
+        <div class="row">
+          <input id="mtDefName" placeholder="指标名称（如 monthly_revenue）" />
+          <input id="mtDefDesc" placeholder="业务描述" style="flex:2" />
+          <input id="mtDefUnit" placeholder="单位（CNY / count / %）" />
+        </div>
+        <textarea id="mtDefSQL" rows="4" placeholder="SELECT ... WHERE month = :month"></textarea>
+        <textarea id="mtDefParams" rows="3" placeholder='参数 JSON，如 [{"name":"month","type":"string","required":true,"description":"YYYY-MM"}]'></textarea>
+        <div class="row">
+          <button id="mtDefSave">保存指标</button>
+          <button id="mtDefCancel" class="sec hidden">取消编辑</button>
+          <span id="mtDefMsg" class="hint"></span>
+        </div>
+      </details>
     </section>
     <section id="tab-apidocs" class="panel">
       <h2>Aegis API 接入文档</h2>

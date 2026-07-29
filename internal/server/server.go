@@ -243,6 +243,7 @@ func registerRoutes(engine *gin.Engine, h *api.Handler, st *store.Store, px *pro
 	engine.DELETE("/admin/api/datasources/:id/permissions/:perm", gin.WrapF(a(h.AdminDeleteTablePermission)))
 
 	// ---- Workspaces (multi-tenant boundaries, ADR-001) ----
+	engine.GET("/admin/api/workspaces", gin.WrapF(a(h.AdminListWorkspaces)))
 	engine.POST("/admin/api/workspaces", gin.WrapF(a(h.AdminCreateWorkspace)))
 	engine.GET("/admin/api/workspaces/:id", gin.WrapF(a(h.AdminGetWorkspace)))
 	engine.DELETE("/admin/api/workspaces/:id", gin.WrapF(a(h.AdminDeleteWorkspace)))

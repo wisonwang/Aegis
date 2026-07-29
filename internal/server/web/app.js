@@ -55,8 +55,8 @@ function showApp() {
   applyCapabilities();
   loadDataSources('#qDs');
   loadDataSources('#gDs');
-  loadRolesInto('#gRole'); loadRolesInto('#gPolicyRole');
-  loadUsers(); loadRoles(); loadDataSourcesTable();
+  loadRolesInto('#gRole'); loadRolesInto('#gPolicyRole'); loadRolesInto('#gMaskRole');
+  loadUsers(); loadRoles(); loadDataSourcesTable(); loadWorkspaces(); loadUsersIntoWS();
   loadDataSources('#apDs'); loadRolesInto('#apRole'); loadMyApprovals();
   loadDataSourceMap(); loadDataSources('#dsDs'); loadDatasetsTable();
 }
@@ -177,6 +177,9 @@ async function loadUsers() {
       <td>
         <select data-uid="${u.id}" class="rolePick">${roleOptionsHTML(u.roles)}</select>
         <button class="sec" data-act="addrole" data-uid="${u.id}">加角色</button>
+        <button class="sec" data-act="delrole" data-uid="${u.id}">减角色</button>
+        <button class="sec" data-act="uedit" data-uid="${u.id}">编辑</button>
+        <button class="sec" data-act="upwd" data-uid="${u.id}">改密</button>
         <button class="danger" data-act="deluser" data-uid="${u.id}">删除</button>
       </td></tr>`).join('') + '</tbody>';
 }
@@ -196,20 +199,79 @@ document.getElementById('usersTable').addEventListener('click', async (e) => {
     } else if (act === 'addrole') {
       const role = e.target.parentElement.querySelector('.rolePick').value;
       await api('/admin/api/users/' + uid + '/roles', { method: 'POST', body: JSON.stringify({ role }) });
+    } else if (act === 'delrole') {
+      const role = e.target.parentElement.querySelector('.rolePick').value;
+      await api('/admin/api/users/' + uid + '/roles/' + encodeURIComponent(role), { method: 'DELETE' });
+    } else if (act === 'upwd') {
+      const pw = prompt('为用户设置新密码:');
+      if (!pw) return;
+      await api('/admin/api/users/' + uid + '/password', { method: 'POST', body: JSON.stringify({ password: pw }) });
+      alert('密码已更新');
+      return;
+    } else if (act === 'uedit') {
+      startUserEdit(uid);
+      return;
     }
     loadUsers();
   } catch (err) { alert(err.message); }
 });
 
+// ---- user edit mode ----
+let editingUserId = null;
+async function startUserEdit(uid) {
+  try {
+    const data = await api('/admin/api/users');
+    const u = (data.users || []).find(x => x.id === uid);
+    if (!u) return;
+    editingUserId = uid;
+    document.getElementById('uName').value = u.username;
+    document.getElementById('uName').disabled = true;
+    document.getElementById('uDisp').value = u.display_name || '';
+    document.getElementById('uPass').value = '';
+    document.getElementById('uPass').classList.add('hidden'); // 密码走「改密」按钮
+    document.getElementById('uAttrs').value = u.attributes ? JSON.stringify(u.attributes) : '';
+    const st = document.getElementById('uStatus');
+    st.value = u.status || 'active';
+    st.classList.remove('hidden');
+    document.getElementById('uCreate').textContent = '保存修改';
+    document.getElementById('uCancel').classList.remove('hidden');
+  } catch (err) { alert(err.message); }
+}
+function resetUserForm() {
+  editingUserId = null;
+  document.getElementById('uName').value = '';
+  document.getElementById('uName').disabled = false;
+  document.getElementById('uDisp').value = '';
+  document.getElementById('uPass').value = '';
+  document.getElementById('uPass').classList.remove('hidden');
+  document.getElementById('uAttrs').value = '';
+  document.getElementById('uStatus').classList.add('hidden');
+  document.getElementById('uCreate').textContent = '创建用户';
+  document.getElementById('uCancel').classList.add('hidden');
+}
+document.getElementById('uCancel').addEventListener('click', resetUserForm);
+
 document.getElementById('uCreate').addEventListener('click', async () => {
-  const body = {
-    username: document.getElementById('uName').value,
-    display_name: document.getElementById('uDisp').value,
-    password: document.getElementById('uPass').value,
-    attributes: JSON.parse(document.getElementById('uAttrs').value || '{}'),
-  };
-  try { await api('/admin/api/users', { method: 'POST', body: JSON.stringify(body) }); loadUsers(); }
-  catch (e) { alert(e.message); }
+  try {
+    if (editingUserId) {
+      const body = {
+        display_name: document.getElementById('uDisp').value,
+        status: document.getElementById('uStatus').value,
+        attributes: JSON.parse(document.getElementById('uAttrs').value || '{}'),
+      };
+      await api('/admin/api/users/' + editingUserId, { method: 'PUT', body: JSON.stringify(body) });
+      resetUserForm();
+    } else {
+      const body = {
+        username: document.getElementById('uName').value,
+        display_name: document.getElementById('uDisp').value,
+        password: document.getElementById('uPass').value,
+        attributes: JSON.parse(document.getElementById('uAttrs').value || '{}'),
+      };
+      await api('/admin/api/users', { method: 'POST', body: JSON.stringify(body) });
+    }
+    loadUsers();
+  } catch (e) { alert(e.message); }
 });
 
 // ---- roles ----
@@ -238,22 +300,136 @@ async function loadRolesInto(sel) {
   } catch (e) { /* ignore */ }
 }
 
+// ---- workspaces ----
+let editingWsId = null;
+async function loadWorkspaces() {
+  try {
+    const data = await api('/admin/api/workspaces');
+    const t = document.getElementById('wsTable');
+    const wsList = data.workspaces || [];
+    t.innerHTML = '<thead><tr><th>名称</th><th>Slug</th><th>成员</th><th>操作</th></tr></thead><tbody>' +
+      wsList.map(w => `<tr>
+        <td>${esc(w.Name)}${w.ID === 'default' ? ' <span class="badge ok">默认</span>' : ''}</td>
+        <td><code>${esc(w.Slug)}</code></td>
+        <td><button class="sec" data-act="wsmem" data-id="${esc(w.ID)}" data-name="${esc(w.Name)}">管理成员</button></td>
+        <td>${w.ID === 'default' ? '—' : `<button class="danger" data-act="wsdel" data-id="${esc(w.ID)}">删除</button>`}</td>
+      </tr>`).join('') + '</tbody>';
+  } catch (e) { /* ignore */ }
+}
+async function loadUsersIntoWS() {
+  try {
+    const data = await api('/admin/api/users');
+    const sel = document.getElementById('wsMemUser');
+    sel.innerHTML = (data.users || []).map(u => `<option value="${esc(u.id)}">${esc(u.username)} (${esc(u.display_name || '')})</option>`).join('');
+  } catch (e) { /* ignore */ }
+}
+document.getElementById('wsCreate').addEventListener('click', async () => {
+  const body = { name: document.getElementById('wsName').value, slug: document.getElementById('wsSlug').value };
+  if (!body.name) { alert('请填写名称'); return; }
+  try { await api('/admin/api/workspaces', { method: 'POST', body: JSON.stringify(body) }); document.getElementById('wsName').value = ''; document.getElementById('wsSlug').value = ''; loadWorkspaces(); }
+  catch (e) { alert(e.message); }
+});
+document.getElementById('wsLoad').addEventListener('click', loadWorkspaces);
+document.getElementById('wsTable').addEventListener('click', async (e) => {
+  const act = e.target.dataset.act;
+  if (!act) return;
+  try {
+    if (act === 'wsdel') {
+      if (!confirm('删除工作区将移除其所有成员关联。确认？')) return;
+      await api('/admin/api/workspaces/' + e.target.dataset.id, { method: 'DELETE' });
+      loadWorkspaces();
+    } else if (act === 'wsmem') {
+      editingWsId = e.target.dataset.id;
+      document.getElementById('wsMemName').textContent = e.target.dataset.name;
+      document.getElementById('wsMembers').classList.remove('hidden');
+      loadWsMembers();
+    }
+  } catch (err) { alert(err.message); }
+});
+async function loadWsMembers() {
+  if (!editingWsId) return;
+  try {
+    const data = await api('/admin/api/workspaces/' + editingWsId + '/members');
+    const t = document.getElementById('wsMemTable');
+    t.innerHTML = '<thead><tr><th>用户 ID</th><th>角色</th><th>默认</th><th>操作</th></tr></thead><tbody>' +
+      (data.members || []).map(m => `<tr>
+        <td><code>${esc(m.UserID)}</code></td>
+        <td>${esc(m.Role)}</td>
+        <td>${m.IsDefault ? '是' : '否'}</td>
+        <td><button class="danger" data-act="wsrmmem" data-uid="${esc(m.UserID)}">移除</button></td>
+      </tr>`).join('') + '</tbody>';
+  } catch (e) { /* ignore */ }
+}
+document.getElementById('wsAddMem').addEventListener('click', async () => {
+  if (!editingWsId) return;
+  const body = { user_id: document.getElementById('wsMemUser').value, role: document.getElementById('wsMemRole').value };
+  try { await api('/admin/api/workspaces/' + editingWsId + '/members', { method: 'POST', body: JSON.stringify(body) }); loadWsMembers(); }
+  catch (e) { alert(e.message); }
+});
+document.getElementById('wsMemTable').addEventListener('click', async (e) => {
+  if (e.target.dataset.act !== 'wsrmmem') return;
+  try { await api('/admin/api/workspaces/' + editingWsId + '/members/' + encodeURIComponent(e.target.dataset.uid), { method: 'DELETE' }); loadWsMembers(); }
+  catch (err) { alert(err.message); }
+});
+document.querySelector('[data-tab="ws"]').addEventListener('click', () => { loadWorkspaces(); loadUsersIntoWS(); });
+
 // ---- datasources ----
 async function loadDataSourcesTable() {
   const data = await api('/admin/api/datasources');
   const t = document.getElementById('dsTable');
   t.innerHTML = '<thead><tr><th>名称</th><th>类型</th><th>DSN</th><th>操作</th></tr></thead><tbody>' +
     data.datasources.map(d => `<tr><td>${esc(d.name)}</td><td>${esc(d.type)}</td><td>${esc(d.dsn)}</td>
-      <td><button class="danger" data-act="delds" data-id="${d.id}">删除</button></td></tr>`).join('') + '</tbody>';
+      <td><button class="sec" data-act="editds" data-id="${d.id}">编辑</button>
+          <button class="danger" data-act="delds" data-id="${d.id}">删除</button></td></tr>`).join('') + '</tbody>';
+}
+// ---- datasource edit mode ----
+let editingDsId = null;
+function startDsEdit(d) {
+  editingDsId = d.id;
+  document.getElementById('dsName').value = d.name || '';
+  document.getElementById('dsType').value = d.type || '';
+  document.getElementById('dsDSN').value = d.dsn || '';
+  document.getElementById('dsCreate').textContent = '保存修改';
+  document.getElementById('dsCancelEdit').classList.remove('hidden');
+}
+function resetDsForm() {
+  editingDsId = null;
+  document.getElementById('dsName').value = '';
+  document.getElementById('dsType').value = '';
+  document.getElementById('dsDSN').value = '';
+  document.getElementById('dsCreate').textContent = '创建数据源';
+  document.getElementById('dsCancelEdit').classList.add('hidden');
+}
+document.getElementById('dsCancelEdit').addEventListener('click', resetDsForm);
+async function reloadDsAll() {
+  loadDataSourcesTable(); loadDataSources('#qDs'); loadDataSources('#gDs');
+  loadDataSources('#dsDs'); loadDataSources('#mtDs'); loadDataSourceMap();
 }
 document.getElementById('dsTable').addEventListener('click', async (e) => {
-  if (e.target.dataset.act !== 'delds') return;
-  try { await api('/admin/api/datasources/' + e.target.dataset.id, { method: 'DELETE' }); loadDataSourcesTable(); loadDataSources('#qDs'); loadDataSources('#gDs'); }
-  catch (err) { alert(err.message); }
+  const act = e.target.dataset.act;
+  if (!act) return;
+  try {
+    if (act === 'delds') {
+      await api('/admin/api/datasources/' + e.target.dataset.id, { method: 'DELETE' });
+      reloadDsAll();
+    } else if (act === 'editds') {
+      const data = await api('/admin/api/datasources');
+      const d = (data.datasources || []).find(x => x.id === e.target.dataset.id);
+      if (d) startDsEdit(d);
+    }
+  } catch (err) { alert(err.message); }
 });
 document.getElementById('dsCreate').addEventListener('click', async () => {
   const body = { name: document.getElementById('dsName').value, type: document.getElementById('dsType').value, dsn: document.getElementById('dsDSN').value };
-  try { await api('/admin/api/datasources', { method: 'POST', body: JSON.stringify(body) }); loadDataSourcesTable(); loadDataSources('#qDs'); loadDataSources('#gDs'); }
+  try {
+    if (editingDsId) {
+      await api('/admin/api/datasources/' + editingDsId, { method: 'PUT', body: JSON.stringify(body) });
+      resetDsForm();
+    } else {
+      await api('/admin/api/datasources', { method: 'POST', body: JSON.stringify(body) });
+    }
+    reloadDsAll();
+  }
   catch (e) { alert(e.message); }
 });
 
@@ -267,9 +443,12 @@ document.getElementById('gLoad').addEventListener('click', loadGov);
 async function loadGov() {
   const id = document.getElementById('gDs').value;
   const table = document.getElementById('gTable').value;
-  const [p, pol] = await Promise.all([
+  const [p, pol, mk, cf, sm] = await Promise.all([
     api('/admin/api/datasources/' + id + '/tables/' + table + '/permissions'),
     api('/admin/api/datasources/' + id + '/tables/' + table + '/policies'),
+    api('/admin/api/datasources/' + id + '/masks?table=' + encodeURIComponent(table)),
+    api('/admin/api/datasources/' + id + '/classifications?table=' + encodeURIComponent(table)),
+    api('/admin/api/datasources/' + id + '/semantics?table=' + encodeURIComponent(table)),
   ]);
   const pt = document.getElementById('permTable');
   pt.innerHTML = '<thead><tr><th>角色</th><th>操作</th><th>拒绝列</th><th>操作</th></tr></thead><tbody>' +
@@ -279,7 +458,75 @@ async function loadGov() {
   plt.innerHTML = '<thead><tr><th>角色</th><th>谓词</th><th>优先级</th><th>操作</th></tr></thead><tbody>' +
     pol.policies.map(x => `<tr><td>${esc(x.role)}</td><td><code>${esc(x.predicate)}</code></td><td>${esc(x.priority)}</td>
       <td><button class="danger" data-act="delpol" data-id="${x.id}">删除</button></td></tr>`).join('') + '</tbody>';
+  document.getElementById('maskTable').innerHTML = '<thead><tr><th>角色</th><th>列</th><th>策略</th><th>keep</th><th>操作</th></tr></thead><tbody>' +
+    (mk.masks || []).map(x => `<tr><td>${esc(x.role)}</td><td>${esc(x.column_name)}</td><td>${esc(x.strategy)}</td><td>${esc(x.keep ?? '')}</td>
+      <td><button class="danger" data-act="gdelmask" data-id="${x.id}">删除</button></td></tr>`).join('') + '</tbody>';
+  document.getElementById('clsTable').innerHTML = '<thead><tr><th>列</th><th>级别</th><th>标签</th><th>操作</th></tr></thead><tbody>' +
+    (cf.classifications || []).map(x => `<tr><td>${esc(x.column_name || '表级')}</td><td>${esc(x.level)}</td><td>${esc(x.tags || '')}</td>
+      <td><button class="danger" data-act="gdelcls" data-id="${x.id}">删除</button></td></tr>`).join('') + '</tbody>';
+  document.getElementById('semTable').innerHTML = '<thead><tr><th>列</th><th>描述</th><th>同义词</th><th>示例</th><th>操作</th></tr></thead><tbody>' +
+    (sm.semantics || []).map(x => `<tr><td>${esc(x.column_name || '表级')}</td><td>${esc(x.description || '')}</td>
+      <td>${esc(x.synonyms || '')}</td><td>${esc(x.examples || '')}</td>
+      <td><button class="danger" data-act="gdelsem" data-id="${esc(x.id)}">删除</button></td></tr>`).join('') + '</tbody>';
 }
+
+// ---- gov: column masks / classifications / semantics (base tables) ----
+function govDSTable() {
+  return { id: document.getElementById('gDs').value, table: document.getElementById('gTable').value };
+}
+document.getElementById('gAddMask').addEventListener('click', async () => {
+  const { id, table } = govDSTable();
+  const body = {
+    role: document.getElementById('gMaskRole').value,
+    table,
+    column: document.getElementById('gMaskCol').value,
+    strategy: document.getElementById('gMaskStrat').value,
+    keep: parseInt(document.getElementById('gMaskKeep').value || '0', 10) || 0,
+  };
+  try { await api('/admin/api/datasources/' + id + '/masks', { method: 'POST', body: JSON.stringify(body) }); loadGov(); }
+  catch (e) { alert(e.message); }
+});
+document.getElementById('gAddCls').addEventListener('click', async () => {
+  const { id, table } = govDSTable();
+  let tags = [];
+  const raw = document.getElementById('gClsTags').value.trim();
+  if (raw) { try { tags = JSON.parse(raw); } catch { alert('标签需为合法 JSON 数组'); return; } }
+  const body = {
+    table_name: table,
+    column_name: document.getElementById('gClsCol').value.trim(),
+    level: document.getElementById('gClsLevel').value,
+    tags,
+  };
+  try { await api('/admin/api/datasources/' + id + '/classifications', { method: 'POST', body: JSON.stringify(body) }); loadGov(); }
+  catch (e) { alert(e.message); }
+});
+document.getElementById('gAddSem').addEventListener('click', async () => {
+  const { id, table } = govDSTable();
+  const parseArr = (v) => { v = v.trim(); if (!v) return []; try { return JSON.parse(v); } catch { return null; } };
+  const syn = parseArr(document.getElementById('gSemSyn').value);
+  const ex = parseArr(document.getElementById('gSemEx').value);
+  if (syn === null || ex === null) { alert('同义词/示例需为合法 JSON 数组'); return; }
+  const body = {
+    table_name: table,
+    column_name: document.getElementById('gSemCol').value.trim(),
+    description: document.getElementById('gSemDesc').value,
+    synonyms: syn,
+    examples: ex,
+  };
+  try { await api('/admin/api/datasources/' + id + '/semantics', { method: 'POST', body: JSON.stringify(body) }); loadGov(); }
+  catch (e) { alert(e.message); }
+});
+['maskTable', 'clsTable', 'semTable'].forEach(tid => {
+  document.getElementById(tid).addEventListener('click', async (e) => {
+    const act = e.target.dataset.act;
+    if (!act || !act.startsWith('gdel')) return;
+    const { id } = govDSTable();
+    const kind = { gdelmask: 'masks', gdelcls: 'classifications', gdelsem: 'semantics' }[act];
+    if (!kind) return;
+    try { await api('/admin/api/datasources/' + id + '/' + kind + '/' + encodeURIComponent(e.target.dataset.id), { method: 'DELETE' }); loadGov(); }
+    catch (err) { alert(err.message); }
+  });
+});
 document.getElementById('permTable').addEventListener('click', async (e) => {
   if (e.target.dataset.act !== 'delperm') return;
   try { await api('/admin/api/datasources/' + document.getElementById('gDs').value + '/permissions/' + e.target.dataset.id, { method: 'DELETE' }); loadGov(); }
@@ -541,7 +788,7 @@ document.getElementById('nlRun').addEventListener('click', async () => {
 document.querySelector('[data-tab="nl2sql"]').addEventListener('click', loadNLDs);
 
 // ---- Semantic metric layer ----
-function loadMTDs() { loadDataSources('#mtDs'); loadMTMetrics(); }
+function loadMTDs() { loadDataSources('#mtDs'); loadMTMetrics(); loadMTAdmin(); }
 let mtMetrics = [];
 
 async function loadMTMetrics() {
@@ -561,7 +808,7 @@ async function loadMTMetrics() {
   } catch (e) { sel.innerHTML = '<option value="">加载失败: ' + esc(e.message) + '</option>'; }
 }
 
-document.getElementById('mtLoad').addEventListener('click', loadMTMetrics);
+document.getElementById('mtLoad').addEventListener('click', () => { loadMTMetrics(); loadMTAdmin(); });
 
 document.getElementById('mtName').addEventListener('change', () => {
   const box = document.getElementById('mtParams');
@@ -615,6 +862,82 @@ document.getElementById('mtRun').addEventListener('click', async () => {
 });
 
 document.querySelector('[data-tab="metrics"]').addEventListener('click', loadMTDs);
+
+// ---- metric definitions admin (CRUD) ----
+async function loadMTAdmin() {
+  const id = document.getElementById('mtDs').value;
+  const t = document.getElementById('mtAdminTable');
+  if (!id) { t.innerHTML = '<thead><tr><th>选择数据源</th></tr></thead><tbody><tr><td>请先选择数据源</td></tr></tbody>'; return; }
+  try {
+    const data = await api('/admin/api/datasources/' + id + '/metrics');
+    const list = data.metrics || [];
+    t.innerHTML = '<thead><tr><th>名称</th><th>描述</th><th>单位</th><th>参数</th><th>操作</th></tr></thead><tbody>' +
+      (list.length ? list.map(m => `<tr>
+        <td><code>${esc(m.name)}</code></td>
+        <td>${esc(m.description || '')}</td>
+        <td>${esc(m.unit || '')}</td>
+        <td>${esc((m.params || []).map(p => p.name + ':' + p.type).join(', '))}</td>
+        <td>
+          <button class="sec" data-act="mtedit" data-id="${esc(m.id)}">编辑</button>
+          <button class="danger" data-act="mtdel" data-id="${esc(m.id)}">删除</button>
+        </td></tr>`).join('') : '<tr><td colspan="5">暂无指标</td></tr>') + '</tbody>';
+  } catch (e) { t.innerHTML = '<thead><tr><th>错误</th></tr></thead><tbody><tr><td class="error">' + esc(e.message) + '</td></tr></tbody>'; }
+}
+let mtEditId = null;
+function resetMtDefForm() {
+  mtEditId = null;
+  document.getElementById('mtDefName').value = '';
+  document.getElementById('mtDefName').disabled = false;
+  document.getElementById('mtDefDesc').value = '';
+  document.getElementById('mtDefUnit').value = '';
+  document.getElementById('mtDefSQL').value = '';
+  document.getElementById('mtDefParams').value = '';
+  document.getElementById('mtDefSave').textContent = '保存指标';
+  document.getElementById('mtDefCancel').classList.add('hidden');
+  document.getElementById('mtDefMsg').textContent = '';
+}
+document.getElementById('mtDefCancel').addEventListener('click', resetMtDefForm);
+document.getElementById('mtAdminTable').addEventListener('click', async (e) => {
+  const act = e.target.dataset.act;
+  if (!act) return;
+  const mid = e.target.dataset.id;
+  if (act === 'mtdel') {
+    const id = document.getElementById('mtDs').value;
+    try { await api('/admin/api/datasources/' + id + '/metrics/' + mid, { method: 'DELETE' }); loadMTAdmin(); loadMTMetrics(); }
+    catch (err) { alert(err.message); }
+  } else if (act === 'mtedit') {
+    const m = mtMetrics.find(x => x.id === mid);
+    if (!m) return;
+    mtEditId = mid;
+    document.getElementById('mtDefName').value = m.name;
+    document.getElementById('mtDefName').disabled = true;
+    document.getElementById('mtDefDesc').value = m.description || '';
+    document.getElementById('mtDefUnit').value = m.unit || '';
+    document.getElementById('mtDefSQL').value = m.sql_template || '';
+    document.getElementById('mtDefParams').value = (m.params && m.params.length) ? JSON.stringify(m.params, null, 2) : '';
+    document.getElementById('mtDefSave').textContent = '保存修改';
+    document.getElementById('mtDefCancel').classList.remove('hidden');
+  }
+});
+document.getElementById('mtDefSave').addEventListener('click', async () => {
+  const id = document.getElementById('mtDs').value;
+  const msg = document.getElementById('mtDefMsg');
+  msg.textContent = '';
+  const name = document.getElementById('mtDefName').value.trim();
+  const sql = document.getElementById('mtDefSQL').value.trim();
+  if (!name || !sql) { msg.textContent = '名称和 SQL 模板必填'; return; }
+  let params = [];
+  const rawP = document.getElementById('mtDefParams').value.trim();
+  if (rawP) { try { params = JSON.parse(rawP); } catch { msg.textContent = '参数需为合法 JSON 数组'; return; } }
+  const body = {
+    name, description: document.getElementById('mtDefDesc').value,
+    sql_template: sql, params, unit: document.getElementById('mtDefUnit').value,
+  };
+  try {
+    await api('/admin/api/datasources/' + id + '/metrics', { method: 'POST', body: JSON.stringify(body) });
+    resetMtDefForm(); loadMTAdmin(); loadMTMetrics();
+  } catch (e) { msg.textContent = e.message; }
+});
 
 // ---- dataset management (data products) ----
 async function loadDataSourceMap() {

@@ -77,6 +77,25 @@ func (h *Handler) AdminCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, ws)
 }
 
+// AdminListWorkspaces returns all workspaces (admin only).
+// @Summary admin List Workspaces
+// @Tags workspaces
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/workspaces [get]
+func (h *Handler) AdminListWorkspaces(w http.ResponseWriter, r *http.Request) {
+	ws, err := h.Store.ListWorkspaces()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if ws == nil {
+		ws = []*store.Workspace{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"workspaces": ws})
+}
+
 // AdminGetWorkspace returns a single workspace (admin may read any).
 // @Summary admin Get Workspace
 // @Tags workspaces
