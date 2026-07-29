@@ -93,7 +93,14 @@ func (p *Proxy) executeDatasetSQL(ctx context.Context, dsMeta *store.Dataset, ds
 		p.auditDataset(ctx, dsMeta, claims, dsMeta.Definition, "", "denied", err.Error(), 0, started)
 		return nil, err
 	}
-	raw, _, err := p.ds.ExecSQL(ctx, ds, rr.SQL, params, true)
+	// For read queries under behavior governance, inject a LIMIT clause
+	// so the database engine stops scanning at max_rows (primary defense
+	// against table-dumping via datasets).
+	execSQL := rr.SQL
+	if limited && p.guard.MaxRows > 0 {
+		execSQL = injectLimit(rr.SQL, p.guard.MaxRows)
+	}
+	raw, _, err := p.ds.ExecSQL(ctx, ds, execSQL, params, true)
 	if err != nil {
 		p.auditDataset(ctx, dsMeta, claims, dsMeta.Definition, rr.SQL, "error", err.Error(), 0, started)
 		return nil, fmt.Errorf("execute dataset: %w", err)

@@ -16,6 +16,7 @@ import (
 	"github.com/wisonwang/aegis/internal/nl2sql"
 	"github.com/wisonwang/aegis/internal/permission"
 	"github.com/wisonwang/aegis/internal/store"
+	"github.com/xwb1989/sqlparser"
 )
 
 // QueryResult is the governed, safe result returned to a caller.
@@ -249,9 +250,20 @@ func (p *Proxy) Execute(ctx context.Context, dsID string, claims *auth.Claims, s
 		}
 	}
 
-	raw, affected, err := p.ds.ExecSQL(ctx, ds, rr.SQL, args, rr.IsRead)
+	// For read queries under behavior governance, inject a LIMIT clause into
+	// the rewritten SQL so the database engine stops scanning at max_rows.
+	// This is the primary defense against table-dumping; maskRaw truncation
+	// remains as a safety net for edge cases (e.g. UNION queries where LIMIT
+	// may not apply to the whole result set, or backend drivers that buffer
+	// all rows before streaming).
+	execSQL := rr.SQL
+	if limited && rr.IsRead && p.guard.MaxRows > 0 {
+		execSQL = injectLimit(rr.SQL, p.guard.MaxRows)
+	}
+
+	raw, affected, err := p.ds.ExecSQL(ctx, ds, execSQL, args, rr.IsRead)
 	if err != nil {
-		p.audit(ctx, dsID, claims, sql, rr.SQL, "error", err.Error(), 0, started)
+		p.audit(ctx, dsID, claims, sql, execSQL, "error", err.Error(), 0, started)
 		return nil, fmt.Errorf("execute: %w", err)
 	}
 
@@ -267,7 +279,10 @@ func (p *Proxy) Execute(ctx context.Context, dsID string, claims *auth.Claims, s
 		maxBytes = p.guard.MaxBytes
 	}
 	res, truncated, oversized := p.maskRaw(raw, rr.DeniedCols, rr.AllowedCols, rr.Masks, maxRows, maxBytes)
-	res.RewrittenSQL = rr.SQL
+	// RewrittenSQL shows the actual SQL that was sent to the database,
+	// including the injected LIMIT clause if present. This gives callers
+	// transparency into what was executed (useful for debugging).
+	res.RewrittenSQL = execSQL
 	note := ""
 	if truncated {
 		note = fmt.Sprintf("result truncated at max_rows=%d", maxRows)
@@ -604,6 +619,58 @@ func toSet(in []string) map[string]bool {
 		s[strings.ToLower(v)] = true
 	}
 	return s
+}
+
+// injectLimit parses a SELECT SQL and injects or replaces the LIMIT clause
+// with maxRows. If the query already has a LIMIT ≤ maxRows, it is kept
+// (the caller's own limit is stricter). If the LIMIT exceeds maxRows, it
+// is replaced. If no LIMIT exists, one is appended. Non-SELECT statements
+// and malformed SQL are returned unchanged (maskRaw truncation catches those).
+func injectLimit(sql string, maxRows int) string {
+	stmt, err := sqlparser.Parse(sql)
+	if err != nil {
+		// If we can't parse it, return it unchanged — maskRaw truncation
+		// is the safety net.
+		return sql
+	}
+	sel, ok := stmt.(*sqlparser.Select)
+	if !ok {
+		// UNION queries, SET operations etc. — not a simple SELECT.
+		// maskRaw truncation handles these.
+		return sql
+	}
+	if sel.Limit != nil {
+		// Check existing LIMIT value.
+		existing := limitValue(sel.Limit.Rowcount)
+		if existing > 0 && existing <= maxRows {
+			// Caller's own limit is stricter or equal — keep it.
+			return sql
+		}
+		// Existing LIMIT exceeds maxRows (or is non-numeric) — replace.
+		sel.Limit.Rowcount = sqlparser.NewIntVal([]byte(fmt.Sprintf("%d", maxRows)))
+	} else {
+		// No LIMIT — inject one.
+		sel.Limit = &sqlparser.Limit{
+			Rowcount: sqlparser.NewIntVal([]byte(fmt.Sprintf("%d", maxRows))),
+		}
+	}
+	return sqlparser.String(stmt)
+}
+
+// limitValue extracts a numeric value from a LIMIT expression, returning 0
+// for non-numeric (variable/placeholder) expressions.
+func limitValue(expr sqlparser.Expr) int {
+	if v, ok := expr.(*sqlparser.SQLVal); ok && v.Type == sqlparser.IntVal {
+		n := 0
+		for _, b := range v.Val {
+			if b < '0' || b > '9' {
+				return 0
+			}
+			n = n*10 + int(b-'0')
+		}
+		return n
+	}
+	return 0
 }
 
 func allOps() []string { return []string{"SELECT", "INSERT", "UPDATE", "DELETE"} }
