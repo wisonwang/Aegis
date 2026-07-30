@@ -43,7 +43,7 @@ import (
 // @name X-MCP-API-Key
 // @description "MCP 静态 API Key（仅 /mcp 端点），由管理员在服务端 mcp.api_key 配置"
 func main() {
-	cfgPath := flag.String("config", "", "path to JSON config file (optional)")
+	cfgPath := flag.String("config", "config.json", "path to JSON config file (default: config.json)")
 	flag.Parse()
 
 	cfg, err := config.Load(*cfgPath)
