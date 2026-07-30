@@ -14,7 +14,9 @@ type Config struct {
 	ListenAddr string         `json:"listen_addr"` // HTTP listen address, e.g. ":8080"
 	JWTSecret  string         `json:"jwt_secret"`  // HMAC secret for token signing
 	JWTExpiry  string         `json:"jwt_expiry"`  // token TTL, e.g. "24h"
-	DBPath     string         `json:"db_path"`     // SQLite path for the control plane store
+	DBPath     string         `json:"db_path"`     // SQLite path for the control plane store (used when db_type is sqlite/empty)
+	DBType     string         `json:"db_type"`     // control-plane store backend: "sqlite" (default) | "mysql"
+	DBDSN      string         `json:"db_dsn"`      // MySQL DSN when db_type="mysql", e.g. root:pass@tcp(127.0.0.1:3306)/aegis?parseTime=true&charset=utf8mb4&loc=Local
 	DataDir    string         `json:"data_dir"`    // directory for demo/seeded database files
 	SeedDemo   bool           `json:"seed_demo"`   // seed demo datasource + users on first run
 	MCP        MCPConfig      `json:"mcp"`
@@ -253,6 +255,12 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("AEGIS_DB_PATH"); v != "" {
 		cfg.DBPath = v
+	}
+	if v := os.Getenv("AEGIS_DB_TYPE"); v != "" {
+		cfg.DBType = v
+	}
+	if v := os.Getenv("AEGIS_DB_DSN"); v != "" {
+		cfg.DBDSN = v
 	}
 	if v := os.Getenv("AEGIS_DATA_DIR"); v != "" {
 		cfg.DataDir = v

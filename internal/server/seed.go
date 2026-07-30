@@ -20,7 +20,7 @@ import (
 // capabilities: centralized auth, table/row/column governance, and a ready
 // datasource for the DataAPI and MCP endpoints.
 func seedIfEmpty(st *store.Store, cfg *config.Config) error {
-	users, err := st.ListUsers()
+	users, err := st.ListUsers("")
 	if err != nil {
 		return err
 	}
@@ -28,17 +28,23 @@ func seedIfEmpty(st *store.Store, cfg *config.Config) error {
 		return nil
 	}
 
-	// Roles
-	_ = st.CreateRole(&store.Role{Name: "admin", Description: "平台管理员（超级用户，绕过行级治理）"})
-	_ = st.CreateRole(&store.Role{Name: "analyst", Description: "数据分析师（受表/行/列权限约束）"})
+	// Roles (admin/analyst are system roles — protected from deletion and
+	// from being granted/revoked via the API to prevent privilege escalation).
+	_ = st.CreateRole(&store.Role{Name: "admin", Description: "平台管理员（超级用户，绕过行级治理）", System: true})
+	_ = st.CreateRole(&store.Role{Name: "analyst", Description: "数据分析师（受表/行/列权限约束）", System: true})
+	// Re-assert the system flag even when the role row pre-existed from an
+	// older schema without the column.
+	_ = st.SetRoleSystem("admin", true)
+	_ = st.SetRoleSystem("analyst", true)
 
 	// Users
 	adminHash, _ := auth.HashPassword("admin123")
 	_ = st.CreateUser(&store.User{Username: "admin", DisplayName: "Administrator", PasswordHash: adminHash})
 	analystHash, _ := auth.HashPassword("analyst123")
 	_ = st.CreateUser(&store.User{Username: "analyst", DisplayName: "Analyst", PasswordHash: analystHash, Attributes: `{"tenant":"acme"}`})
-	mcpHash, _ := auth.HashPassword("mcp123")
-	_ = st.CreateUser(&store.User{Username: "mcp-agent", DisplayName: "MCP Agent", PasswordHash: mcpHash, Attributes: `{"tenant":"acme"}`})
+	// mcp-agent is a service account: it authenticates via API key only, so
+	// it carries no password (password login is rejected for type=service).
+	_ = st.CreateUser(&store.User{Username: "mcp-agent", DisplayName: "MCP Agent", Type: "service", Attributes: `{"tenant":"acme"}`})
 
 	admin, _ := st.GetRole("admin")
 	analyst, _ := st.GetRole("analyst")

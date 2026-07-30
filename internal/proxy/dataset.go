@@ -25,6 +25,7 @@ type DatasetInfo struct {
 	DataSourceID   string `json:"datasource_id"`
 	DataSourceName string `json:"datasource_name"`
 	Status         string `json:"status"`
+	FolderID       string `json:"folder_id"` // catalog folder id ("" = uncategorized)
 }
 
 // DatasetSchema is the governed, semantically enriched contract of a dataset —
@@ -38,6 +39,7 @@ type DatasetSchema struct {
 	DataSourceName string            `json:"datasource_name"`
 	Type           string            `json:"type"`
 	Status         string            `json:"status"`
+	FolderID       string            `json:"folder_id"` // catalog folder id ("" = uncategorized)
 	Fields         []SemanticColumn  `json:"fields"`
 }
 
@@ -199,6 +201,7 @@ func (p *Proxy) ListDatasets(ctx context.Context, claims *auth.Claims) ([]Datase
 			DataSourceID:   d.DataSourceID,
 			DataSourceName: ds.Name,
 			Status:         d.Status,
+			FolderID:       d.FolderID,
 		})
 	}
 	return out, nil
@@ -256,6 +259,7 @@ func (p *Proxy) DatasetCatalog(ctx context.Context, datasetID string, claims *au
 		DataSourceName: ds.Name,
 		Type:           ds.Type,
 		Status:         d.Status,
+		FolderID:       d.FolderID,
 	}
 
 	eff := (*store.TableEffective)(nil)

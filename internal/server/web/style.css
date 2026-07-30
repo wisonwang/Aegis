@@ -66,6 +66,7 @@ details summary { cursor: pointer; color: var(--brand); font-size: 13px; }
 .badge.error { background: #fee2e2; color: #b91c1c; }
 .badge.warning { background: #fef3c7; color: #b45309; }
 .badge.critical { background: #fee2e2; color: #b91c1c; font-weight: 600; }
+.badge.sys { background: var(--brand); color: #fff; font-weight: 600; }
 .hint { font-size: 12px; color: var(--muted); }
 
 /* ---- API docs ---- */
@@ -87,3 +88,43 @@ details summary { cursor: pointer; color: var(--brand); font-size: 13px; }
 .method { display: inline-block; padding: 1px 8px; border-radius: 5px; font-size: 12px; font-weight: 600; color: #fff; background: #64748b; }
 .method.get { background: #16a34a; }
 .method.post { background: #2563eb; }
+
+/* ---- directory polish (refactor 2026-07-30: modular vanilla, no framework) ---- */
+.grid tbody tr:hover { background: #f7f9fc; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.card h4 { margin: 0 0 8px; font-size: 15px; }
+.card .row { margin-top: 10px; }
+.fieldlist { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); }
+.dir-head { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; }
+.dir-head .count { background: var(--brand); color: #fff; border-radius: 999px; font-size: 12px; padding: 1px 9px; }
+.panel > h3:first-child { border-left: 3px solid var(--brand); padding-left: 10px; }
+
+/* ---- dataset catalog tree (folder organization) ---- */
+.catalog-layout { display: flex; gap: 18px; align-items: flex-start; }
+.catalog-tree { flex: 0 0 240px; max-width: 240px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fbfcfe; max-height: 70vh; overflow: auto; }
+.catalog-main { flex: 1 1 auto; min-width: 0; }
+.folderbar { display: flex; align-items: center; gap: 8px; margin: 8px 0; padding: 8px 10px; background: #eef4ff; border: 1px solid #d6e4ff; border-radius: 8px; font-size: 13px; }
+ul.tree, .tree ul { list-style: none; margin: 6px 0; padding-left: 16px; }
+.tree > li { padding-left: 0; }
+.tnode { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 6px; cursor: pointer; }
+.tnode:hover { background: #eaf1fb; }
+.tnode.sel { background: #d6e4ff; font-weight: 600; }
+.tarrow { width: 14px; text-align: center; color: var(--muted); user-select: none; }
+.tlabel { flex: 1 1 auto; }
+.tcount { color: var(--muted); font-size: 12px; }
+#catTree .cnode { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; }
+#catTree .cnode.folder { font-weight: 600; cursor: pointer; }
+#catTree .cnode.folder:hover { background: #eef4ff; }
+#catTree .cnode.dataset { cursor: pointer; padding-left: 26px; }
+#catTree .cnode.dataset:hover { background: #f7f9fc; }
+#catTree .cchildren { margin-left: 14px; border-left: 1px dashed var(--line); padding-left: 8px; }
+#catTree .carow { width: 14px; text-align: center; color: var(--muted); }
+#catTree .cdetail { margin: 4px 0 10px 26px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.modal { border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; max-width: 420px; }
+.modal::backdrop { background: rgba(15,23,42,.35); }
+.modal h3 { margin-top: 0; }
+.modal .row { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+.modal label { min-width: 64px; color: var(--muted); }
+.modal input, .modal select { flex: 1 1 auto; }
+.tree li.collapsed > ul.tchildren { display: none; }

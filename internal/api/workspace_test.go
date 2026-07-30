@@ -19,10 +19,10 @@ import (
 func workspaceMux(h *Handler, st *store.Store, cfg *config.Config) http.Handler {
 	mux := http.NewServeMux()
 	a := func(fn http.HandlerFunc) http.HandlerFunc {
-		return Authenticate(cfg, WorkspaceResolver(st, RequireAdmin(fn)))
+		return Authenticate(st, cfg, WorkspaceResolver(st, RequireAdmin(fn)))
 	}
-	mux.HandleFunc("GET /api/v1/workspaces", Authenticate(cfg, h.ListMyWorkspaces))
-	mux.HandleFunc("GET /api/v1/datasources", Authenticate(cfg, WorkspaceResolver(st, h.ListDataSources)))
+	mux.HandleFunc("GET /api/v1/workspaces", Authenticate(st, cfg, h.ListMyWorkspaces))
+	mux.HandleFunc("GET /api/v1/datasources", Authenticate(st, cfg, WorkspaceResolver(st, h.ListDataSources)))
 	mux.HandleFunc("POST /admin/api/workspaces", a(h.AdminCreateWorkspace))
 	mux.HandleFunc("GET /admin/api/workspaces/{id}", a(h.AdminGetWorkspace))
 	mux.HandleFunc("DELETE /admin/api/workspaces/{id}", a(h.AdminDeleteWorkspace))

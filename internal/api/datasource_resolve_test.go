@@ -31,9 +31,12 @@ func dsResolveStore(t *testing.T) *store.Store {
 	return st
 }
 
-func dsResolveMux(h *Handler, cfg *config.Config) http.Handler {
+func dsResolveMux(h *Handler, st *store.Store, cfg *config.Config) http.Handler {
+	// seed the admin user referenced by the test token so the Authenticate
+	// middleware's disabled-account fail-closed check finds it active.
+	_ = st.CreateUser(&store.User{ID: "admin", Username: "Admin", Status: "active"})
 	mux := http.NewServeMux()
-	a := func(fn http.HandlerFunc) http.HandlerFunc { return Authenticate(cfg, RequireAdmin(fn)) }
+	a := func(fn http.HandlerFunc) http.HandlerFunc { return Authenticate(st, cfg, RequireAdmin(fn)) }
 	mux.HandleFunc("POST /admin/api/datasources/{id}/masks", a(h.AdminUpsertMask))
 	mux.HandleFunc("GET /admin/api/datasources/{id}/masks", a(h.AdminListMasks))
 	mux.HandleFunc("POST /admin/api/datasources/{id}/tables/{table}/permissions", a(h.AdminCreateTablePermission))
@@ -70,7 +73,7 @@ func TestAdminRoutesResolveByName(t *testing.T) {
 	st := dsResolveStore(t)
 	cfg := &config.Config{JWTSecret: "test-secret", JWTExpiry: "24h"}
 	h := &Handler{Store: st}
-	mux := dsResolveMux(h, cfg)
+	mux := dsResolveMux(h, st, cfg)
 	tok := dsResolveAdminTok(t, cfg)
 
 	// 1) Upsert a mask via the NAME "demo".

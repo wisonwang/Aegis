@@ -2,14 +2,19 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
+	_ "github.com/go-sql-driver/mysql"
 
 	"github.com/wisonwang/aegis/internal/logging"
 )
@@ -17,21 +22,42 @@ import (
 // Models ---------------------------------------------------------------------
 
 type User struct {
-	ID           string    `json:"id"`
-	Username     string    `json:"username"`
-	DisplayName  string    `json:"display_name"`
-	PasswordHash string    `json:"-"`
+	ID           string         `json:"id"`
+	Username     string         `json:"username"`
+	DisplayName  string         `json:"display_name"`
+	Email        string         `json:"email"`
+	Type         string         `json:"type"` // human | service (default human)
+	PasswordHash string         `json:"-"`
 	ExternalID   sql.NullString `json:"-"` // OIDC subject / SSO identity; nullable (NULL for local users)
-	Status       string    `json:"status"`      // active | disabled
-	Attributes   string    `json:"attributes"`  // JSON object, e.g. {"tenant":"acme"}
-	CreatedAt    time.Time `json:"created_at"`
+	Status       string         `json:"status"`     // active | disabled
+	Attributes   string         `json:"attributes"` // JSON object, e.g. {"tenant":"acme"}
+	LastLoginAt  sql.NullTime   `json:"last_login_at"`
+	CreatedAt    time.Time      `json:"created_at"`
 }
 
 type Role struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	System      bool   `json:"system"` // true for built-in roles (admin, analyst, ...) that cannot be edited/deleted
 }
+
+// APIKey is a per-user bearer credential. The plaintext is shown only once at
+// creation; only its SHA-256 hash (key_hash) and a short prefix are stored.
+type APIKey struct {
+	ID         string     `json:"id"`
+	UserID     string     `json:"user_id"`
+	Name       string     `json:"name"`
+	Prefix     string     `json:"prefix"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at"`
+	ExpiresAt  *time.Time `json:"expires_at"`
+	Status     string     `json:"status"` // active | revoked
+}
+
+// ErrNotFound signals a requested entity does not exist (e.g. revoking a key
+// that isn't there or doesn't belong to the caller).
+var ErrNotFound = errors.New("not found")
 
 type DataSource struct {
 	ID        string    `json:"id"`
@@ -101,8 +127,12 @@ type TableEffective struct {
 // Store ----------------------------------------------------------------------
 
 type Store struct {
-	db *sql.DB
+	db  *sql.DB
+	kind string // "sqlite" | "mysql"
 }
+
+// isMySQL reports whether the control-plane store is backed by MySQL (vs SQLite).
+func (s *Store) isMySQL() bool { return s.kind == "mysql" }
 
 func Open(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", path)
@@ -110,7 +140,26 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("open store %s: %w", path, err)
 	}
 	db.SetMaxOpenConns(1) // sqlite single-writer
-	s := &Store{db: db}
+	s := &Store{db: db, kind: "sqlite"}
+	if err := s.migrate(); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// OpenMySQL opens the control-plane store against a MySQL server. dsn is a
+// go-sql-driver DSN, e.g. "user:pass@tcp(127.0.0.1:3306)/aegis?parseTime=true".
+func OpenMySQL(dsn string) (*Store, error) {
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open mysql store: %w", err)
+	}
+	db.SetMaxOpenConns(20)
+	db.SetConnMaxLifetime(time.Hour)
+	if err := db.Ping(); err != nil {
+		return nil, fmt.Errorf("ping mysql store: %w", err)
+	}
+	s := &Store{db: db, kind: "mysql"}
 	if err := s.migrate(); err != nil {
 		return nil, err
 	}
@@ -119,76 +168,145 @@ func Open(path string) (*Store, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
+// insertIgnore returns the SQL keyword that makes an INSERT skip rows that
+// would violate a unique/primary key: "IGNORE" for MySQL, "OR IGNORE" for SQLite.
+func (s *Store) insertIgnore() string {
+	if s.isMySQL() {
+		return "IGNORE"
+	}
+	return "OR IGNORE"
+}
+
+// upsertSuffix builds the conflict-resolution tail of an INSERT. SQLite uses
+// "ON CONFLICT(cols) DO UPDATE SET a=excluded.a,..." while MySQL uses
+// "ON DUPLICATE KEY UPDATE a=VALUES(a),...". cols is the conflict target
+// (ignored by MySQL, which keys off the unique/primary index) and sets lists
+// the columns to refresh on conflict.
+func (s *Store) upsertSuffix(conflict string, sets []string) string {
+	parts := make([]string, len(sets))
+	for i, c := range sets {
+		if s.isMySQL() {
+			parts[i] = c + "=VALUES(" + c + ")"
+		} else {
+			parts[i] = c + "=excluded." + c
+		}
+	}
+	if s.isMySQL() {
+		return "ON DUPLICATE KEY UPDATE " + strings.Join(parts, ", ")
+	}
+	return "ON CONFLICT(" + conflict + ") DO UPDATE SET " + strings.Join(parts, ", ")
+}
+
+// isAlreadyExists reports whether err is a benign "object already exists"
+// condition for either backend (index or column add idempotency).
+func isAlreadyExists(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "already exists") || // sqlite index
+		strings.Contains(msg, "Duplicate key name") || // mysql index (1061)
+		strings.Contains(msg, "duplicate column") || // sqlite column
+		strings.Contains(msg, "Duplicate column name") || // mysql column (1060)
+		strings.Contains(msg, "ER_DUP_FIELDNAME")
+}
+
+// createIndex runs a CREATE INDEX statement, tolerating an already-existing
+// index on either backend (MySQL emits errno 1061; SQLite "already exists").
+// Any other error is returned so migrate() can surface it.
+func (s *Store) createIndex(ddl string) error {
+	if _, err := s.db.Exec(ddl); err != nil {
+		if isAlreadyExists(err) {
+			return nil
+		}
+		return fmt.Errorf("createIndex: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) migrate() error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS users (
-			id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL,
-			display_name TEXT, password_hash TEXT, external_id TEXT UNIQUE,
+			id VARCHAR(64) PRIMARY KEY, username VARCHAR(191) UNIQUE NOT NULL,
+			display_name TEXT, password_hash TEXT, external_id VARCHAR(191) UNIQUE,
 			status TEXT, attributes TEXT, created_at DATETIME)`,
 		`CREATE TABLE IF NOT EXISTS roles (
-			id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, description TEXT)`,
+			id VARCHAR(64) PRIMARY KEY, name VARCHAR(191) UNIQUE NOT NULL, description TEXT, is_system INTEGER DEFAULT 0)`,
 		`CREATE TABLE IF NOT EXISTS user_roles (
-			user_id TEXT, role_id TEXT, PRIMARY KEY(user_id, role_id))`,
+			user_id VARCHAR(64), role_id VARCHAR(64), PRIMARY KEY(user_id, role_id))`,
 		`CREATE TABLE IF NOT EXISTS datasources (
-			id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, type TEXT,
+			id VARCHAR(64) PRIMARY KEY, name VARCHAR(191) UNIQUE NOT NULL, type TEXT,
 			dsn TEXT, created_at DATETIME)`,
 		`CREATE TABLE IF NOT EXISTS table_permissions (
-			id TEXT PRIMARY KEY, role_id TEXT, datasource_id TEXT,
+			id VARCHAR(64) PRIMARY KEY, role_id TEXT, datasource_id TEXT,
 			table_name TEXT, ops TEXT, allowed_cols TEXT, denied_cols TEXT)`,
 		`CREATE TABLE IF NOT EXISTS row_policies (
-			id TEXT PRIMARY KEY, role_id TEXT, datasource_id TEXT,
+			id VARCHAR(64) PRIMARY KEY, role_id TEXT, datasource_id TEXT,
 			table_name TEXT, predicate TEXT, priority INTEGER)`,
 		`CREATE TABLE IF NOT EXISTS column_masks (
-			id TEXT PRIMARY KEY, role_id TEXT, datasource_id TEXT,
-			table_name TEXT, column_name TEXT, strategy TEXT, keep INTEGER, updated_at DATETIME)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_masks_key
+			id VARCHAR(64) PRIMARY KEY, role_id VARCHAR(64), datasource_id VARCHAR(191),
+			table_name VARCHAR(191), column_name VARCHAR(191), strategy TEXT, keep INTEGER, updated_at DATETIME)`,
+		`CREATE UNIQUE INDEX idx_masks_key
 			ON column_masks(role_id, datasource_id, table_name, column_name)`,
 		`CREATE TABLE IF NOT EXISTS audit_logs (
-			id TEXT PRIMARY KEY, ts DATETIME, user_id TEXT, username TEXT,
+			id VARCHAR(64) PRIMARY KEY, ts DATETIME, user_id TEXT, username VARCHAR(191),
 			channel TEXT, datasource_id TEXT, datasource TEXT,
 			session_id TEXT, sql_text TEXT, rewritten_sql TEXT, status TEXT,
 			error TEXT, row_count INTEGER, duration_ms INTEGER)`,
-		`CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_logs(ts DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(username)`,
+		`CREATE INDEX idx_audit_ts ON audit_logs(ts DESC)`,
+		`CREATE INDEX idx_audit_user ON audit_logs(username)`,
 		`CREATE TABLE IF NOT EXISTS schema_semantics (
-			id TEXT PRIMARY KEY, datasource_id TEXT NOT NULL,
-			table_name TEXT NOT NULL, column_name TEXT NOT NULL DEFAULT '',
+			id VARCHAR(64) PRIMARY KEY, datasource_id VARCHAR(191) NOT NULL,
+			table_name VARCHAR(191) NOT NULL, column_name VARCHAR(191) NOT NULL DEFAULT '',
 			description TEXT, synonyms TEXT, examples TEXT, updated_at DATETIME)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_semantics_key
+		`CREATE UNIQUE INDEX idx_semantics_key
 			ON schema_semantics(datasource_id, table_name, column_name)`,
 		`CREATE TABLE IF NOT EXISTS security_alerts (
-			id TEXT PRIMARY KEY, ts DATETIME, level TEXT, rule TEXT,
-			principal TEXT, channel TEXT, detail TEXT, resolved INTEGER DEFAULT 0)`,
-		`CREATE INDEX IF NOT EXISTS idx_alerts_ts ON security_alerts(ts DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_alerts_principal ON security_alerts(principal)`,
+			id VARCHAR(64) PRIMARY KEY, ts DATETIME, level TEXT, rule TEXT,
+			principal VARCHAR(191), channel TEXT, detail TEXT, resolved INTEGER DEFAULT 0)`,
+		`CREATE INDEX idx_alerts_ts ON security_alerts(ts DESC)`,
+		`CREATE INDEX idx_alerts_principal ON security_alerts(principal)`,
 		`CREATE TABLE IF NOT EXISTS data_classifications (
-			id TEXT PRIMARY KEY, datasource_id TEXT NOT NULL,
-			table_name TEXT NOT NULL, column_name TEXT NOT NULL DEFAULT '',
+			id VARCHAR(64) PRIMARY KEY, datasource_id VARCHAR(191) NOT NULL,
+			table_name VARCHAR(191) NOT NULL, column_name VARCHAR(191) NOT NULL DEFAULT '',
 			level TEXT, tags TEXT, updated_at DATETIME)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_classifications_key
+		`CREATE UNIQUE INDEX idx_classifications_key
 			ON data_classifications(datasource_id, table_name, column_name)`,
 		`CREATE TABLE IF NOT EXISTS approval_requests (
-			id TEXT PRIMARY KEY, applicant_id TEXT, applicant_name TEXT,
+			id VARCHAR(64) PRIMARY KEY, applicant_id VARCHAR(64), applicant_name TEXT,
 			datasource_id TEXT, datasource_name TEXT, table_name TEXT,
-			role_name TEXT, ops TEXT, justification TEXT, status TEXT,
+			role_name TEXT, ops TEXT, justification TEXT, status VARCHAR(32),
 			approver_id TEXT, approver_name TEXT, granted_perm_id TEXT,
 			created_at DATETIME, resolved_at DATETIME)`,
-		`CREATE INDEX IF NOT EXISTS idx_approval_status ON approval_requests(status)`,
-		`CREATE INDEX IF NOT EXISTS idx_approval_applicant ON approval_requests(applicant_id)`,
+		`CREATE INDEX idx_approval_status ON approval_requests(status)`,
+		`CREATE INDEX idx_approval_applicant ON approval_requests(applicant_id)`,
 		`CREATE TABLE IF NOT EXISTS metric_definitions (
-			id TEXT PRIMARY KEY, datasource_id TEXT NOT NULL,
-			name TEXT NOT NULL, description TEXT, sql_template TEXT,
+			id VARCHAR(64) PRIMARY KEY, datasource_id VARCHAR(191) NOT NULL,
+			name VARCHAR(191) NOT NULL, description TEXT, sql_template TEXT,
 			params TEXT, unit TEXT, created_at DATETIME, updated_at DATETIME)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_metrics_key
+		`CREATE UNIQUE INDEX idx_metrics_key
 			ON metric_definitions(datasource_id, name)`,
 		`CREATE TABLE IF NOT EXISTS workspaces (
-			id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT UNIQUE NOT NULL,
+			id VARCHAR(64) PRIMARY KEY, name VARCHAR(191) NOT NULL, slug VARCHAR(191) UNIQUE NOT NULL,
 			settings TEXT, created_at DATETIME)`,
 		`CREATE TABLE IF NOT EXISTS workspace_members (
-			workspace_id TEXT, user_id TEXT, role TEXT, is_default INTEGER DEFAULT 0,
+			workspace_id VARCHAR(64), user_id VARCHAR(64), role VARCHAR(32), is_default INTEGER DEFAULT 0,
 			created_at DATETIME, PRIMARY KEY(workspace_id, user_id))`,
+		`CREATE TABLE IF NOT EXISTS api_keys (
+			id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, name VARCHAR(191) NOT NULL,
+			prefix VARCHAR(64) NOT NULL, key_hash VARCHAR(255) NOT NULL,
+			created_at DATETIME, last_used_at DATETIME, expires_at DATETIME,
+			status VARCHAR(32) DEFAULT 'active')`,
+		`CREATE INDEX idx_api_keys_user ON api_keys(user_id)`,
 	}
 	for _, st := range stmts {
+		t := strings.TrimSpace(st)
+		if strings.HasPrefix(t, "CREATE INDEX") || strings.HasPrefix(t, "CREATE UNIQUE INDEX") {
+			if err := s.createIndex(st); err != nil {
+				return err
+			}
+			continue
+		}
 		if _, err := s.db.Exec(st); err != nil {
 			return fmt.Errorf("migrate: %w", err)
 		}
@@ -197,13 +315,25 @@ func (s *Store) migrate() error {
 	// were created before this column existed. ALTER errors if the column is
 	// already present, which we safely ignore.
 	if _, err := s.db.Exec(`ALTER TABLE audit_logs ADD COLUMN session_id TEXT`); err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
+		if !isAlreadyExists(err) {
 			logging.With("error", err.Error()).Warn("migration: add session_id to audit_logs failed")
 		}
 	}
-	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN external_id TEXT UNIQUE`); err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
+	if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN external_id VARCHAR(191) UNIQUE`); err != nil {
+		if !isAlreadyExists(err) {
 			logging.With("error", err.Error()).Warn("migration: add external_id to users failed")
+		}
+	}
+	for _, alt := range []string{
+		`ALTER TABLE users ADD COLUMN email VARCHAR(191) NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN type VARCHAR(32) NOT NULL DEFAULT 'human'`,
+		`ALTER TABLE users ADD COLUMN last_login_at DATETIME`,
+		`ALTER TABLE roles ADD COLUMN is_system INTEGER DEFAULT 0`,
+	} {
+		if _, err := s.db.Exec(alt); err != nil {
+			if !isAlreadyExists(err) {
+				logging.With("error", err.Error()).Warn("migration: add column failed: " + alt)
+			}
 		}
 	}
 	if err := migrateDatasets(s); err != nil {
@@ -224,13 +354,13 @@ func (s *Store) migrate() error {
 //     table so legacy rows stay visible inside the default workspace.
 func migrateWorkspaces(s *Store) error {
 	if _, err := s.db.Exec(
-		`INSERT OR IGNORE INTO workspaces (id,name,slug,settings,created_at)
+		`INSERT ` + s.insertIgnore() + ` INTO workspaces (id,name,slug,settings,created_at)
 		 VALUES (?,?,?,?,?)`,
 		DefaultWorkspaceID, "Default", "default", "{}", time.Now()); err != nil {
 		return err
 	}
 	// Backfill membership for users that are not yet members of default.
-	users, err := s.ListUsers()
+	users, err := s.ListUsers("")
 	if err != nil {
 		return err
 	}
@@ -263,8 +393,8 @@ func migrateWorkspaces(s *Store) error {
 	}
 	for _, t := range governed {
 		if _, err := s.db.Exec(
-			`ALTER TABLE ` + t + ` ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'default'`); err != nil {
-			if !strings.Contains(err.Error(), "duplicate column") {
+			`ALTER TABLE ` + t + ` ADD COLUMN workspace_id VARCHAR(191) NOT NULL DEFAULT 'default'`); err != nil {
+			if !isAlreadyExists(err) {
 				logging.With("error", err.Error(), "table", t).
 					Warn("migration: add workspace_id failed")
 			}
@@ -297,18 +427,18 @@ func (s *Store) CreateUser(u *User) error {
 		extID = nil
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO users (id,username,display_name,password_hash,external_id,status,attributes,created_at)
-		 VALUES (?,?,?,?,?,?,?,?)`,
-		u.ID, u.Username, u.DisplayName, u.PasswordHash, extID, u.Status, u.Attributes, u.CreatedAt)
+		`INSERT INTO users (id,username,display_name,password_hash,external_id,email,type,status,attributes,created_at)
+		 VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		u.ID, u.Username, u.DisplayName, u.PasswordHash, extID, u.Email, u.Type, u.Status, u.Attributes, u.CreatedAt)
 	return err
 }
 
 func (s *Store) GetUserByUsername(username string) (*User, error) {
 	u := &User{}
 	err := s.db.QueryRow(
-		`SELECT id,username,display_name,password_hash,external_id,status,attributes,created_at
+		`SELECT id,username,display_name,password_hash,external_id,COALESCE(email,'') AS email,COALESCE(type,'human') AS type,status,attributes,last_login_at,created_at
 		 FROM users WHERE username=?`, username).
-		Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.ExternalID, &u.Status, &u.Attributes, &u.CreatedAt)
+		Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.ExternalID, &u.Email, &u.Type, &u.Status, &u.Attributes, &u.LastLoginAt, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -324,9 +454,9 @@ func (s *Store) GetUserByExternalID(externalID string) (*User, error) {
 	}
 	u := &User{}
 	err := s.db.QueryRow(
-		`SELECT id,username,display_name,password_hash,external_id,status,attributes,created_at
+		`SELECT id,username,display_name,password_hash,external_id,COALESCE(email,'') AS email,COALESCE(type,'human') AS type,status,attributes,last_login_at,created_at
 		 FROM users WHERE external_id=?`, externalID).
-		Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.ExternalID, &u.Status, &u.Attributes, &u.CreatedAt)
+		Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.ExternalID, &u.Email, &u.Type, &u.Status, &u.Attributes, &u.LastLoginAt, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -339,9 +469,9 @@ func (s *Store) GetUserByExternalID(externalID string) (*User, error) {
 func (s *Store) GetUser(id string) (*User, error) {
 	u := &User{}
 	err := s.db.QueryRow(
-		`SELECT id,username,display_name,password_hash,external_id,status,attributes,created_at
+		`SELECT id,username,display_name,password_hash,external_id,COALESCE(email,'') AS email,COALESCE(type,'human') AS type,status,attributes,last_login_at,created_at
 		 FROM users WHERE id=?`, id).
-		Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.ExternalID, &u.Status, &u.Attributes, &u.CreatedAt)
+		Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.ExternalID, &u.Email, &u.Type, &u.Status, &u.Attributes, &u.LastLoginAt, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -351,10 +481,16 @@ func (s *Store) GetUser(id string) (*User, error) {
 	return u, nil
 }
 
-func (s *Store) ListUsers() ([]*User, error) {
-	rows, err := s.db.Query(
-		`SELECT id,username,display_name,password_hash,external_id,status,attributes,created_at
-		 FROM users ORDER BY username`)
+func (s *Store) ListUsers(ws string) ([]*User, error) {
+	q := `SELECT id,username,display_name,password_hash,external_id,COALESCE(email,'') AS email,COALESCE(type,'human') AS type,status,attributes,last_login_at,created_at
+	      FROM users`
+	args := []interface{}{}
+	if ws != "" {
+		q += ` WHERE id IN (SELECT user_id FROM workspace_members WHERE workspace_id=?)`
+		args = append(args, ws)
+	}
+	q += ` ORDER BY username`
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -362,7 +498,7 @@ func (s *Store) ListUsers() ([]*User, error) {
 	var out []*User
 	for rows.Next() {
 		u := &User{}
-		if err := rows.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.ExternalID, &u.Status, &u.Attributes, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.ExternalID, &u.Email, &u.Type, &u.Status, &u.Attributes, &u.LastLoginAt, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
@@ -372,13 +508,20 @@ func (s *Store) ListUsers() ([]*User, error) {
 
 func (s *Store) UpdateUser(u *User) error {
 	_, err := s.db.Exec(
-		`UPDATE users SET display_name=?, status=?, attributes=? WHERE id=?`,
-		u.DisplayName, u.Status, u.Attributes, u.ID)
+		`UPDATE users SET display_name=?, email=?, type=?, status=?, attributes=? WHERE id=?`,
+		u.DisplayName, u.Email, u.Type, u.Status, u.Attributes, u.ID)
 	return err
 }
 
 func (s *Store) SetUserPassword(id, hash string) error {
 	_, err := s.db.Exec(`UPDATE users SET password_hash=? WHERE id=?`, hash, id)
+	return err
+}
+
+// UpdateLastLogin records the timestamp of a user's most recent successful
+// authentication (used by the admin user list).
+func (s *Store) UpdateLastLogin(id string) error {
+	_, err := s.db.Exec(`UPDATE users SET last_login_at=? WHERE id=?`, time.Now(), id)
 	return err
 }
 
@@ -409,20 +552,143 @@ func (s *Store) UserAttributes(id string) (map[string]string, error) {
 	return m, nil
 }
 
+// CreateAPIKey mints a new per-user API key. The plaintext is returned exactly
+// once; only its hash and a 12-char prefix are persisted.
+func (s *Store) CreateAPIKey(userID, name string, expiresAt time.Time) (plaintext, keyID string, err error) {
+	buf := make([]byte, 24)
+	if _, err = rand.Read(buf); err != nil {
+		return "", "", err
+	}
+	plaintext = "ak_" + hex.EncodeToString(buf)
+	sum := sha256.Sum256([]byte(plaintext))
+	keyID = uid()
+	now := time.Now()
+	var exp interface{}
+	if !expiresAt.IsZero() {
+		exp = expiresAt
+	}
+	_, err = s.db.Exec(
+		`INSERT INTO api_keys (id,user_id,name,prefix,key_hash,created_at,expires_at,status)
+		 VALUES (?,?,?,?,?,?,?,?)`,
+		keyID, userID, name, plaintext[:12], hex.EncodeToString(sum[:]), now, exp, "active")
+	if err != nil {
+		return "", "", err
+	}
+	return plaintext, keyID, nil
+}
+
+// ListAPIKeys returns a user's keys without any secret material.
+func (s *Store) ListAPIKeys(userID string) ([]*APIKey, error) {
+	rows, err := s.db.Query(
+		`SELECT id,user_id,name,prefix,created_at,last_used_at,expires_at,status
+		 FROM api_keys WHERE user_id=? ORDER BY created_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]*APIKey, 0)
+	for rows.Next() {
+		k := &APIKey{}
+		var lu, exp sql.NullTime
+		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.Prefix, &k.CreatedAt, &lu, &exp, &k.Status); err != nil {
+			return nil, err
+		}
+		if lu.Valid {
+			t := lu.Time
+			k.LastUsedAt = &t
+		}
+		if exp.Valid {
+			t := exp.Time
+			k.ExpiresAt = &t
+		}
+		out = append(out, k)
+	}
+	return out, nil
+}
+
+// RevokeAPIKey disables a key. It returns ErrNotFound when the key is absent
+// or does not belong to the user (so callers can 404 safely).
+func (s *Store) RevokeAPIKey(userID, keyID string) error {
+	res, err := s.db.Exec(
+		`UPDATE api_keys SET status='revoked' WHERE id=? AND user_id=? AND status='active'`,
+		keyID, userID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// LookupAPIKey resolves a presented key to its APIKey + owning User. It
+// returns (nil, nil, nil) for unknown/revoked/expired keys.
+func (s *Store) LookupAPIKey(key string) (*APIKey, *User, error) {
+	if key == "" {
+		return nil, nil, nil
+	}
+	sum := sha256.Sum256([]byte(key))
+	hash := hex.EncodeToString(sum[:])
+	k := &APIKey{}
+	var lu, exp sql.NullTime
+	err := s.db.QueryRow(
+		`SELECT id,user_id,name,prefix,created_at,last_used_at,expires_at,status
+		 FROM api_keys WHERE key_hash=?`, hash).
+		Scan(&k.ID, &k.UserID, &k.Name, &k.Prefix, &k.CreatedAt, &lu, &exp, &k.Status)
+	if err == sql.ErrNoRows {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if k.Status != "active" {
+		return nil, nil, nil
+	}
+	if exp.Valid && exp.Time.Before(time.Now()) {
+		return nil, nil, nil
+	}
+	if lu.Valid {
+		t := lu.Time
+		k.LastUsedAt = &t
+	}
+	if exp.Valid {
+		t := exp.Time
+		k.ExpiresAt = &t
+	}
+	u, err := s.GetUser(k.UserID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if u == nil {
+		return nil, nil, nil
+	}
+	return k, u, nil
+}
+
+// TouchAPIKey records a successful use of a key.
+func (s *Store) TouchAPIKey(id string) error {
+	_, err := s.db.Exec(`UPDATE api_keys SET last_used_at=? WHERE id=?`, time.Now(), id)
+	return err
+}
+
 // Roles ----------------------------------------------------------------------
 
 func (s *Store) CreateRole(r *Role) error {
 	if r.ID == "" {
 		r.ID = uid()
 	}
-	_, err := s.db.Exec(`INSERT INTO roles (id,name,description) VALUES (?,?,?)`, r.ID, r.Name, r.Description)
+	sys := 0
+	if r.System {
+		sys = 1
+	}
+	_, err := s.db.Exec(`INSERT INTO roles (id,name,description,is_system) VALUES (?,?,?,?)`, r.ID, r.Name, r.Description, sys)
 	return err
 }
 
 func (s *Store) GetRole(name string) (*Role, error) {
 	r := &Role{}
-	err := s.db.QueryRow(`SELECT id,name,description FROM roles WHERE name=?`, name).
-		Scan(&r.ID, &r.Name, &r.Description)
+	err := s.db.QueryRow(`SELECT id,name,description,is_system FROM roles WHERE name=?`, name).
+		Scan(&r.ID, &r.Name, &r.Description, &r.System)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -434,8 +700,8 @@ func (s *Store) GetRole(name string) (*Role, error) {
 
 func (s *Store) GetRoleByID(id string) (*Role, error) {
 	r := &Role{}
-	err := s.db.QueryRow(`SELECT id,name,description FROM roles WHERE id=?`, id).
-		Scan(&r.ID, &r.Name, &r.Description)
+	err := s.db.QueryRow(`SELECT id,name,description,is_system FROM roles WHERE id=?`, id).
+		Scan(&r.ID, &r.Name, &r.Description, &r.System)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -446,7 +712,7 @@ func (s *Store) GetRoleByID(id string) (*Role, error) {
 }
 
 func (s *Store) ListRoles() ([]*Role, error) {
-	rows, err := s.db.Query(`SELECT id,name,description FROM roles ORDER BY name`)
+	rows, err := s.db.Query(`SELECT id,name,description,is_system FROM roles ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -454,12 +720,19 @@ func (s *Store) ListRoles() ([]*Role, error) {
 	var out []*Role
 	for rows.Next() {
 		r := &Role{}
-		if err := rows.Scan(&r.ID, &r.Name, &r.Description); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Description, &r.System); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
 	}
 	return out, nil
+}
+
+// SetRoleSystem flips the built-in flag on a role (used to backfill system
+// roles when an older schema lacked the column).
+func (s *Store) SetRoleSystem(id string, system bool) error {
+	_, err := s.db.Exec(`UPDATE roles SET is_system=? WHERE id=?`, system, id)
+	return err
 }
 
 func (s *Store) DeleteRole(id string) error {
@@ -482,9 +755,17 @@ func (s *Store) DeleteRole(id string) error {
 	return tx.Commit()
 }
 
+
+// UpdateRole changes a role's name and description. Built-in (system) roles
+// are protected by the caller, not here.
+func (s *Store) UpdateRole(id, name, description string) error {
+	_, err := s.db.Exec(`UPDATE roles SET name=?, description=? WHERE id=?`, name, description, id)
+	return err
+}
+
 func (s *Store) AddUserRole(userID, roleID string) error {
 	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO user_roles (user_id,role_id) VALUES (?,?)`, userID, roleID)
+		`INSERT ` + s.insertIgnore() + ` INTO user_roles (user_id,role_id) VALUES (?,?)`, userID, roleID)
 	return err
 }
 
@@ -495,7 +776,7 @@ func (s *Store) RemoveUserRole(userID, roleID string) error {
 
 func (s *Store) ListRolesForUser(userID string) ([]*Role, error) {
 	rows, err := s.db.Query(
-		`SELECT r.id,r.name,r.description FROM roles r
+		`SELECT r.id,r.name,r.description,r.is_system FROM roles r
 		 JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=? ORDER BY r.name`, userID)
 	if err != nil {
 		return nil, err
@@ -504,7 +785,7 @@ func (s *Store) ListRolesForUser(userID string) ([]*Role, error) {
 	var out []*Role
 	for rows.Next() {
 		r := &Role{}
-		if err := rows.Scan(&r.ID, &r.Name, &r.Description); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Description, &r.System); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -727,11 +1008,7 @@ func (s *Store) UpsertColumnMask(ctx context.Context, p *ColumnMask) error {
 	_, err := s.db.Exec(
 		`INSERT INTO column_masks (id,role_id,datasource_id,table_name,column_name,strategy,keep,updated_at,workspace_id)
 		 VALUES (?,?,?,?,?,?,?,?,?)
-		 ON CONFLICT(id) DO UPDATE SET
-		   role_id=excluded.role_id, datasource_id=excluded.datasource_id,
-		   table_name=excluded.table_name, column_name=excluded.column_name,
-		   strategy=excluded.strategy, keep=excluded.keep, updated_at=excluded.updated_at,
-		   workspace_id=excluded.workspace_id`,
+		 ` + s.upsertSuffix("id", []string{"role_id","datasource_id","table_name","column_name","strategy","keep","updated_at","workspace_id"}) ,
 		p.ID, p.RoleID, p.DataSourceID, p.TableName, p.ColumnName, p.Strategy, p.Keep, p.UpdatedAt, ws)
 	return err
 }

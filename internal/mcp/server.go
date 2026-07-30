@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/wisonwang/aegis/internal/api"
 	"github.com/wisonwang/aegis/internal/auth"
 	"github.com/wisonwang/aegis/internal/config"
 	"github.com/wisonwang/aegis/internal/proxy"
@@ -408,11 +409,15 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 	}, nil
 }
 
-// principal resolves the caller from a Bearer JWT or the static MCP API key.
+// principal resolves the MCP caller. It prefers the shared resolver so that
+// per-user API keys (Bearer <key> or X-API-Key) and JWTs work identically to
+// the DataAPI path, then falls back to the legacy static MCP key (mcp-agent)
+// for backward compatibility.
 func (s *Server) principal(r *http.Request) (*auth.Claims, error) {
-	if az := r.Header.Get("Authorization"); strings.HasPrefix(az, "Bearer ") {
-		return auth.ParseToken(strings.TrimPrefix(az, "Bearer "), s.cfg.JWTSecret)
+	if res, err := api.ResolvePrincipal(s.store, s.cfg, r); err == nil {
+		return res.Claims, nil
 	}
+	// Legacy static key path (MCP-only service account).
 	apiKey := r.Header.Get("X-MCP-API-Key")
 	if apiKey == "" {
 		apiKey = r.Header.Get("Mcp-Api-Key")
@@ -439,7 +444,7 @@ func (s *Server) principal(r *http.Request) (*auth.Claims, error) {
 			Attributes:  attrs,
 		}, nil
 	}
-	return nil, fmt.Errorf("unauthorized: provide a Bearer token or MCP API key")
+	return nil, fmt.Errorf("unauthorized: provide a Bearer token or API key")
 }
 
 // resolveContext resolves the MCP caller's principal AND the active workspace,

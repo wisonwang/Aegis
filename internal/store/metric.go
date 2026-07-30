@@ -56,13 +56,7 @@ func (s *Store) UpsertMetric(ctx context.Context, m *MetricDefinition) error {
 		`INSERT INTO metric_definitions
 			(id,datasource_id,name,description,sql_template,params,unit,created_at,updated_at,workspace_id)
 		 VALUES (?,?,?,?,?,?,?,?,?,?)
-		 ON CONFLICT(datasource_id,name) DO UPDATE SET
-			description=excluded.description,
-			sql_template=excluded.sql_template,
-			params=excluded.params,
-			unit=excluded.unit,
-			updated_at=excluded.updated_at,
-			workspace_id=excluded.workspace_id`,
+		 ` + s.upsertSuffix("datasource_id,name", []string{"description","sql_template","params","unit","updated_at","workspace_id"}) ,
 		m.ID, m.DataSourceID, m.Name, m.Description, m.SQLTemplate, string(paramsJSON),
 		m.Unit, m.CreatedAt, m.UpdatedAt, WriteWorkspace(ctx))
 	return err

@@ -1,12 +1,13 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/wisonwang/aegis/internal/datasource"
 	"github.com/wisonwang/aegis/internal/store"
-	"context"
 )
 
 // ---- Users ----
@@ -18,7 +19,8 @@ import (
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/users [get]
 func (h *Handler) AdminListUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := h.Store.ListUsers()
+	ws := r.URL.Query().Get("workspace")
+	users, err := h.Store.ListUsers(ws)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -35,13 +37,26 @@ func (h *Handler) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 		for _, role := range ur {
 			names = append(names, role.Name)
 		}
+		source := "local"
+		if u.ExternalID.Valid && u.ExternalID.String != "" {
+			source = "sso"
+		}
+		lastLogin := ""
+		if u.LastLoginAt.Valid {
+			lastLogin = u.LastLoginAt.Time.Format(time.RFC3339)
+		}
 		out = append(out, map[string]interface{}{
-			"id":           u.ID,
-			"username":     u.Username,
-			"display_name": u.DisplayName,
-			"status":       u.Status,
-			"attributes":   json.RawMessage(orEmpty(u.Attributes)),
-			"roles":        names,
+			"id":            u.ID,
+			"username":      u.Username,
+			"display_name":  u.DisplayName,
+			"email":         u.Email,
+			"type":          u.Type,
+			"source":        source,
+			"external_id":   u.ExternalID.String,
+			"status":        u.Status,
+			"last_login_at": lastLogin,
+			"attributes":    json.RawMessage(orEmpty(u.Attributes)),
+			"roles":         names,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"users": out})
@@ -50,7 +65,10 @@ func (h *Handler) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 type createUserRequest struct {
 	Username    string            `json:"username"`
 	DisplayName string            `json:"display_name"`
+	Email       string            `json:"email"`
+	Type        string            `json:"type"` // human | service (default human)
 	Password    string            `json:"password"`
+	Workspace   string            `json:"workspace"` // optional: join the user to this workspace on creation
 	Attributes  map[string]string `json:"attributes"`
 	Roles       []string          `json:"roles"`
 }
@@ -68,14 +86,28 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if req.Username == "" || req.Password == "" {
-		writeError(w, http.StatusBadRequest, "username and password are required")
+	if req.Username == "" {
+		writeError(w, http.StatusBadRequest, "username is required")
 		return
 	}
-	hash, err := hashPassword(req.Password)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	userType := req.Type
+	if userType == "" {
+		userType = "human"
+	}
+	// Service accounts authenticate via API key only, so a password is not
+	// required (and is deliberately left empty so password login fails).
+	if userType == "human" && req.Password == "" {
+		writeError(w, http.StatusBadRequest, "password is required for human users")
 		return
+	}
+	var hash string
+	if req.Password != "" {
+		var err error
+		hash, err = hashPassword(req.Password)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	attrs := ""
 	if len(req.Attributes) > 0 {
@@ -85,12 +117,29 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 	u := &store.User{
 		Username:     req.Username,
 		DisplayName:  req.DisplayName,
+		Email:        req.Email,
+		Type:         userType,
 		PasswordHash: hash,
 		Attributes:   attrs,
 	}
 	if err := h.Store.CreateUser(u); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if req.Workspace != "" {
+		// Accept either a workspace id or a slug from the client and resolve
+		// it to the canonical id before linking — AddWorkspaceMember stores the
+		// raw workspace id, so a slug would otherwise create a dangling member.
+		ws, werr := h.Store.GetWorkspace(req.Workspace)
+		if werr != nil || ws == nil {
+			ws, _ = h.Store.GetWorkspaceBySlug(req.Workspace)
+		}
+		if ws != nil {
+			if err := h.Store.AddWorkspaceMember(ws.ID, u.ID, store.WsRoleMember, false); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
 	}
 	for _, rn := range req.Roles {
 		role, err := h.Store.GetRole(rn)
@@ -104,6 +153,8 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 
 type updateUserRequest struct {
 	DisplayName string            `json:"display_name"`
+	Email       string            `json:"email"`
+	Type        string            `json:"type"`
 	Status      string            `json:"status"`
 	Attributes  map[string]string `json:"attributes"`
 }
@@ -130,6 +181,12 @@ func (h *Handler) AdminUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.DisplayName != "" {
 		u.DisplayName = req.DisplayName
+	}
+	if req.Email != "" {
+		u.Email = req.Email
+	}
+	if req.Type != "" {
+		u.Type = req.Type
 	}
 	if req.Status != "" {
 		u.Status = req.Status
@@ -192,6 +249,135 @@ func (h *Handler) AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// ---- API keys (per-user bearer credentials) ----
+
+type createKeyRequest struct {
+	Name      string `json:"name"`
+	ExpiresIn string `json:"expires_in"` // optional duration, e.g. "720h"; empty = no expiry
+}
+
+// AdminCreateUserAPIKey mints a new API key for any user (admin only). The
+// plaintext is returned exactly once in the response.
+// @Router /admin/api/users/{id}/apikeys [post]
+func (h *Handler) AdminCreateUserAPIKey(w http.ResponseWriter, r *http.Request) {
+	id := pathParam(r, "id")
+	u, err := h.Store.GetUser(id)
+	if err != nil || u == nil {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	var req createKeyRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	name := req.Name
+	if name == "" {
+		name = "key"
+	}
+	var exp time.Time
+	if req.ExpiresIn != "" {
+		d, derr := time.ParseDuration(req.ExpiresIn)
+		if derr != nil {
+			writeError(w, http.StatusBadRequest, "invalid expires_in")
+			return
+		}
+		exp = time.Now().Add(d)
+	}
+	plain, keyID, err := h.Store.CreateAPIKey(id, name, exp)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"id": keyID, "key": plain, "prefix": plain[:12]})
+}
+
+// AdminListUserAPIKeys lists a user's keys (no secret material).
+// @Router /admin/api/users/{id}/apikeys [get]
+func (h *Handler) AdminListUserAPIKeys(w http.ResponseWriter, r *http.Request) {
+	id := pathParam(r, "id")
+	keys, err := h.Store.ListAPIKeys(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if keys == nil {
+		keys = []*store.APIKey{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"api_keys": keys})
+}
+
+// AdminRevokeUserAPIKey revokes one of a user's keys.
+// @Router /admin/api/users/{id}/apikeys/{keyId} [delete]
+func (h *Handler) AdminRevokeUserAPIKey(w http.ResponseWriter, r *http.Request) {
+	id := pathParam(r, "id")
+	keyID := pathParam(r, "keyId")
+	if err := h.Store.RevokeAPIKey(id, keyID); err != nil {
+		if err == store.ErrNotFound {
+			writeError(w, http.StatusNotFound, "key not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// MeListAPIKeys lists the caller's own keys.
+// @Router /api/v1/me/apikeys [get]
+func (h *Handler) MeListAPIKeys(w http.ResponseWriter, r *http.Request) {
+	c := claimsFromContext(r.Context())
+	keys, err := h.Store.ListAPIKeys(c.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if keys == nil {
+		keys = []*store.APIKey{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"api_keys": keys})
+}
+
+// MeCreateAPIKey mints a new key for the caller.
+// @Router /api/v1/me/apikeys [post]
+func (h *Handler) MeCreateAPIKey(w http.ResponseWriter, r *http.Request) {
+	c := claimsFromContext(r.Context())
+	var req createKeyRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	name := req.Name
+	if name == "" {
+		name = "key"
+	}
+	var exp time.Time
+	if req.ExpiresIn != "" {
+		d, derr := time.ParseDuration(req.ExpiresIn)
+		if derr != nil {
+			writeError(w, http.StatusBadRequest, "invalid expires_in")
+			return
+		}
+		exp = time.Now().Add(d)
+	}
+	plain, keyID, err := h.Store.CreateAPIKey(c.UserID, name, exp)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"id": keyID, "key": plain, "prefix": plain[:12]})
+}
+
+// MeRevokeAPIKey revokes one of the caller's own keys.
+// @Router /api/v1/me/apikeys/{keyId} [delete]
+func (h *Handler) MeRevokeAPIKey(w http.ResponseWriter, r *http.Request) {
+	c := claimsFromContext(r.Context())
+	keyID := pathParam(r, "keyId")
+	if err := h.Store.RevokeAPIKey(c.UserID, keyID); err != nil {
+		if err == store.ErrNotFound {
+			writeError(w, http.StatusNotFound, "key not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 type roleRef struct {
 	Role string `json:"role"`
 }
@@ -216,6 +402,10 @@ func (h *Handler) AdminAddUserRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "role not found")
 		return
 	}
+	if role.System {
+		writeError(w, http.StatusForbidden, "cannot grant a system role")
+		return
+	}
 	if err := h.Store.AddUserRole(id, role.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -236,6 +426,10 @@ func (h *Handler) AdminRemoveUserRole(w http.ResponseWriter, r *http.Request) {
 	role, err := h.Store.GetRole(pathParam(r, "role"))
 	if err != nil || role == nil {
 		writeError(w, http.StatusNotFound, "role not found")
+		return
+	}
+	if role.System {
+		writeError(w, http.StatusForbidden, "cannot revoke a system role")
 		return
 	}
 	if err := h.Store.RemoveUserRole(id, role.ID); err != nil {
@@ -287,6 +481,46 @@ func (h *Handler) AdminCreateRole(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
 }
 
+type updateRoleRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// @Summary admin Update Role
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "id"
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/roles/{id} [put]
+func (h *Handler) AdminUpdateRole(w http.ResponseWriter, r *http.Request) {
+	id := pathParam(r, "id")
+	role, err := h.Store.GetRoleByID(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if role == nil {
+		writeError(w, http.StatusNotFound, "role not found")
+		return
+	}
+	if role.System {
+		writeError(w, http.StatusForbidden, "cannot edit a system role")
+		return
+	}
+	var req updateRoleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name required")
+		return
+	}
+	if err := h.Store.UpdateRole(id, req.Name, req.Description); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // @Summary admin Delete Role
 // @Tags admin
 // @Produce json
@@ -296,6 +530,19 @@ func (h *Handler) AdminCreateRole(w http.ResponseWriter, r *http.Request) {
 // @Router /admin/api/roles/{id} [delete]
 func (h *Handler) AdminDeleteRole(w http.ResponseWriter, r *http.Request) {
 	id := pathParam(r, "id")
+	role, err := h.Store.GetRoleByID(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if role == nil {
+		writeError(w, http.StatusNotFound, "role not found")
+		return
+	}
+	if role.System {
+		writeError(w, http.StatusForbidden, "cannot delete a system role")
+		return
+	}
 	if err := h.Store.DeleteRole(id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Aegis · 数据库代理治理平台</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="/admin/style.css" />
 </head>
 <body>
   <header class="topbar">
@@ -36,6 +36,7 @@
       <button class="tab" data-tab="approvals" data-cap="approval_workflow">审批流</button>
       <button class="tab" data-tab="nl2sql">NL2SQL</button>
       <button class="tab" data-tab="datasets" data-cap="data_products">数据集</button>
+      <button class="tab" data-tab="catalog" data-cap="data_products">数据目录</button>
       <button class="tab" data-tab="metrics" data-cap="data_products">指标</button>
       <button class="tab" data-tab="apidocs">API 接入</button>
     </nav>
@@ -56,7 +57,13 @@
       <div class="row">
         <input id="uName" placeholder="用户名" />
         <input id="uDisp" placeholder="显示名" />
+        <input id="uEmail" placeholder="邮箱(可选)" />
         <input id="uPass" type="password" placeholder="密码" />
+        <select id="uType">
+          <option value="human">人类用户</option>
+          <option value="service">服务账号(凭 API Key)</option>
+        </select>
+        <select id="uWS"><option value="">工作区(可选)</option></select>
         <input id="uAttrs" placeholder='属性JSON, 如 {"tenant":"acme"}' />
         <select id="uStatus" class="hidden">
           <option value="active">active</option>
@@ -65,7 +72,21 @@
         <button id="uCreate">创建用户</button>
         <button id="uCancel" class="sec hidden">取消编辑</button>
       </div>
+      <div class="row">
+        <label>工作区筛选：<select id="uWsFilter"><option value="">全部</option></select></label>
+      </div>
       <table id="usersTable" class="grid"></table>
+      <dialog id="apiKeyDialog" style="padding:1.5rem;border:1px solid var(--border,#ddd);border-radius:10px;max-width:680px;width:92%;box-shadow:0 10px 40px rgba(0,0,0,.25)">
+        <h3>API Key 管理 — <span id="akUser"></span></h3>
+        <div class="row">
+          <input id="akName" placeholder="Key 名称" />
+          <input id="akExpires" placeholder="有效期, 如 720h(留空=永久)" />
+          <button id="akCreate" class="sec">生成 Key</button>
+        </div>
+        <div id="akNewKey" class="ak-newkey hidden"></div>
+        <table id="akTable" class="grid"></table>
+        <div class="row"><button id="akClose" class="sec">关闭</button></div>
+      </dialog>
     </section>
 
     <section id="tab-roles" class="panel">
@@ -73,6 +94,8 @@
         <input id="rName" placeholder="角色名" />
         <input id="rDesc" placeholder="描述" />
         <button id="rCreate">创建角色</button>
+        <button id="rCancel" class="sec hidden">取消编辑</button>
+        <span class="hint">内置角色（admin/analyst）受保护，不可编辑或删除。</span>
       </div>
       <table id="rolesTable" class="grid"></table>
     </section>
@@ -286,22 +309,37 @@
     <section id="tab-datasets" class="panel">
       <h3>数据集管理</h3>
       <p class="hint">数据集是构建在数据源之上的<strong>受治理数据产品</strong>：有稳定名称（消费句柄）、有定义 SQL、有生命周期（草稿 → 发布）。Agent 消费已发布且已授权的数据集；其表/行/列治理与底层表共用同一套引擎（按 table_name = 数据集名称 关联）。</p>
-      <div class="row">
-        <input id="datasetName" placeholder="名称（标识符，如 orders_v" />
-        <input id="dsDisp" placeholder="显示名" />
-        <select id="dsDs"></select>
-        <select id="dsStatus">
-          <option value="draft">草稿</option>
-          <option value="published">已发布</option>
-        </select>
-        <button id="dsSave">创建数据集</button>
-        <button id="dsCancel" class="sec hidden">取消编辑</button>
-        <span id="dsMsg" class="hint"></span>
-      </div>
+      <div class="catalog-layout">
+        <aside class="catalog-tree">
+          <div class="row"><button id="dsNewRoot" class="sec">+ 新建根目录</button></div>
+          <ul id="dsFolderTree" class="tree"></ul>
+        </aside>
+        <div class="catalog-main">
+          <div class="row">
+            <input id="datasetName" placeholder="名称（标识符，如 orders_v" />
+            <input id="dsDisp" placeholder="显示名" />
+            <select id="dsDs"></select>
+            <select id="dsFolder"><option value="">未分类</option></select>
+            <select id="dsStatus">
+              <option value="draft">草稿</option>
+              <option value="published">已发布</option>
+            </select>
+            <button id="dsSave">创建数据集</button>
+            <button id="dsCancel" class="sec hidden">取消编辑</button>
+            <span id="dsMsg" class="hint"></span>
+          </div>
+          <div id="dsFolderBar" class="folderbar hidden"></div>
       <details>
         <summary>定义与字段契约（高级）</summary>
         <textarea id="dsDef" rows="5" placeholder="SELECT ... 作为数据集定义（需为合法 SELECT）"></textarea>
-        <input id="dsFields" placeholder='字段契约 JSON, 如 [{"name":"order_id","type":"int","description":"订单号"}]' style="width:100%" />
+        <div id="dsFieldsWrap">
+          <div class="row">
+            <button id="dsAddField" class="sec" type="button">+ 添加字段</button>
+            <span class="hint">字段契约：数据集对外暴露的稳定输出列（名称 / 类型 / 描述），即消费方看到的 schema</span>
+          </div>
+          <table id="dsFieldsTable" class="grid"></table>
+        </div>
+        <input type="hidden" id="dsFields" />
       </details>
       <table id="datasetTable" class="grid"></table>
 
@@ -364,7 +402,18 @@
             <table id="dsgSemTable" class="grid"></table>
           </div>
         </div>
+        </div>
       </div>
+    </section>
+
+    <section id="tab-catalog" class="panel">
+      <h3>数据目录</h3>
+      <p class="hint">浏览当前工作区<strong>已发布且你已授权</strong>的数据集——这是 Agent / 分析师可消费的数据资产。点击可查看字段契约与消费句柄。</p>
+      <div class="row">
+        <input id="catSearch" placeholder="搜索数据集名称 / 描述" style="flex:2" />
+        <button id="catRefresh" class="sec">刷新</button>
+      </div>
+      <div id="catTree" class="tree cards"></div>
     </section>
 
     <section id="tab-metrics" class="panel">
@@ -419,6 +468,41 @@
 
   </main>
 
-  <script src="app.js"></script>
+  <!-- dataset folder dialog (create / rename / move) -->
+  <dialog id="folderDialog" class="modal">
+    <form method="dialog" id="folderForm">
+      <h3 id="fdTitle">目录</h3>
+      <div id="fdNameWrap" class="row">
+        <label>名称</label>
+        <input id="fdName" placeholder="目录名称" />
+      </div>
+      <div id="fdParentWrap" class="row">
+        <label>父目录</label>
+        <select id="fdParent"><option value="">（根目录）</option></select>
+      </div>
+      <div id="fdDestWrap" class="row hidden">
+        <label>目标目录</label>
+        <select id="fdDest"><option value="">未分类</option></select>
+      </div>
+      <div class="row">
+        <button id="fdSave" value="save">保存</button>
+        <button id="fdCancel" value="cancel" class="sec">取消</button>
+        <span id="fdMsg" class="hint"></span>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- modular vanilla JS: each file is a single concern, loaded in dependency order; main.js boots last -->
+  <script src="/admin/js/core.js"></script>
+  <script src="/admin/js/query.js"></script>
+  <script src="/admin/js/users.js"></script>
+  <script src="/admin/js/datasources.js"></script>
+  <script src="/admin/js/governance.js"></script>
+  <script src="/admin/js/audit.js"></script>
+  <script src="/admin/js/approvals.js"></script>
+  <script src="/admin/js/nl2sql.js"></script>
+  <script src="/admin/js/metrics.js"></script>
+  <script src="/admin/js/datasets.js"></script>
+  <script src="/admin/js/main.js"></script>
 </body>
 </html>

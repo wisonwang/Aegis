@@ -40,7 +40,13 @@ func Run(cfg *config.Config) error {
 	// open, seed, route serving) is emitted in the chosen format/level.
 	logging.Init(logging.Config{Format: cfg.Logging.Format, Level: cfg.Logging.Level})
 
-	st, err := store.Open(cfg.DBPath)
+	var st *store.Store
+	var err error
+	if cfg.DBType == "mysql" {
+		st, err = store.OpenMySQL(cfg.DBDSN)
+	} else {
+		st, err = store.Open(cfg.DBPath)
+	}
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
@@ -202,23 +208,30 @@ func registerRoutes(engine *gin.Engine, h *api.Handler, st *store.Store, px *pro
 
 	// ---- DataAPI (requires authentication + workspace scoping) ----
 	engine.POST("/api/v1/login", gin.WrapF(h.Login))
-	engine.GET("/api/v1/me", gin.WrapF(api.Authenticate(cfg, h.Me)))
-	engine.POST("/api/v1/query", gin.WrapF(api.Authenticate(cfg, api.WorkspaceResolver(st, h.Query))))
-	engine.POST("/api/v1/datasources/:id/query/estimate", gin.WrapF(api.Authenticate(cfg, api.WorkspaceResolver(st, h.EstimateQuery))))
-	engine.GET("/api/v1/datasources", gin.WrapF(api.Authenticate(cfg, api.WorkspaceResolver(st, h.ListDataSources))))
-	engine.GET("/api/v1/datasources/:id/tables", gin.WrapF(api.Authenticate(cfg, api.WorkspaceResolver(st, h.ListTables))))
-	engine.GET("/api/v1/datasources/:id/tables/:table", gin.WrapF(api.Authenticate(cfg, api.WorkspaceResolver(st, h.DescribeTable))))
-	engine.GET("/api/v1/datasources/:id/catalog", gin.WrapF(api.Authenticate(cfg, api.WorkspaceResolver(st, h.Catalog))))
-	engine.POST("/api/v1/datasources/:id/nl2sql", gin.WrapF(api.Authenticate(cfg, api.WorkspaceResolver(st, h.NL2SQL))))
+	engine.GET("/api/v1/me", gin.WrapF(api.Authenticate(st, cfg, h.Me)))
+	engine.GET("/api/v1/me/apikeys", gin.WrapF(api.Authenticate(st, cfg, h.MeListAPIKeys)))
+	engine.POST("/api/v1/me/apikeys", gin.WrapF(api.Authenticate(st, cfg, h.MeCreateAPIKey)))
+	engine.DELETE("/api/v1/me/apikeys/:keyId", gin.WrapF(api.Authenticate(st, cfg, h.MeRevokeAPIKey)))
+	engine.POST("/api/v1/query", gin.WrapF(api.Authenticate(st, cfg, api.WorkspaceResolver(st, h.Query))))
+	engine.POST("/api/v1/datasources/:id/query/estimate", gin.WrapF(api.Authenticate(st, cfg, api.WorkspaceResolver(st, h.EstimateQuery))))
+	engine.GET("/api/v1/datasources", gin.WrapF(api.Authenticate(st, cfg, api.WorkspaceResolver(st, h.ListDataSources))))
+	engine.GET("/api/v1/datasources/:id/tables", gin.WrapF(api.Authenticate(st, cfg, api.WorkspaceResolver(st, h.ListTables))))
+	engine.GET("/api/v1/datasources/:id/tables/:table", gin.WrapF(api.Authenticate(st, cfg, api.WorkspaceResolver(st, h.DescribeTable))))
+	engine.GET("/api/v1/datasources/:id/catalog", gin.WrapF(api.Authenticate(st, cfg, api.WorkspaceResolver(st, h.Catalog))))
+	// Dataset consumption catalog (GET /api/v1/datasets, /:id, /:id/query)
+	// is registered once by enterprise.Register behind the CapDataProducts
+	// gate — see internal/enterprise/enterprise.go. Do NOT re-register here;
+	// gin panics on duplicate path registration.
+	engine.POST("/api/v1/datasources/:id/nl2sql", gin.WrapF(api.Authenticate(st, cfg, api.WorkspaceResolver(st, h.NL2SQL))))
 
 	// The caller's own workspaces (authenticated, no admin required).
-	engine.GET("/api/v1/workspaces", gin.WrapF(api.Authenticate(cfg, h.ListMyWorkspaces)))
+	engine.GET("/api/v1/workspaces", gin.WrapF(api.Authenticate(st, cfg, h.ListMyWorkspaces)))
 
 	// ---- Admin API (admin role only) ----
 	// Admin routes also resolve the workspace so platform admins get the
 	// cross-workspace ("*") view by default (ADR-001).
 	a := func(fn http.HandlerFunc) http.HandlerFunc {
-		return api.Authenticate(cfg, api.WorkspaceResolver(st, api.RequireAdmin(fn)))
+		return api.Authenticate(st, cfg, api.WorkspaceResolver(st, api.RequireAdmin(fn)))
 	}
 
 	engine.GET("/admin/api/users", gin.WrapF(a(h.AdminListUsers)))
@@ -228,9 +241,13 @@ func registerRoutes(engine *gin.Engine, h *api.Handler, st *store.Store, px *pro
 	engine.DELETE("/admin/api/users/:id", gin.WrapF(a(h.AdminDeleteUser)))
 	engine.POST("/admin/api/users/:id/roles", gin.WrapF(a(h.AdminAddUserRole)))
 	engine.DELETE("/admin/api/users/:id/roles/:role", gin.WrapF(a(h.AdminRemoveUserRole)))
+	engine.POST("/admin/api/users/:id/apikeys", gin.WrapF(a(h.AdminCreateUserAPIKey)))
+	engine.GET("/admin/api/users/:id/apikeys", gin.WrapF(a(h.AdminListUserAPIKeys)))
+	engine.DELETE("/admin/api/users/:id/apikeys/:keyId", gin.WrapF(a(h.AdminRevokeUserAPIKey)))
 
 	engine.GET("/admin/api/roles", gin.WrapF(a(h.AdminListRoles)))
 	engine.POST("/admin/api/roles", gin.WrapF(a(h.AdminCreateRole)))
+	engine.PUT("/admin/api/roles/:id", gin.WrapF(a(h.AdminUpdateRole)))
 	engine.DELETE("/admin/api/roles/:id", gin.WrapF(a(h.AdminDeleteRole)))
 
 	engine.GET("/admin/api/datasources", gin.WrapF(a(h.AdminListDataSources)))

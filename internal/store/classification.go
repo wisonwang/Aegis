@@ -33,11 +33,7 @@ func (s *Store) UpsertClassification(ctx context.Context, dc *DataClassification
 		`INSERT INTO data_classifications
 			(id,datasource_id,table_name,column_name,level,tags,updated_at,workspace_id)
 		 VALUES (?,?,?,?,?,?,?,?)
-		 ON CONFLICT(datasource_id,table_name,column_name) DO UPDATE SET
-			level=excluded.level,
-			tags=excluded.tags,
-			updated_at=excluded.updated_at,
-			workspace_id=excluded.workspace_id`,
+		 ` + s.upsertSuffix("datasource_id,table_name,column_name", []string{"level","tags","updated_at","workspace_id"}) ,
 		dc.ID, dc.DataSourceID, dc.TableName, dc.ColumnName,
 		dc.Level, dc.Tags, dc.UpdatedAt, WriteWorkspace(ctx))
 	return err

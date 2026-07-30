@@ -11,3 +11,10 @@ dist/
 
 # local config overrides (keep placeholders out of VCS if desired)
 # config.json
+
+# temp / cleanup staging (build artifacts, logs, runtime db, throwaway scripts)
+temp/
+
+# macOS finder metadata
+.DS_Store
+*.DS_Store

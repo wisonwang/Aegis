@@ -23,6 +23,7 @@ type Dataset struct {
 	Definition   string    `json:"definition"`    // SQL for SQL-family; JSON query for mongo/es
 	Status       string    `json:"status"`        // draft | published
 	Fields       string    `json:"fields"`        // JSON array of {name,type,description} — the stable output contract
+	FolderID     string    `json:"folder_id"`     // catalog folder id ("" = uncategorized / root)
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -44,16 +45,70 @@ const (
 func migrateDatasets(s *Store) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS datasets (
-			id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, display_name TEXT,
+			id VARCHAR(64) PRIMARY KEY, name VARCHAR(191) UNIQUE NOT NULL, display_name TEXT,
 			description TEXT, datasource_id TEXT, definition TEXT, status TEXT,
 			fields TEXT, created_at DATETIME, updated_at DATETIME)`,
+		`CREATE TABLE IF NOT EXISTS dataset_folders (
+			id VARCHAR(64) PRIMARY KEY, workspace_id VARCHAR(191) NOT NULL DEFAULT '',
+			name VARCHAR(191) NOT NULL, parent_id VARCHAR(191) NOT NULL DEFAULT '',
+			sort_order INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME, updated_at DATETIME,
+			UNIQUE(workspace_id, parent_id, name))`,
 	}
 	for _, st := range stmts {
 		if _, err := s.db.Exec(st); err != nil {
 			return fmt.Errorf("migrate datasets: %w", err)
 		}
 	}
+	if !columnExists(s, "datasets", "folder_id") {
+		if _, err := s.db.Exec(`ALTER TABLE datasets ADD COLUMN folder_id VARCHAR(191) NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("migrate datasets folder_id: %w", err)
+		}
+	}
 	return nil
+}
+
+// columnExists reports whether a table has the named column (for idempotent
+// ALTER migrations). SQLite uses PRAGMA table_info; MySQL uses
+// information_schema.columns.
+func columnExists(s *Store, table, col string) bool {
+	if s.isMySQL() {
+		rows, err := s.db.Query(
+			`SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=?`, table)
+		if err != nil {
+			return false
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				continue
+			}
+			if name == col {
+				return true
+			}
+		}
+		return false
+	}
+	rows, err := s.db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			continue
+		}
+		if name == col {
+			return true
+		}
+	}
+	return false
 }
 
 // CreateDataset inserts a new dataset. Scoped to the active workspace from ctx.
@@ -75,16 +130,16 @@ func (s *Store) CreateDataset(ctx context.Context, d *Dataset) error {
 		d.Fields = "[]"
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO datasets (id,name,display_name,description,datasource_id,definition,status,fields,created_at,updated_at,workspace_id)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-		d.ID, d.Name, d.DisplayName, d.Description, d.DataSourceID, d.Definition, d.Status, d.Fields, d.CreatedAt, d.UpdatedAt, WriteWorkspace(ctx))
+		`INSERT INTO datasets (id,name,display_name,description,datasource_id,definition,status,fields,folder_id,created_at,updated_at,workspace_id)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		d.ID, d.Name, d.DisplayName, d.Description, d.DataSourceID, d.Definition, d.Status, d.Fields, d.FolderID, d.CreatedAt, d.UpdatedAt, WriteWorkspace(ctx))
 	return err
 }
 
 // GetDataset returns a dataset by id, or nil if not found. Scoped to the active
 // workspace from ctx (platform admin may pass WorkspaceAll).
 func (s *Store) GetDataset(ctx context.Context, id string) (*Dataset, error) {
-	q := `SELECT id,name,display_name,description,datasource_id,definition,status,fields,created_at,updated_at
+	q := `SELECT id,name,display_name,description,datasource_id,definition,status,fields,folder_id,created_at,updated_at
 		 FROM datasets WHERE id=?`
 	args := []interface{}{id}
 	if !CrossesWorkspaces(ctx) {
@@ -97,7 +152,7 @@ func (s *Store) GetDataset(ctx context.Context, id string) (*Dataset, error) {
 // GetDatasetByName returns a dataset by unique name, or nil if not found.
 // Scoped to the active workspace from ctx.
 func (s *Store) GetDatasetByName(ctx context.Context, name string) (*Dataset, error) {
-	q := `SELECT id,name,display_name,description,datasource_id,definition,status,fields,created_at,updated_at
+	q := `SELECT id,name,display_name,description,datasource_id,definition,status,fields,folder_id,created_at,updated_at
 		 FROM datasets WHERE name=?`
 	args := []interface{}{name}
 	if !CrossesWorkspaces(ctx) {
@@ -110,7 +165,7 @@ func (s *Store) GetDatasetByName(ctx context.Context, name string) (*Dataset, er
 func scanDataset(row *sql.Row) (*Dataset, error) {
 	d := &Dataset{}
 	err := row.Scan(&d.ID, &d.Name, &d.DisplayName, &d.Description, &d.DataSourceID,
-		&d.Definition, &d.Status, &d.Fields, &d.CreatedAt, &d.UpdatedAt)
+		&d.Definition, &d.Status, &d.Fields, &d.FolderID, &d.CreatedAt, &d.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -123,7 +178,7 @@ func scanDataset(row *sql.Row) (*Dataset, error) {
 // ListDatasets returns every dataset, ordered by name. Scoped to the active
 // workspace from ctx (platform admin may pass WorkspaceAll).
 func (s *Store) ListDatasets(ctx context.Context) ([]*Dataset, error) {
-	q := `SELECT id,name,display_name,description,datasource_id,definition,status,fields,created_at,updated_at
+	q := `SELECT id,name,display_name,description,datasource_id,definition,status,fields,folder_id,created_at,updated_at
 		 FROM datasets`
 	args := []interface{}{}
 	if !CrossesWorkspaces(ctx) {
@@ -136,11 +191,11 @@ func (s *Store) ListDatasets(ctx context.Context) ([]*Dataset, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []*Dataset
+	out := []*Dataset{}
 	for rows.Next() {
 		d := &Dataset{}
 		if err := rows.Scan(&d.ID, &d.Name, &d.DisplayName, &d.Description, &d.DataSourceID,
-			&d.Definition, &d.Status, &d.Fields, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			&d.Definition, &d.Status, &d.Fields, &d.FolderID, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -174,8 +229,8 @@ func (s *Store) UpdateDataset(ctx context.Context, d *Dataset) error {
 		d.Fields = existing.Fields
 	}
 	_, err = s.db.Exec(
-		`UPDATE datasets SET display_name=?, description=?, definition=?, status=?, fields=?, updated_at=? WHERE id=?`,
-		d.DisplayName, d.Description, d.Definition, d.Status, d.Fields, time.Now(), d.ID)
+		`UPDATE datasets SET display_name=?, description=?, definition=?, status=?, fields=?, folder_id=?, updated_at=? WHERE id=?`,
+		d.DisplayName, d.Description, d.Definition, d.Status, d.Fields, d.FolderID, time.Now(), d.ID)
 	return err
 }
 

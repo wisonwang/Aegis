@@ -47,7 +47,10 @@ func provisionOrLinkExternalUser(st *store.Store, externalID, username, displayN
 		_ = st.UpdateUser(u)
 	}
 
-	// Platform roles (idempotent).
+	// Platform roles (idempotent). System roles (admin/analyst) are never
+	// granted via external identity mapping — that would let a compromised or
+	// misconfigured IdP escalate a user to superuser. They are assigned only
+	// through the admin API / seed (which are themselves guarded).
 	for _, roleName := range roleNames {
 		role, err := st.GetRole(roleName)
 		if err != nil {
@@ -58,6 +61,9 @@ func provisionOrLinkExternalUser(st *store.Store, externalID, username, displayN
 			if err := st.CreateRole(role); err != nil {
 				continue
 			}
+		}
+		if role.System {
+			continue
 		}
 		_ = st.AddUserRole(u.ID, role.ID)
 	}

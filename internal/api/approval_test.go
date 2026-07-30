@@ -25,15 +25,19 @@ func newApprovalTestStore(t *testing.T) *store.Store {
 // approvalMux wires the approval routes exactly as server.go does, so the test
 // exercises the real Authenticate + RequireAdmin middleware (not just the
 // handler bodies).
-func approvalMux(h *Handler, cfg *config.Config) http.Handler {
+func approvalMux(h *Handler, st *store.Store, cfg *config.Config) http.Handler {
+	// seed the users referenced by the test tokens so the Authenticate
+	// middleware's disabled-account fail-closed check finds them active.
+	_ = st.CreateUser(&store.User{ID: "admin", Username: "Admin", Status: "active"})
+	_ = st.CreateUser(&store.User{ID: "u1", Username: "Alice", Status: "active"})
 	mux := http.NewServeMux()
-	a := func(fn http.HandlerFunc) http.HandlerFunc { return Authenticate(cfg, RequireAdmin(fn)) }
-	mux.HandleFunc("POST /admin/api/approvals", Authenticate(cfg, h.UserSubmitApproval))
+	a := func(fn http.HandlerFunc) http.HandlerFunc { return Authenticate(st, cfg, RequireAdmin(fn)) }
+	mux.HandleFunc("POST /admin/api/approvals", Authenticate(st, cfg, h.UserSubmitApproval))
 	mux.HandleFunc("GET /admin/api/approvals", a(h.AdminListApprovals))
 	mux.HandleFunc("POST /admin/api/approvals/{id}/approve", a(h.AdminApproveApproval))
 	mux.HandleFunc("POST /admin/api/approvals/{id}/reject", a(h.AdminRejectApproval))
 	mux.HandleFunc("POST /admin/api/approvals/{id}/revoke", a(h.AdminRevokeApproval))
-	mux.HandleFunc("GET /api/v1/me/approvals", Authenticate(cfg, h.UserListMyApprovals))
+	mux.HandleFunc("GET /api/v1/me/approvals", Authenticate(st, cfg, h.UserListMyApprovals))
 	return mux
 }
 
@@ -67,7 +71,7 @@ func TestApprovalWorkflow_ClosedLoop(t *testing.T) {
 	_ = st.CreateDataSource(context.Background(), &store.DataSource{ID: "ds1", Name: "demo", Type: "sqlite", DSN: ":memory:"})
 	cfg := &config.Config{JWTSecret: "test-secret", JWTExpiry: "24h"}
 	h := &Handler{Store: st}
-	mux := approvalMux(h, cfg)
+	mux := approvalMux(h, st, cfg)
 
 	adminTok := approvalToken(t, cfg, "admin", "Admin", []string{"admin"})
 	userTok := approvalToken(t, cfg, "u1", "Alice", []string{"analyst"})
@@ -169,7 +173,7 @@ func TestApprovalWorkflow_RejectCreatesNoGrant(t *testing.T) {
 	_ = st.CreateDataSource(context.Background(), &store.DataSource{ID: "ds1", Name: "demo", Type: "sqlite", DSN: ":memory:"})
 	cfg := &config.Config{JWTSecret: "test-secret", JWTExpiry: "24h"}
 	h := &Handler{Store: st}
-	mux := approvalMux(h, cfg)
+	mux := approvalMux(h, st, cfg)
 
 	adminTok := approvalToken(t, cfg, "admin", "Admin", []string{"admin"})
 	userTok := approvalToken(t, cfg, "u1", "Alice", []string{"analyst"})
@@ -201,7 +205,7 @@ func TestApprovalWorkflow_Validation(t *testing.T) {
 	_ = st.CreateDataSource(context.Background(), &store.DataSource{ID: "ds1", Name: "demo", Type: "sqlite", DSN: ":memory:"})
 	cfg := &config.Config{JWTSecret: "test-secret", JWTExpiry: "24h"}
 	h := &Handler{Store: st}
-	mux := approvalMux(h, cfg)
+	mux := approvalMux(h, st, cfg)
 	userTok := approvalToken(t, cfg, "u1", "Alice", []string{"analyst"})
 
 	// Invalid ops must be rejected before any DB write.

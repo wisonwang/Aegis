@@ -33,12 +33,7 @@ func (s *Store) UpsertSemantic(ctx context.Context, sem *Semantic) error {
 		`INSERT INTO schema_semantics
 			(id,datasource_id,table_name,column_name,description,synonyms,examples,updated_at,workspace_id)
 		 VALUES (?,?,?,?,?,?,?,?,?)
-		 ON CONFLICT(datasource_id,table_name,column_name) DO UPDATE SET
-			description=excluded.description,
-			synonyms=excluded.synonyms,
-			examples=excluded.examples,
-			updated_at=excluded.updated_at,
-			workspace_id=excluded.workspace_id`,
+		 ` + s.upsertSuffix("datasource_id,table_name,column_name", []string{"description","synonyms","examples","updated_at","workspace_id"}) ,
 		sem.ID, sem.DataSourceID, sem.TableName, sem.ColumnName,
 		sem.Description, sem.Synonyms, sem.Examples, sem.UpdatedAt, WriteWorkspace(ctx))
 	return err

@@ -1,16 +1,18 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/wisonwang/aegis/internal/auth"
 	"github.com/wisonwang/aegis/internal/datasource"
+	"github.com/wisonwang/aegis/internal/logging"
 	"github.com/wisonwang/aegis/internal/proxy"
 	"github.com/wisonwang/aegis/internal/store"
-	"context"
 )
 
 type loginRequest struct {
@@ -24,11 +26,14 @@ type loginResponse struct {
 }
 
 type meResponse struct {
-	ID          string            `json:"id"`
-	Username    string            `json:"username"`
-	DisplayName string            `json:"display_name"`
-	Roles       []string          `json:"roles"`
-	Attributes  map[string]string `json:"attributes"`
+	ID           string            `json:"id"`
+	Username     string            `json:"username"`
+	DisplayName  string            `json:"display_name"`
+	Email        string            `json:"email"`
+	Type         string            `json:"type"`
+	Roles        []string          `json:"roles"`
+	Attributes   map[string]string `json:"attributes"`
+	LastLoginAt  string            `json:"last_login_at"`
 }
 
 type queryRequest struct {
@@ -65,9 +70,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	if u == nil || u.Status != "active" || !auth.CheckPassword(u.PasswordHash, req.Password) {
+	// Service accounts authenticate via API key only — never via password.
+	if u == nil || u.Status != "active" || u.Type == "service" || !auth.CheckPassword(u.PasswordHash, req.Password) {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
+	}
+	if err := h.Store.UpdateLastLogin(u.ID); err != nil {
+		logging.With("error", err.Error()).Warn("update last login failed")
 	}
 	roles, err := h.Store.ListRolesForUser(u.ID)
 	if err != nil {
@@ -491,12 +500,19 @@ func (h *Handler) resolveDS(ctx context.Context, idOrName string) (string, error
 }
 
 func toMe(u *store.User, roles []string, attrs map[string]string) *meResponse {
+	lastLogin := ""
+	if u.LastLoginAt.Valid {
+		lastLogin = u.LastLoginAt.Time.Format(time.RFC3339)
+	}
 	return &meResponse{
-		ID:          u.ID,
-		Username:    u.Username,
-		DisplayName: u.DisplayName,
-		Roles:       roles,
-		Attributes:  attrs,
+		ID:           u.ID,
+		Username:     u.Username,
+		DisplayName:  u.DisplayName,
+		Email:        u.Email,
+		Type:         u.Type,
+		Roles:        roles,
+		Attributes:   attrs,
+		LastLoginAt:  lastLogin,
 	}
 }
 

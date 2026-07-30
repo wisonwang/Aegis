@@ -1282,6 +1282,28 @@ paths:
       summary: admin Delete Role
       tags:
       - admin
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: admin Update Role
+      tags:
+      - admin
   /admin/api/users:
     get:
       produces:
@@ -1429,6 +1451,20 @@ paths:
       tags:
       - admin
   /admin/api/workspaces:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: admin List Workspaces
+      tags:
+      - workspaces
     post:
       consumes:
       - application/json
