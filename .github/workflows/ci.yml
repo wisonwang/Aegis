@@ -1,0 +1,73 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.4'
+          cache: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Unit Tests
+        run: go test ./...
+
+      - name: Python Syntax Check
+        run: python3 -m py_compile examples/dataapi/agent.py examples/mcp/client.py scripts/mcp_e2e_scenario.py
+
+      - name: MCP E2E Smoke
+        run: make mcp-e2e
+
+      - name: MCP E2E Admin Smoke
+        run: make mcp-e2e-admin
+
+      - name: Install Python test deps
+        run: python3 -m pip install --upgrade pip && python3 -m pip install -r test/requirements.txt
+
+      - name: Pytest E2E (DataAPI + MCP full flow)
+        env:
+          GO_BIN: ${{ env.GOROOT }}/bin/go
+        run: cd test && python3 -m pytest -q
+
+  security-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.4'
+          cache: true
+
+      - name: Advisory Govulncheck
+        continue-on-error: true
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: Advisory Gosec
+        continue-on-error: true
+        run: go run github.com/securego/gosec/v2/cmd/gosec@latest ./...

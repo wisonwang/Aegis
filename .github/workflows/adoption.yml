@@ -1,0 +1,46 @@
+name: Adoption Metrics
+
+# Phase 1 of ADR-0005: track GitHub-native adoption signals (Stars / Forks /
+# Clones / Views) without any self-hosted telemetry. Runs daily and on demand,
+# committing a dated snapshot under docs/adoption/ so adoption can be charted
+# over time. This is the public half of the "first success metric = OSS adoption"
+# strategy and carries zero privacy risk.
+
+on:
+  schedule:
+    - cron: '17 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect GitHub adoption signals
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p docs/adoption
+          DATE=$(date -u +%F)
+          {
+            echo "{"
+            echo "  \"date\": \"$DATE\","
+            echo "  \"stars\": $(gh api repos/${{ github.repository }} --jq '.stargazers_count'),"
+            echo "  \"forks\": $(gh api repos/${{ github.repository }} --jq '.forks_count'),"
+            echo "  \"clones_14d\": $(gh api repos/${{ github.repository }}/traffic/clones --jq '([.clones[]?.count] | add) // 0'),"
+            echo "  \"views_14d\": $(gh api repos/${{ github.repository }}/traffic/views --jq '([.views[]?.count] | add) // 0')"
+            echo "}"
+          } > "docs/adoption/$DATE.json"
+          cat "docs/adoption/$DATE.json"
+
+      - name: Commit snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/adoption/
+          git commit -m "adoption: snapshot $(date -u +%F)" || echo "no changes"
+          git push
