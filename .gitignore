@@ -5,6 +5,9 @@
 *.db
 *.db-journal
 dist/
+/aegis.bak
+# session-scoped overviews (regenerated per chat, not for VCS)
+.workbuddy/overview_*.md
 
 # local agent memory (project-private, do not publish)
 .workbuddy/memory/
