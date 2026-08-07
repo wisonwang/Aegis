@@ -14,7 +14,7 @@
 
 ## 配套:启用 MCP 连接器
 技能依赖 WorkBuddy 已连接的 `aegis` MCP 服务:
-1. 在 `~/.workbuddy/mcp.json` 中配置(已配):`url: http://localhost:8080/mcp`,`headers` 用 `X-MCP-API-Key: mcp-demo-key` 或 `Authorization: Bearer <JWT>`。
+1. 在 `~/.workbuddy/mcp.json` 中配置(已配):`url: http://localhost:8080/mcp`,`headers` 已配 `Authorization: Bearer <JWT>`(本地 `conf/config.local.json` 的 `mcp.api_key` 为空,静态 `X-MCP-API-Key` 不可用)。
 2. 在 WorkBuddy **连接器管理页**找到 `aegis` 点 **Trust** 启用。
 3. Aegis 服务需运行(默认 `:8080`):`curl -s -o /dev/null -w '%{http_code}' localhost:8080/metrics` 应返回 200。
 
@@ -22,12 +22,12 @@
 ```bash
 # 端点存活 + 工具列表
 curl -s -X POST localhost:8080/mcp \
-  -H 'Content-Type: application/json' -H 'X-MCP-API-Key: mcp-demo-key' \
+  -H 'Content-Type: application/json' -H 'Authorization: Bearer <JWT>' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 
 # 实查(治理生效:analyst 默认拒绝越权表,行级策略穿透注入)
 curl -s -X POST localhost:8080/mcp \
-  -H 'Content-Type: application/json' -H 'X-MCP-API-Key: mcp-demo-key' \
+  -H 'Content-Type: application/json' -H 'Authorization: Bearer <JWT>' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query","arguments":{"datasource":"demo","sql":"SELECT count(*) AS n FROM orders"}}}'
 ```
 

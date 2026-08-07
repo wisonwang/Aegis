@@ -19,7 +19,7 @@ Aegis is a self-hosted, governance-by-default AI data gateway. Through its MCP s
 - The `aegis` MCP server must be configured in TRAE (Settings → MCP → Create → Manual configuration) and point to `http://localhost:8080/mcp`.
 - For project-local usage, import this skill into the current project's `.trae/skills/aegis-mcp/` directory, or install it globally under `~/.trae-cn/skills/aegis-mcp/`.
 - The Aegis server must be running (default `:8080`). If the MCP tools are unavailable, verify the server is up: `curl -s -o /dev/null -w '%{http_code}' localhost:8080/metrics` (expect 200).
-- Auth is handled by the MCP server configuration (static `X-MCP-API-Key: mcp-demo-key` → `mcp-agent`/analyst role, or `Bearer <JWT>`). No per-call auth is needed once connected.
+- Auth is handled by the MCP server configuration. The server accepts `Authorization: Bearer <JWT>` (admin / any role; get via `POST /api/v1/login`) and a static `X-MCP-API-Key` header — but the static key **only works when the server's `mcp.api_key` is set**; in the local `conf/config.local.json` it is empty, so configure a JWT. No per-call auth is needed once connected.
 
 ## Core capabilities (MCP tools)
 All tools accept a `datasource` argument as the data source id or name. Full input schemas and raw HTTP examples are in `references/mcp-tools.md`.
@@ -38,8 +38,9 @@ All tools accept a `datasource` argument as the data source id or name. Full inp
 - `list_metrics` / `run_metric` — curated governed metrics (prefer over hand-written SQL for KPIs).
 
 **Resources / Prompts**
-- Resource `aegis://<datasource>/schema` — permission-filtered schema card.
-- Prompt `nl2sql` — "how to query safely" template.
+- Resource `aegis://<datasource>/schema` — permission-filtered semantic schema card for a source.
+- Resource `aegis://dataset/<name>/schema` — governed contract for a curated dataset (e.g. `aegis://dataset/paid_orders/schema`).
+- Prompt `nl2sql` — "how to query safely" template. Accepts `datasource` (required), `question` (required), and optional `dialect` (mysql|postgres|sqlite).
 
 ## Standard workflow
 1. **Discover** what is available: `list_datasources`, then `list_tables` / `get_catalog` for the target source. Use `get_catalog` to learn column meaning before forming SQL.

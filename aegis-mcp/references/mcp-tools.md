@@ -7,8 +7,8 @@ endpoint directly (e.g. via `curl`).
 
 ## Authentication
 Send ONE of:
-- `X-MCP-API-Key: mcp-demo-key`  (static key → `mcp-agent` / analyst role)
-- `Authorization: Bearer <JWT>`  (admin / any role; 24h expiry, get via `POST /api/v1/login`)
+- `Authorization: Bearer <JWT>`  (admin / any role; get via `POST /api/v1/login`, or use the pre-configured admin JWT in the TRAE `aegis` MCP server entry)
+- `X-MCP-API-Key: <key>`  (static key → `mcp-agent` / analyst role) — **only works when the server's `mcp.api_key` is set**. In the local `conf/config.local.json` that value is empty, so the static key is rejected (`unauthorized`); use the Bearer JWT.
 
 Workspace scoping (optional): `X-Workspace-Id: <id>` — admin selects a concrete
 workspace; members are limited to their own; absent → cross-workspace view for admin.
@@ -102,10 +102,14 @@ Returns: `{ "session_id", "sql", "lineage", "queryResult" }`.
 ## Resources
 - `aegis://<datasource>/schema` — permission-filtered semantic schema card for a source.
   Read via `resources/read` with `{"uri":"aegis://<name>/schema"}`.
+- `aegis://dataset/<name>/schema` — governed contract for a curated dataset (e.g.
+  `aegis://dataset/paid_orders/schema`). Read via `resources/read` with
+  `{"uri":"aegis://dataset/<name>/schema"}`.
 
 ## Prompts
 - `nl2sql` — "how to query safely" template. Get via `prompts/get` with
-  `{"name":"nl2sql","arguments":{"datasource":"<name>","question":"<q>"}}`.
+  `{"name":"nl2sql","arguments":{"datasource":"<name>","question":"<q>","dialect":"mysql"}}`.
+  `dialect` is optional (mysql|postgres|sqlite) and hints the SQL dialect.
 
 ---
 
@@ -115,36 +119,36 @@ Initialize:
 ```bash
 curl -s -X POST localhost:8080/mcp \
   -H 'Content-Type: application/json' \
-  -H 'X-MCP-API-Key: mcp-demo-key' \
+  -H 'Authorization: Bearer <JWT>' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wb","version":"1"}}}'
 ```
 
 List tools:
 ```bash
 curl -s -X POST localhost:8080/mcp -H 'Content-Type: application/json' \
-  -H 'X-MCP-API-Key: mcp-demo-key' \
+  -H 'Authorization: Bearer <JWT>' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 ```
 
 Call `query`:
 ```bash
 curl -s -X POST localhost:8080/mcp -H 'Content-Type: application/json' \
-  -H 'X-MCP-API-Key: mcp-demo-key' \
-  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query","arguments":{"datasource":"mysql-local","sql":"SELECT 1"}}}'
+  -H 'Authorization: Bearer <JWT>' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query","arguments":{"datasource":"demo","sql":"SELECT 1"}}}'
 ```
 
 Call `nl2sql`:
 ```bash
 curl -s -X POST localhost:8080/mcp -H 'Content-Type: application/json' \
-  -H 'X-MCP-API-Key: mcp-demo-key' \
-  -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"nl2sql","arguments":{"datasource":"mysql-local","question":"上个月 GMV 是多少"}}}'
+  -H 'Authorization: Bearer <JWT>' \
+  -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"nl2sql","arguments":{"datasource":"demo","question":"上个月 GMV 是多少"}}}'
 ```
 
 Call `estimate_query` (de-risk before running):
 ```bash
 curl -s -X POST localhost:8080/mcp -H 'Content-Type: application/json' \
-  -H 'X-MCP-API-Key: mcp-demo-key' \
-  -d '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"estimate_query","arguments":{"datasource":"mysql-local","sql":"SELECT * FROM orders"}}}'
+  -H 'Authorization: Bearer <JWT>' \
+  -d '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"estimate_query","arguments":{"datasource":"demo","sql":"SELECT * FROM orders"}}}'
 ```
 
 > All `tools/call` responses wrap the payload in `{"content":[{"type":"text","text":"<json>"}]}`.
