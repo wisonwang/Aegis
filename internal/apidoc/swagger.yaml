@@ -1,6 +1,36 @@
 basePath: /
 definitions:
-  api.estimateRequest:
+  github_com_wisonwang_aegis_internal_store.MetricParam:
+    properties:
+      default:
+        description: used when omitted and not required
+      description:
+        description: human/business meaning for agents
+        type: string
+      enum:
+        description: allowed values when type=enum
+        items:
+          type: string
+        type: array
+      name:
+        description: referenced in SQLTemplate as :name
+        type: string
+      required:
+        description: must be supplied on each run
+        type: boolean
+      type:
+        description: string|number|date|bool|enum
+        type: string
+    type: object
+  internal_api.createKeyRequest:
+    properties:
+      expires_in:
+        description: optional duration, e.g. "720h"; empty = no expiry
+        type: string
+      name:
+        type: string
+    type: object
+  internal_api.estimateRequest:
     properties:
       datasource:
         description: id or name
@@ -12,21 +42,21 @@ definitions:
         description: SQL statement to estimate
         type: string
     type: object
-  api.loginRequest:
+  internal_api.loginRequest:
     properties:
       password:
         type: string
       username:
         type: string
     type: object
-  api.loginResponse:
+  internal_api.loginResponse:
     properties:
       token:
         type: string
       user:
-        $ref: '#/definitions/api.meResponse'
+        $ref: '#/definitions/internal_api.meResponse'
     type: object
-  api.meResponse:
+  internal_api.meResponse:
     properties:
       attributes:
         additionalProperties:
@@ -34,26 +64,22 @@ definitions:
         type: object
       display_name:
         type: string
+      email:
+        type: string
       id:
+        type: string
+      last_login_at:
         type: string
       roles:
         items:
           type: string
         type: array
+      type:
+        type: string
       username:
         type: string
     type: object
-  api.metricRunRequest:
-    properties:
-      params:
-        additionalProperties: true
-        description: parameter name -> value
-        type: object
-      session_id:
-        description: optional; links queries from one AI conversation
-        type: string
-    type: object
-  api.nl2sqlRequest:
+  internal_api.nl2sqlRequest:
     properties:
       datasource:
         description: id or name
@@ -68,7 +94,64 @@ definitions:
         description: optional hand-written SQL to prefer over generation
         type: string
     type: object
-  api.queryRequest:
+  internal_api.queryRequest:
+    properties:
+      datasource:
+        description: id or name
+        type: string
+      params:
+        items: {}
+        type: array
+      query:
+        description: backend-specific JSON for NoSQL (mongo/es)
+        items:
+          type: integer
+        type: array
+      session_id:
+        description: optional; links queries from one AI conversation
+        type: string
+      sql:
+        description: SQL for SQL-family backends
+        type: string
+    type: object
+  internal_enterprise_handlers.folderRequest:
+    properties:
+      name:
+        type: string
+      parent_id:
+        description: '"" or absent = root'
+        type: string
+      workspace_id:
+        type: string
+    type: object
+  internal_enterprise_handlers.metricRunRequest:
+    properties:
+      params:
+        additionalProperties: true
+        type: object
+      session_id:
+        type: string
+    type: object
+  internal_enterprise_handlers.moveDatasetRequest:
+    properties:
+      folder_id:
+        description: '"" = uncategorized'
+        type: string
+    type: object
+  internal_enterprise_handlers.upsertMetricRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      params:
+        items:
+          $ref: '#/definitions/github_com_wisonwang_aegis_internal_store.MetricParam'
+        type: array
+      sql_template:
+        type: string
+      unit:
+        type: string
     type: object
 host: localhost:8080
 info:
@@ -86,11 +169,11 @@ info:
     3. 默认有效期 24h（服务端 `jwt_expiry` 可配），过期后重新登录换取。
     4. 在线调试：点本页右上方 **Authorize** 按钮，粘贴 `Bearer <token>` 即可。
 
-    本地演示账号：`admin` / `admin123`（由 `seed_demo` 种入，生产请立即修改）。
+    本地演示账号：`admin` / `admin123`（仅开发态 demo 配置会通过 `seed_demo` 种入，生产默认关闭）。
 
     ### 2. MCP（AI Agent 接入）— 静态 API Key
     AI Agent 不走本页 REST 接口，而是连接 `POST /mcp`（JSON-RPC 2.0 over HTTP），用静态 API Key 认证：
-    请求头 `X-MCP-API-Key: <key>`。该 key 由管理员在服务端配置 `mcp.api_key` 下发（本地演示为 `mcp-demo-key`），不经过登录接口。
+    请求头 `X-MCP-API-Key: <key>`。该 key 由管理员在服务端配置 `mcp.api_key` 下发（本地 demo 可用 `mcp-demo-key`），不经过登录接口。
 
     ### 3. 多租户
     非 admin 角色的请求会被强制限定在其所属工作区；admin 可用请求头 `X-Workspace-Id: <id>` 指定目标工作区（缺省为跨工作区视图）。
@@ -283,6 +366,91 @@ paths:
       summary: admin Audit Stats
       tags:
       - admin
+  /admin/api/dataset-folders:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: admin list catalog folders
+      tags:
+      - catalog
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: folder
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_enterprise_handlers.folderRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: admin create catalog folder
+      tags:
+      - catalog
+  /admin/api/dataset-folders/{id}:
+    delete:
+      parameters:
+      - description: folder id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: admin delete catalog folder
+      tags:
+      - catalog
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: folder id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: folder
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_enterprise_handlers.folderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: admin update catalog folder
+      tags:
+      - catalog
   /admin/api/datasets:
     get:
       produces:
@@ -444,6 +612,35 @@ paths:
       security:
       - BearerAuth: []
       summary: admin Delete Dataset Mask
+      tags:
+      - datasets
+  /admin/api/datasets/{id}/move:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: dataset id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: target folder
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_enterprise_handlers.moveDatasetRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: admin move dataset to a catalog folder
       tags:
       - datasets
   /admin/api/datasets/{id}/permissions:
@@ -717,6 +914,7 @@ paths:
     post:
       consumes:
       - application/json
+      description: The `dsn` is a driver-specific connection string. See the DSN
       produces:
       - application/json
       responses:
@@ -937,7 +1135,7 @@ paths:
   /admin/api/datasources/{id}/metrics:
     get:
       parameters:
-      - description: id
+      - description: datasource id
         in: path
         name: id
         required: true
@@ -952,18 +1150,24 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: admin List Metrics
+      summary: admin list metrics for a datasource
       tags:
       - metrics
     post:
       consumes:
       - application/json
       parameters:
-      - description: id
+      - description: datasource id
         in: path
         name: id
         required: true
         type: string
+      - description: metric
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_enterprise_handlers.upsertMetricRequest'
       produces:
       - application/json
       responses:
@@ -974,24 +1178,22 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: admin Upsert Metric
+      summary: admin create or update a metric
       tags:
       - metrics
   /admin/api/datasources/{id}/metrics/{mid}:
     delete:
       parameters:
-      - description: id
+      - description: datasource id
         in: path
         name: id
         required: true
         type: string
-      - description: mid
+      - description: metric id
         in: path
         name: mid
         required: true
         type: string
-      produces:
-      - application/json
       responses:
         "200":
           description: OK
@@ -1000,7 +1202,7 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: admin Delete Metric
+      summary: admin delete a metric
       tags:
       - metrics
   /admin/api/datasources/{id}/permissions/{perm}:
@@ -1304,6 +1506,21 @@ paths:
       summary: admin Update Role
       tags:
       - admin
+  /admin/api/stats:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: admin Instance Stats
+      tags:
+      - admin
   /admin/api/users:
     get:
       produces:
@@ -1376,6 +1593,81 @@ paths:
       security:
       - BearerAuth: []
       summary: admin Update User
+      tags:
+      - admin
+  /admin/api/users/{id}/apikeys:
+    get:
+      parameters:
+      - description: user id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: admin list a user API keys
+      tags:
+      - admin
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: user id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: key request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: admin create a user API key
+      tags:
+      - admin
+  /admin/api/users/{id}/apikeys/{keyId}:
+    delete:
+      parameters:
+      - description: user id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: key id
+        in: path
+        name: keyId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: admin revoke a user API key
       tags:
       - admin
   /admin/api/users/{id}/password:
@@ -1591,6 +1883,21 @@ paths:
       summary: admin Remove Workspace Member
       tags:
       - workspaces
+  /api/v1/dataset-folders:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: list catalog folders (workspace-scoped)
+      tags:
+      - catalog
   /api/v1/datasets:
     get:
       produces:
@@ -1689,7 +1996,7 @@ paths:
   /api/v1/datasources/{id}/metrics:
     get:
       parameters:
-      - description: datasource id or name
+      - description: datasource id
         in: path
         name: id
         required: true
@@ -1704,15 +2011,15 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: List curated metrics on a datasource
+      summary: list metrics for a datasource
       tags:
-      - dataapi
+      - metrics
   /api/v1/datasources/{id}/metrics/{name}/run:
     post:
       consumes:
       - application/json
       parameters:
-      - description: datasource id or name
+      - description: datasource id
         in: path
         name: id
         required: true
@@ -1722,12 +2029,12 @@ paths:
         name: name
         required: true
         type: string
-      - description: metric run request
+      - description: run params
         in: body
-        name: request
+        name: body
         required: true
         schema:
-          $ref: '#/definitions/api.metricRunRequest'
+          $ref: '#/definitions/internal_enterprise_handlers.metricRunRequest'
       produces:
       - application/json
       responses:
@@ -1738,9 +2045,9 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: Run a curated metric with parameters
+      summary: run a metric (resolve SQL + execute)
       tags:
-      - dataapi
+      - metrics
   /api/v1/datasources/{id}/nl2sql:
     post:
       consumes:
@@ -1756,7 +2063,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.nl2sqlRequest'
+          $ref: '#/definitions/internal_api.nl2sqlRequest'
       produces:
       - application/json
       responses:
@@ -1785,7 +2092,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.estimateRequest'
+          $ref: '#/definitions/internal_api.estimateRequest'
       produces:
       - application/json
       responses:
@@ -1856,14 +2163,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.loginRequest'
+          $ref: '#/definitions/internal_api.loginRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.loginResponse'
+            $ref: '#/definitions/internal_api.loginResponse'
       summary: Authenticate and obtain a JWT
       tags:
       - auth
@@ -1875,12 +2182,71 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.meResponse'
+            $ref: '#/definitions/internal_api.meResponse'
       security:
       - BearerAuth: []
       summary: Get the current principal's profile
       tags:
       - auth
+  /api/v1/me/apikeys:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: list my API keys
+      tags:
+      - admin
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: key request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createKeyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: create my API key
+      tags:
+      - admin
+  /api/v1/me/apikeys/{keyId}:
+    delete:
+      parameters:
+      - description: key id
+        in: path
+        name: keyId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: revoke my API key
+      tags:
+      - admin
   /api/v1/me/approvals:
     get:
       produces:
@@ -1906,7 +2272,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/api.queryRequest'
+          $ref: '#/definitions/internal_api.queryRequest'
       produces:
       - application/json
       responses:

@@ -258,6 +258,14 @@ type createKeyRequest struct {
 
 // AdminCreateUserAPIKey mints a new API key for any user (admin only). The
 // plaintext is returned exactly once in the response.
+// @Summary admin create a user API key
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "user id"
+// @Param body body createKeyRequest true "key request"
+// @Success 201 {object} map[string]interface{}
 // @Router /admin/api/users/{id}/apikeys [post]
 func (h *Handler) AdminCreateUserAPIKey(w http.ResponseWriter, r *http.Request) {
 	id := pathParam(r, "id")
@@ -290,6 +298,12 @@ func (h *Handler) AdminCreateUserAPIKey(w http.ResponseWriter, r *http.Request) 
 }
 
 // AdminListUserAPIKeys lists a user's keys (no secret material).
+// @Summary admin list a user API keys
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "user id"
+// @Success 200 {object} map[string]interface{}
 // @Router /admin/api/users/{id}/apikeys [get]
 func (h *Handler) AdminListUserAPIKeys(w http.ResponseWriter, r *http.Request) {
 	id := pathParam(r, "id")
@@ -305,6 +319,13 @@ func (h *Handler) AdminListUserAPIKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 // AdminRevokeUserAPIKey revokes one of a user's keys.
+// @Summary admin revoke a user API key
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "user id"
+// @Param keyId path string true "key id"
+// @Success 200 {object} map[string]interface{}
 // @Router /admin/api/users/{id}/apikeys/{keyId} [delete]
 func (h *Handler) AdminRevokeUserAPIKey(w http.ResponseWriter, r *http.Request) {
 	id := pathParam(r, "id")
@@ -321,6 +342,11 @@ func (h *Handler) AdminRevokeUserAPIKey(w http.ResponseWriter, r *http.Request) 
 }
 
 // MeListAPIKeys lists the caller's own keys.
+// @Summary list my API keys
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
 // @Router /api/v1/me/apikeys [get]
 func (h *Handler) MeListAPIKeys(w http.ResponseWriter, r *http.Request) {
 	c := claimsFromContext(r.Context())
@@ -336,6 +362,13 @@ func (h *Handler) MeListAPIKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 // MeCreateAPIKey mints a new key for the caller.
+// @Summary create my API key
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param body body createKeyRequest true "key request"
+// @Success 201 {object} map[string]interface{}
 // @Router /api/v1/me/apikeys [post]
 func (h *Handler) MeCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	c := claimsFromContext(r.Context())
@@ -363,6 +396,12 @@ func (h *Handler) MeCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 }
 
 // MeRevokeAPIKey revokes one of the caller's own keys.
+// @Summary revoke my API key
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Param keyId path string true "key id"
+// @Success 200 {object} map[string]interface{}
 // @Router /api/v1/me/apikeys/{keyId} [delete]
 func (h *Handler) MeRevokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	c := claimsFromContext(r.Context())

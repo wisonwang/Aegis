@@ -361,6 +361,16 @@ type folderRequest struct {
 	WorkspaceID string `json:"workspace_id"`
 }
 
+type moveDatasetRequest struct {
+	FolderID string `json:"folder_id"` // "" = uncategorized
+}
+
+// @Summary list catalog folders (workspace-scoped)
+// @Tags catalog
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/dataset-folders [get]
 // ListFolders is the consumer-side read of the catalog tree (workspace-scoped),
 // used to render the collapsible data catalog.
 func (h *Handler) ListFolders(w http.ResponseWriter, r *http.Request) {
@@ -372,6 +382,12 @@ func (h *Handler) ListFolders(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"folders": folders})
 }
 
+// @Summary admin list catalog folders
+// @Tags catalog
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/dataset-folders [get]
 // AdminListFolders returns the workspace's flat folder list for the admin tree.
 func (h *Handler) AdminListFolders(w http.ResponseWriter, r *http.Request) {
 	folders, err := h.Store.ListFolders(r.Context())
@@ -382,6 +398,14 @@ func (h *Handler) AdminListFolders(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"folders": folders})
 }
 
+// @Summary admin create catalog folder
+// @Tags catalog
+// @Accept json
+// @Produce json
+// @Param body body folderRequest true "folder"
+// @Security BearerAuth
+// @Success 201 {object} map[string]interface{}
+// @Router /admin/api/dataset-folders [post]
 // AdminCreateFolder creates a catalog folder, optionally under a parent.
 func (h *Handler) AdminCreateFolder(w http.ResponseWriter, r *http.Request) {
 	var req folderRequest
@@ -416,6 +440,15 @@ func (h *Handler) AdminCreateFolder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"id": f.ID, "workspace_id": store.WriteWorkspace(writeCtx)})
 }
 
+// @Summary admin update catalog folder
+// @Tags catalog
+// @Accept json
+// @Produce json
+// @Param id path string true "folder id"
+// @Param body body folderRequest true "folder"
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/dataset-folders/{id} [put]
 // AdminUpdateFolder renames and/or reparents a folder.
 func (h *Handler) AdminUpdateFolder(w http.ResponseWriter, r *http.Request) {
 	id := pathParam(r, "id")
@@ -431,6 +464,12 @@ func (h *Handler) AdminUpdateFolder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// @Summary admin delete catalog folder
+// @Tags catalog
+// @Param id path string true "folder id"
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/dataset-folders/{id} [delete]
 // AdminDeleteFolder removes a folder; refuses non-empty folders.
 func (h *Handler) AdminDeleteFolder(w http.ResponseWriter, r *http.Request) {
 	if err := h.Store.DeleteFolder(r.Context(), pathParam(r, "id")); err != nil {
@@ -444,12 +483,19 @@ func (h *Handler) AdminDeleteFolder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// @Summary admin move dataset to a catalog folder
+// @Tags datasets
+// @Accept json
+// @Produce json
+// @Param id path string true "dataset id"
+// @Param body body moveDatasetRequest true "target folder"
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasets/{id}/move [post]
 // AdminMoveDataset assigns a dataset to a catalog folder ("" = uncategorized).
 func (h *Handler) AdminMoveDataset(w http.ResponseWriter, r *http.Request) {
 	id := pathParam(r, "id")
-	var req struct {
-		FolderID string `json:"folder_id"`
-	}
+	var req moveDatasetRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
@@ -816,6 +862,13 @@ func (h *Handler) QueryDataset(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+// @Summary list metrics for a datasource
+// @Tags metrics
+// @Produce json
+// @Param id path string true "datasource id"
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/datasources/{id}/metrics [get]
 func (h *Handler) ListMetrics(w http.ResponseWriter, r *http.Request) {
 	dsID, err := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if err != nil {
@@ -830,6 +883,16 @@ func (h *Handler) ListMetrics(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"metrics": metrics})
 }
 
+// @Summary run a metric (resolve SQL + execute)
+// @Tags metrics
+// @Accept json
+// @Produce json
+// @Param id path string true "datasource id"
+// @Param name path string true "metric name"
+// @Param body body metricRunRequest true "run params"
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/datasources/{id}/metrics/{name}/run [post]
 func (h *Handler) RunMetric(w http.ResponseWriter, r *http.Request) {
 	dsID, err := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if err != nil {
@@ -865,6 +928,13 @@ func (h *Handler) RunMetric(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// @Summary admin list metrics for a datasource
+// @Tags metrics
+// @Produce json
+// @Param id path string true "datasource id"
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/metrics [get]
 func (h *Handler) AdminListMetrics(w http.ResponseWriter, r *http.Request) {
 	id, err := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if err != nil {
@@ -879,6 +949,15 @@ func (h *Handler) AdminListMetrics(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"metrics": metrics})
 }
 
+// @Summary admin create or update a metric
+// @Tags metrics
+// @Accept json
+// @Produce json
+// @Param id path string true "datasource id"
+// @Param body body upsertMetricRequest true "metric"
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/metrics [post]
 func (h *Handler) AdminUpsertMetric(w http.ResponseWriter, r *http.Request) {
 	dsID, err := h.resolveDS(r.Context(), pathParam(r, "id"))
 	if err != nil {
@@ -921,6 +1000,13 @@ func (h *Handler) AdminUpsertMetric(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"id": m.ID, "name": m.Name, "workspace_id": store.WriteWorkspace(upsCtx)})
 }
 
+// @Summary admin delete a metric
+// @Tags metrics
+// @Param id path string true "datasource id"
+// @Param mid path string true "metric id"
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /admin/api/datasources/{id}/metrics/{mid} [delete]
 func (h *Handler) AdminDeleteMetric(w http.ResponseWriter, r *http.Request) {
 	mid := pathParam(r, "mid")
 	if err := h.Store.DeleteMetric(r.Context(), mid); err != nil {

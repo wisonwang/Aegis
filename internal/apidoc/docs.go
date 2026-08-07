@@ -321,6 +321,143 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/api/dataset-folders": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "catalog"
+                ],
+                "summary": "admin list catalog folders",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "catalog"
+                ],
+                "summary": "admin create catalog folder",
+                "parameters": [
+                    {
+                        "description": "folder",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_enterprise_handlers.folderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/api/dataset-folders/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "catalog"
+                ],
+                "summary": "admin update catalog folder",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "folder id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "folder",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_enterprise_handlers.folderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "catalog"
+                ],
+                "summary": "admin delete catalog folder",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "folder id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/admin/api/datasets": {
             "get": {
                 "security": [
@@ -570,6 +707,52 @@ const docTemplate = `{
                         "name": "mask",
                         "in": "path",
                         "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/api/datasets/{id}/move": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "datasets"
+                ],
+                "summary": "admin move dataset to a catalog folder",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "dataset id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "target folder",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_enterprise_handlers.moveDatasetRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -1017,6 +1200,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "The ` + "`" + `dsn` + "`" + ` is a driver-specific connection string. See the DSN",
                 "consumes": [
                     "application/json"
                 ],
@@ -1377,11 +1561,11 @@ const docTemplate = `{
                 "tags": [
                     "metrics"
                 ],
-                "summary": "admin List Metrics",
+                "summary": "admin list metrics for a datasource",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "id",
+                        "description": "datasource id",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -1412,14 +1596,23 @@ const docTemplate = `{
                 "tags": [
                     "metrics"
                 ],
-                "summary": "admin Upsert Metric",
+                "summary": "admin create or update a metric",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "id",
+                        "description": "datasource id",
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "metric",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_enterprise_handlers.upsertMetricRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -1440,24 +1633,21 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "produces": [
-                    "application/json"
-                ],
                 "tags": [
                     "metrics"
                 ],
-                "summary": "admin Delete Metric",
+                "summary": "admin delete a metric",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "id",
+                        "description": "datasource id",
                         "name": "id",
                         "in": "path",
                         "required": true
                     },
                     {
                         "type": "string",
-                        "description": "mid",
+                        "description": "metric id",
                         "name": "mid",
                         "in": "path",
                         "required": true
@@ -1952,6 +2142,31 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/api/stats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "admin Instance Stats",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/admin/api/users": {
             "get": {
                 "security": [
@@ -2057,6 +2272,125 @@ const docTemplate = `{
                         "type": "string",
                         "description": "id",
                         "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/api/users/{id}/apikeys": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "admin list a user API keys",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "user id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "admin create a user API key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "user id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "key request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createKeyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/api/users/{id}/apikeys/{keyId}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "admin revoke a user API key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "user id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "key id",
+                        "name": "keyId",
                         "in": "path",
                         "required": true
                     }
@@ -2414,6 +2748,31 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/dataset-folders": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "catalog"
+                ],
+                "summary": "list catalog folders (workspace-scoped)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/datasets": {
             "get": {
                 "security": [
@@ -2580,13 +2939,13 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "dataapi"
+                    "metrics"
                 ],
-                "summary": "List curated metrics on a datasource",
+                "summary": "list metrics for a datasource",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "datasource id or name",
+                        "description": "datasource id",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -2617,13 +2976,13 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "dataapi"
+                    "metrics"
                 ],
-                "summary": "Run a curated metric with parameters",
+                "summary": "run a metric (resolve SQL + execute)",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "datasource id or name",
+                        "description": "datasource id",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -2636,12 +2995,12 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "metric run request",
-                        "name": "request",
+                        "description": "run params",
+                        "name": "body",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.metricRunRequest"
+                            "$ref": "#/definitions/internal_enterprise_handlers.metricRunRequest"
                         }
                     }
                 ],
@@ -2687,7 +3046,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.nl2sqlRequest"
+                            "$ref": "#/definitions/internal_api.nl2sqlRequest"
                         }
                     }
                 ],
@@ -2733,7 +3092,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.estimateRequest"
+                            "$ref": "#/definitions/internal_api.estimateRequest"
                         }
                     }
                 ],
@@ -2842,7 +3201,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.loginRequest"
+                            "$ref": "#/definitions/internal_api.loginRequest"
                         }
                     }
                 ],
@@ -2850,7 +3209,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.loginResponse"
+                            "$ref": "#/definitions/internal_api.loginResponse"
                         }
                     }
                 }
@@ -2874,7 +3233,103 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.meResponse"
+                            "$ref": "#/definitions/internal_api.meResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/me/apikeys": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "list my API keys",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "create my API key",
+                "parameters": [
+                    {
+                        "description": "key request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createKeyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/me/apikeys/{keyId}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "revoke my API key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "key id",
+                        "name": "keyId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -2929,7 +3384,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.queryRequest"
+                            "$ref": "#/definitions/internal_api.queryRequest"
                         }
                     }
                 ],
@@ -2971,7 +3426,50 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "api.estimateRequest": {
+        "github_com_wisonwang_aegis_internal_store.MetricParam": {
+            "type": "object",
+            "properties": {
+                "default": {
+                    "description": "used when omitted and not required"
+                },
+                "description": {
+                    "description": "human/business meaning for agents",
+                    "type": "string"
+                },
+                "enum": {
+                    "description": "allowed values when type=enum",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "description": "referenced in SQLTemplate as :name",
+                    "type": "string"
+                },
+                "required": {
+                    "description": "must be supplied on each run",
+                    "type": "boolean"
+                },
+                "type": {
+                    "description": "string|number|date|bool|enum",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.createKeyRequest": {
+            "type": "object",
+            "properties": {
+                "expires_in": {
+                    "description": "optional duration, e.g. \"720h\"; empty = no expiry",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.estimateRequest": {
             "type": "object",
             "properties": {
                 "datasource": {
@@ -2988,7 +3486,7 @@ const docTemplate = `{
                 }
             }
         },
-        "api.loginRequest": {
+        "internal_api.loginRequest": {
             "type": "object",
             "properties": {
                 "password": {
@@ -2999,18 +3497,18 @@ const docTemplate = `{
                 }
             }
         },
-        "api.loginResponse": {
+        "internal_api.loginResponse": {
             "type": "object",
             "properties": {
                 "token": {
                     "type": "string"
                 },
                 "user": {
-                    "$ref": "#/definitions/api.meResponse"
+                    "$ref": "#/definitions/internal_api.meResponse"
                 }
             }
         },
-        "api.meResponse": {
+        "internal_api.meResponse": {
             "type": "object",
             "properties": {
                 "attributes": {
@@ -3022,7 +3520,13 @@ const docTemplate = `{
                 "display_name": {
                     "type": "string"
                 },
+                "email": {
+                    "type": "string"
+                },
                 "id": {
+                    "type": "string"
+                },
+                "last_login_at": {
                     "type": "string"
                 },
                 "roles": {
@@ -3031,26 +3535,15 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "type": {
+                    "type": "string"
+                },
                 "username": {
                     "type": "string"
                 }
             }
         },
-        "api.metricRunRequest": {
-            "type": "object",
-            "properties": {
-                "params": {
-                    "description": "parameter name -\u003e value",
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "session_id": {
-                    "description": "optional; links queries from one AI conversation",
-                    "type": "string"
-                }
-            }
-        },
-        "api.nl2sqlRequest": {
+        "internal_api.nl2sqlRequest": {
             "type": "object",
             "properties": {
                 "datasource": {
@@ -3071,8 +3564,92 @@ const docTemplate = `{
                 }
             }
         },
-        "api.queryRequest": {
-            "type": "object"
+        "internal_api.queryRequest": {
+            "type": "object",
+            "properties": {
+                "datasource": {
+                    "description": "id or name",
+                    "type": "string"
+                },
+                "params": {
+                    "type": "array",
+                    "items": {}
+                },
+                "query": {
+                    "description": "backend-specific JSON for NoSQL (mongo/es)",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "session_id": {
+                    "description": "optional; links queries from one AI conversation",
+                    "type": "string"
+                },
+                "sql": {
+                    "description": "SQL for SQL-family backends",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_enterprise_handlers.folderRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "parent_id": {
+                    "description": "\"\" or absent = root",
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_enterprise_handlers.metricRunRequest": {
+            "type": "object",
+            "properties": {
+                "params": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_enterprise_handlers.moveDatasetRequest": {
+            "type": "object",
+            "properties": {
+                "folder_id": {
+                    "description": "\"\" = uncategorized",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_enterprise_handlers.upsertMetricRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "params": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_wisonwang_aegis_internal_store.MetricParam"
+                    }
+                },
+                "sql_template": {
+                    "type": "string"
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
         }
     },
     "securityDefinitions": {
@@ -3098,7 +3675,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/",
 	Schemes:          []string{},
 	Title:            "Aegis DataAPI",
-	Description:      "Aegis — AI Data Supply Gateway. 受治理的 DataAPI + 面向 AI Agent 的 MCP 服务。默认拒绝：每条查询都经过权限引擎重写与脱敏。\n\n## 认证与接入（如何获取凭证）\n\n### 1. DataAPI / 管理 API（浏览器、脚本、curl）— JWT\n1. 调用 `POST /api/v1/login`，请求体 `{\"username\":\"admin\",\"password\":\"***\"}`，响应里的 `token` 字段即 JWT。\n2. 之后所有请求带请求头：`Authorization: Bearer <token>`。\n3. 默认有效期 24h（服务端 `jwt_expiry` 可配），过期后重新登录换取。\n4. 在线调试：点本页右上方 **Authorize** 按钮，粘贴 `Bearer <token>` 即可。\n\n本地演示账号：`admin` / `admin123`（由 `seed_demo` 种入，生产请立即修改）。\n\n### 2. MCP（AI Agent 接入）— 静态 API Key\nAI Agent 不走本页 REST 接口，而是连接 `POST /mcp`（JSON-RPC 2.0 over HTTP），用静态 API Key 认证：\n请求头 `X-MCP-API-Key: <key>`。该 key 由管理员在服务端配置 `mcp.api_key` 下发（本地演示为 `mcp-demo-key`），不经过登录接口。\n\n### 3. 多租户\n非 admin 角色的请求会被强制限定在其所属工作区；admin 可用请求头 `X-Workspace-Id: <id>` 指定目标工作区（缺省为跨工作区视图）。",
+	Description:      "Aegis — AI Data Supply Gateway. 受治理的 DataAPI + 面向 AI Agent 的 MCP 服务。默认拒绝：每条查询都经过权限引擎重写与脱敏。\n\n## 认证与接入（如何获取凭证）\n\n### 1. DataAPI / 管理 API（浏览器、脚本、curl）— JWT\n1. 调用 `POST /api/v1/login`，请求体 `{\"username\":\"admin\",\"password\":\"***\"}`，响应里的 `token` 字段即 JWT。\n2. 之后所有请求带请求头：`Authorization: Bearer <token>`。\n3. 默认有效期 24h（服务端 `jwt_expiry` 可配），过期后重新登录换取。\n4. 在线调试：点本页右上方 **Authorize** 按钮，粘贴 `Bearer <token>` 即可。\n\n本地演示账号：`admin` / `admin123`（仅开发态 demo 配置会通过 `seed_demo` 种入，生产默认关闭）。\n\n### 2. MCP（AI Agent 接入）— 静态 API Key\nAI Agent 不走本页 REST 接口，而是连接 `POST /mcp`（JSON-RPC 2.0 over HTTP），用静态 API Key 认证：\n请求头 `X-MCP-API-Key: <key>`。该 key 由管理员在服务端配置 `mcp.api_key` 下发（本地 demo 可用 `mcp-demo-key`），不经过登录接口。\n\n### 3. 多租户\n非 admin 角色的请求会被强制限定在其所属工作区；admin 可用请求头 `X-Workspace-Id: <id>` 指定目标工作区（缺省为跨工作区视图）。",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",
