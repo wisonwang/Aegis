@@ -20,14 +20,10 @@
 
 **快速导航**
 
-- 生产上线检查表：[docs/production-readiness-checklist.md](docs/production-readiness-checklist.md)
-- 商用包装方案：[docs/commercial-packaging-plan.md](docs/commercial-packaging-plan.md)
-- 生产部署模板：[docs/deployment-production.md](docs/deployment-production.md)
-- FAQ：[docs/faq.md](docs/faq.md)
-- 支持策略：[docs/support-policy.md](docs/support-policy.md)
 - 发布策略：[docs/release-policy.md](docs/release-policy.md)
 - 发布与供应链说明：[docs/release-operations.md](docs/release-operations.md)
-- 第三方许可说明：[docs/third-party-notices.md](docs/third-party-notices.md)
+- GitHub 仓库设置：[docs/github-setup.md](docs/github-setup.md)
+- 竞品对比：[docs/competitive_analysis.md](docs/competitive_analysis.md)
 - 示例入口：[examples/README.md](examples/README.md)
 
 
@@ -87,8 +83,6 @@ AI 应用（ChatBI / Agent 工作流 / RAG / Copilot）的 SQL 由 LLM 现场生
 | Datasets / Metrics / 审批流 | No | Yes |
 | 多租户 / SIEM / HA | No | Yes |
 
-完整商用口径见 [docs/commercial-packaging-plan.md](docs/commercial-packaging-plan.md)。
-
 ## MCP Demo
 
 如果你想最快验证“Aegis 如何把数据库变成受治理的 Agent 工具”，可以直接跑内置 Demo。当前 Demo 采用“酒店运营晨会备数”场景：Agent 在会前通过 MCP 自动发现 `hotel_bookings` / `guest_profiles` 两张经营表，评估查询风险，运行 `confirmed_room_revenue` / `arrival_guest_count` 指标，读取已发布数据产品 `hotel_confirmed_bookings`，并用 NL2SQL 追问已确认订单的房费收入。
@@ -110,8 +104,6 @@ make mcp-e2e-admin
 
 配套文档：
 
-- Demo 案例设计：[docs/mcp-demo-case.md](docs/mcp-demo-case.md)
-- Demo 测试报告：[docs/mcp-demo-test-report.md](docs/mcp-demo-test-report.md)
 - 示例入口：[examples/README.md](examples/README.md)
 
 ## 快速开始
@@ -152,7 +144,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 - `conf/config.local.json` 是**生产安全模板**：默认 `community`、`seed_demo=false`、`docs_enabled=false`
 - `conf/config.demo.json` 是**本地演示配置**：仅用于开发 / Demo，包含演示账号和 `mcp-demo-key`
 - 生产环境请通过环境变量或 Secret 注入 `AEGIS_JWT_SECRET`、`AEGIS_MASK_SECRET`、`AEGIS_MCP_API_KEY`
-- 生产部署请结合 [docs/deployment-production.md](docs/deployment-production.md) 中的 `docker-compose.prod.yml`、`nginx`、`systemd` 模板
+- 生产部署请使用 `docker-compose.prod.yml`、`nginx`、`systemd` 模板（见 `deploy/` 目录）
 
 ---
 
