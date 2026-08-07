@@ -14,9 +14,11 @@ DSN_RAW = "root:s3cr3tP@ss@tcp(127.0.0.1:3306)/masktest?parseTime=true"
 
 
 def _create_ds(aegis, admin_token, name):
+    # admin is in the all-workspaces view, so an explicit workspace_id is
+    # required (ADR-0007: datasources cannot silently collapse into "default").
     st, b = http_json(
         "POST", aegis + "/admin/api/datasources",
-        {"name": name, "type": "mysql", "dsn": DSN_RAW},
+        {"name": name, "type": "mysql", "dsn": DSN_RAW, "workspace_id": "default"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert st in (200, 201), f"create ds failed: {b}"

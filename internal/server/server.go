@@ -211,6 +211,20 @@ func registerRoutes(engine *gin.Engine, h *api.Handler, st *store.Store, px *pro
 		})
 	}
 
+	// ---- Downloadable agent skill (SKILL.md) ----
+	// Served as an attachment so the API docs page can offer a one-click
+	// "download Aegis Agent Skill" link for developers wiring their agents
+	// to Aegis over MCP. Always available (low-risk static doc).
+	engine.GET("/admin/api/skill", func(c *gin.Context) {
+		data, err := webFS.ReadFile("web/SKILL.md")
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.Header("Content-Disposition", "attachment; filename=\"Aegis-Agent-Skill.md\"")
+		c.Data(http.StatusOK, "text/markdown; charset=utf-8", data)
+	})
+
 	// ---- OIDC login flow (optional) ----
 	if oidcH != nil {
 		engine.GET("/api/v1/auth/oidc/login", gin.WrapF(oidcH.OIDCLogin))

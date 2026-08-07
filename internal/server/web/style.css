@@ -52,6 +52,8 @@ button { padding: 8px 14px; border: 0; background: var(--brand); color: #fff; bo
 button[disabled] { cursor: wait; opacity: .72; }
 button.busy::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 8px; border-radius: 50%; border: 2px solid rgba(255,255,255,.45); border-top-color: #fff; animation: spin .7s linear infinite; vertical-align: -2px; }
 button.sec.busy::before { border-color: rgba(37,99,235,.28); border-top-color: var(--brand); }
+.btn-download { display:inline-block; padding:8px 14px; background:var(--brand); color:#fff; border-radius:8px; text-decoration:none; font-size:14px; cursor:pointer; }
+.btn-download:hover { background:var(--brand-d); }
 button.sec { background: #fff; color: var(--brand); border: 1px solid var(--brand); }
 button.danger { background: var(--danger); }
 
