@@ -12,6 +12,7 @@ package metrics
 
 import (
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -60,6 +61,11 @@ var (
 		Name: "aegis_build_info",
 		Help: "Build information for this Aegis instance (value is always 1).",
 	}, []string{"version", "commit"})
+
+	auditReasons = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "aegis_audit_reasons_total",
+		Help: "Governed-query outcomes labelled with a coarse reason kind (e.g. no_where_write, affected_rows_cap, rate_limit). Pairs with aegis_queries_total{status=denied|error} so SREs can alert on a specific failure mode.",
+	}, []string{"channel", "status", "reason"})
 )
 
 // In-process mirrors so /admin/api/stats can read current values cheaply.
@@ -83,6 +89,7 @@ func init() {
 		datasetsPublishedTotal,
 		mcpSessionsTotal,
 		buildInfo,
+		auditReasons,
 	)
 	// Runtime visibility (goroutines, GC, process CPU/mem, start time).
 	reg.MustRegister(prometheus.NewGoCollector())
@@ -99,6 +106,68 @@ func RecordQuery(channel, status string, dur time.Duration) {
 	case "denied":
 		atomic.AddInt64(&queriesDenied, 1)
 	}
+}
+
+// RecordReason records the coarse reason kind for a governed-query outcome.
+// status should be "denied" or "error"; "ok" outcomes are ignored here
+// (they have no reason). errMsg is the free-text audit error we want to
+// fold into a small, stable label set so Prometheus cardinality stays bounded.
+func RecordReason(channel, status, errMsg string) {
+	if status == "ok" {
+		return
+	}
+	auditReasons.WithLabelValues(channel, status, classifyReason(errMsg)).Inc()
+}
+
+// ClassifyReason maps a free-text governed-query error message into a small,
+// stable kind label suitable for Prometheus dimensions. It is exported so
+// callers (e.g. tests, structured logging) can use the same mapping.
+func ClassifyReason(errMsg string) string { return classifyReason(errMsg) }
+
+// Reason kinds exposed for observability consumers. Keep this set small and
+// stable: every variant becomes a Prometheus series dimension.
+const (
+	ReasonNoWhereWrite     = "no_where_write"
+	ReasonAffectedRowsCap  = "affected_rows_cap"
+	ReasonRateLimit        = "rate_limit"
+	ReasonQueryTimeout     = "query_timeout"
+	ReasonRLSNoMatch       = "rls_no_match"
+	ReasonAccessDenied     = "access_denied"
+	ReasonDatasetNotFound  = "dataset_not_found"
+	ReasonDatasetDenied    = "dataset_denied"
+	ReasonDatasetNotReady  = "dataset_not_ready"
+	ReasonMethodNotAllowed = "method_not_allowed"
+	ReasonUnknown          = "unknown"
+)
+
+// classifyReason does a case-insensitive substring match against the audit
+// errMsg. Order matters: more specific patterns win first. Anything that
+// doesn't match falls back to ReasonUnknown — bounded cardinality.
+func classifyReason(errMsg string) string {
+	e := strings.ToLower(errMsg)
+	switch {
+	case strings.Contains(e, "without where"):
+		return ReasonNoWhereWrite
+	case strings.Contains(e, "max_affected_rows") || strings.Contains(e, "exceeding max_affected_rows"):
+		return ReasonAffectedRowsCap
+	case strings.Contains(e, "rate limit exceeded"):
+		return ReasonRateLimit
+	case strings.Contains(e, "deadline exceeded") || strings.Contains(e, "context deadline") || strings.Contains(e, "timeout") || strings.Contains(e, "deadline"):
+		return ReasonQueryTimeout
+	case strings.Contains(e, "row policy") || strings.Contains(e, "row-policy"):
+		return ReasonRLSNoMatch
+	case strings.Contains(e, "denied on dataset") || strings.Contains(e, "dataset denied"):
+		return ReasonDatasetDenied
+	case strings.Contains(e, "dataset not found") || (strings.Contains(e, "dataset") && strings.Contains(e, "not found")):
+		return ReasonDatasetNotFound
+	case strings.Contains(e, "not ready") || strings.Contains(e, "not published"):
+		return ReasonDatasetNotReady
+	case strings.Contains(e, "method not allowed") || strings.Contains(e, "statement type"):
+		return ReasonMethodNotAllowed
+	case strings.Contains(e, "no permission") || strings.Contains(e, "access denied") || strings.Contains(e, "not authorized") || strings.Contains(e, "denied on table"):
+		return ReasonAccessDenied
+	}
+	return ReasonUnknown
 }
 
 // RecordRows adds to the running total of rows returned to callers.

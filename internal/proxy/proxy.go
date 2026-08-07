@@ -144,6 +144,11 @@ func (p *Proxy) audit(ctx context.Context, dsID string, claims *auth.Claims, sql
 	ch := channelFrom(ctx)
 	metrics.RecordQuery(ch, status, time.Since(started))
 	metrics.RecordRows(ch, status, rowCount)
+	// Record the coarse reason kind (denied/error only) so SREs can alert
+	// on a specific failure mode (e.g. no_where_write, rate_limit) without
+	// scraping the audit table. The free-text audit errMsg is folded into a
+	// bounded label set by metrics.ClassifyReason.
+	metrics.RecordReason(ch, status, errMsg)
 	// Anomaly detection: observe every governed outcome (ok/denied/error) so
 	// the engine can spot probing, bulk export and off-hours access.
 	if p.detector != nil {
