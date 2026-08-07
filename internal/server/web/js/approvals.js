@@ -57,7 +57,7 @@ function approvalActions(a) {
   return '';
 }
 
-document.getElementById('apSubmit').addEventListener('click', async () => {
+document.getElementById('apSubmit').addEventListener('click', async (e) => {
   const msg = document.getElementById('apMsg');
   msg.textContent = '';
   const body = {
@@ -72,12 +72,15 @@ document.getElementById('apSubmit').addEventListener('click', async () => {
     return;
   }
   try {
-    await api('/admin/api/approvals', { method: 'POST', body: JSON.stringify(body) });
-    msg.textContent = '申请已提交，等待管理员审批';
-    document.getElementById('apTable').value = '';
-    document.getElementById('apJust').value = '';
-    loadMyApprovals();
-    loadAllApprovals();
+    await withButtonBusy(e.currentTarget, '提交中...', async () => {
+      await api('/admin/api/approvals', { method: 'POST', body: JSON.stringify(body) });
+      msg.textContent = '申请已提交，等待管理员审批';
+      document.getElementById('apTable').value = '';
+      document.getElementById('apJust').value = '';
+      loadMyApprovals();
+      loadAllApprovals();
+    });
+    toast('申请已提交', 'success');
   } catch (e) { msg.textContent = e.message; }
 });
 
@@ -86,14 +89,16 @@ document.getElementById('apAll').addEventListener('click', async (e) => {
   if (!act) return;
   const id = e.target.dataset.id;
   try {
-    if (act === 'approve') await api('/admin/api/approvals/' + id + '/approve', { method: 'POST' });
-    else if (act === 'reject') await api('/admin/api/approvals/' + id + '/reject', { method: 'POST' });
-    else if (act === 'revoke') await api('/admin/api/approvals/' + id + '/revoke', { method: 'POST' });
+    await withButtonBusy(e.target, act === 'approve' ? '处理中...' : act === 'reject' ? '拒绝中...' : '撤回中...', async () => {
+      if (act === 'approve') await api('/admin/api/approvals/' + id + '/approve', { method: 'POST' });
+      else if (act === 'reject') await api('/admin/api/approvals/' + id + '/reject', { method: 'POST' });
+      else if (act === 'revoke') await api('/admin/api/approvals/' + id + '/revoke', { method: 'POST' });
+    });
     loadAllApprovals();
     loadMyApprovals();
-  } catch (err) { alert(err.message); }
+    toast(act === 'approve' ? '审批已通过' : act === 'reject' ? '申请已拒绝' : '申请已撤回', 'success');
+  } catch (err) { toast(err.message, 'error'); }
 });
 
 document.getElementById('apLoad').addEventListener('click', loadAllApprovals);
 document.querySelector('[data-tab="approvals"]').addEventListener('click', () => { loadMyApprovals(); loadAllApprovals(); });
-

@@ -12,11 +12,23 @@
 * { box-sizing: border-box; }
 body { margin: 0; font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--ink); }
 .topbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; background: var(--brand); color: #fff; }
+.top-progress { position: fixed; top: 0; left: 0; height: 3px; width: 100%; z-index: 60; background: linear-gradient(90deg, #60a5fa 0%, #bfdbfe 45%, #60a5fa 100%); background-size: 180% 100%; animation: top-progress 1.1s linear infinite; }
 .brand { font-weight: 700; font-size: 18px; }
 .brand span { font-weight: 400; font-size: 13px; opacity: .85; margin-left: 8px; }
 .userbox { font-size: 14px; }
 .userbox button { margin-left: 10px; }
+.ws-switch { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.ws-switch label { display: flex; align-items: center; gap: 6px; opacity: .95; }
+.ws-switch select { font-size: 13px; padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,.5); background: rgba(255,255,255,.12); color: #fff; }
+.ws-switch select option { color: #1f2933; }
+.ws-badge { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--line); color: var(--muted); white-space: nowrap; }
 .hidden { display: none !important; }
+.toast-stack { position: fixed; top: 20px; right: 20px; display: flex; flex-direction: column; gap: 10px; z-index: 80; max-width: min(420px, calc(100vw - 32px)); }
+.toast { background: rgba(15, 23, 42, .96); color: #fff; border-radius: 10px; padding: 12px 14px; box-shadow: 0 14px 30px rgba(15, 23, 42, .18); border-left: 4px solid #93c5fd; font-size: 13px; line-height: 1.5; transform: translateY(-8px); opacity: 0; transition: opacity .18s ease, transform .18s ease; }
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast.success { border-left-color: #22c55e; }
+.toast.error { border-left-color: #ef4444; }
+.toast.warning { border-left-color: #f59e0b; }
 
 .login-wrap { display: flex; justify-content: center; align-items: center; min-height: 70vh; }
 .login-card { background: var(--panel); padding: 28px; border-radius: 12px; width: 320px; box-shadow: 0 6px 24px rgba(0,0,0,.08); display: flex; flex-direction: column; gap: 10px; }
@@ -37,6 +49,9 @@ body { margin: 0; font-family: -apple-system, "Segoe UI", "PingFang SC", "Micros
 input, select, textarea { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; }
 textarea { width: 100%; font-family: ui-monospace, Menlo, Consolas, monospace; }
 button { padding: 8px 14px; border: 0; background: var(--brand); color: #fff; border-radius: 8px; cursor: pointer; }
+button[disabled] { cursor: wait; opacity: .72; }
+button.busy::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 8px; border-radius: 50%; border: 2px solid rgba(255,255,255,.45); border-top-color: #fff; animation: spin .7s linear infinite; vertical-align: -2px; }
+button.sec.busy::before { border-color: rgba(37,99,235,.28); border-top-color: var(--brand); }
 button.sec { background: #fff; color: var(--brand); border: 1px solid var(--brand); }
 button.danger { background: var(--danger); }
 
@@ -128,3 +143,19 @@ ul.tree, .tree ul { list-style: none; margin: 6px 0; padding-left: 16px; }
 .modal label { min-width: 64px; color: var(--muted); }
 .modal input, .modal select { flex: 1 1 auto; }
 .tree li.collapsed > ul.tchildren { display: none; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes top-progress {
+  0% { background-position: 180% 0; }
+  100% { background-position: -180% 0; }
+}
+
+@media (max-width: 960px) {
+  .tabs { overflow-x: auto; padding-bottom: 4px; }
+  .catalog-layout { flex-direction: column; }
+  .catalog-tree { flex-basis: auto; max-width: none; max-height: 320px; width: 100%; }
+  .toast-stack { top: 12px; right: 12px; left: 12px; max-width: none; }
+}

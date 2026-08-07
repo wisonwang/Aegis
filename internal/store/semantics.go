@@ -109,10 +109,9 @@ func (s *Store) SemanticIndexFor(ctx context.Context, dsID string) (SemanticInde
 	return ix, nil
 }
 
-// DeleteSemantic removes one entry by id.
-func (s *Store) DeleteSemantic(id string) error {
-	_, err := s.db.Exec(`DELETE FROM schema_semantics WHERE id=?`, id)
-	return err
+// DeleteSemantic removes one entry by id, scoped to the caller's workspace.
+func (s *Store) DeleteSemantic(ctx context.Context, id string) error {
+	return s.deleteWorkspaceScoped(ctx, "schema_semantics", id)
 }
 
 // GetSemantic returns the entry for a specific table/column, or nil.

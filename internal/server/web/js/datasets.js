@@ -105,10 +105,13 @@ function renderFolderBar() {
   document.getElementById('fbDelete').onclick = async () => {
     if (!confirm('删除目录「' + (f ? f.name : '') + '」？该目录必须为空（无子目录、无数据集）。')) return;
     try {
-      await api('/admin/api/dataset-folders/' + window.__curFolder, { method: 'DELETE' });
+      await withButtonBusy(document.getElementById('fbDelete'), '删除中...', async () => {
+        await api('/admin/api/dataset-folders/' + window.__curFolder, { method: 'DELETE' });
+      });
       window.__curFolder = '';
       await loadFolders(); renderFolderTree(); renderFolderBar(); loadDatasetsTable();
-    } catch (e) { alert(e.message); }
+      toast('目录已删除', 'success');
+    } catch (e) { toast(e.message, 'error'); }
   };
 }
 
@@ -146,27 +149,44 @@ document.getElementById('fdSave').addEventListener('click', async (e) => {
   e.preventDefault();
   const msg = document.getElementById('fdMsg'); msg.textContent = '';
   try {
-    if (__fdMode === 'create') {
-      const name = document.getElementById('fdName').value.trim();
-      if (!name) { msg.textContent = '请填写名称'; return; }
-      const parent = document.getElementById('fdParent').value;
-      await api('/admin/api/dataset-folders', { method: 'POST', body: JSON.stringify({ name, parent_id: parent }) });
-    } else if (__fdMode === 'rename') {
-      const name = document.getElementById('fdName').value.trim();
-      if (!name) { msg.textContent = '请填写名称'; return; }
-      await api('/admin/api/dataset-folders/' + __fdId, { method: 'PUT', body: JSON.stringify({ name }) });
-    } else if (__fdMode === 'move') {
-      const dest = document.getElementById('fdDest').value;
-      await api('/admin/api/datasets/' + __moveDsId + '/move', { method: 'POST', body: JSON.stringify({ folder_id: dest }) });
-    }
+    await withButtonBusy(document.getElementById('fdSave'), '保存中...', async () => {
+      if (__fdMode === 'create') {
+        const name = document.getElementById('fdName').value.trim();
+        if (!name) { msg.textContent = '请填写名称'; return; }
+        const parent = document.getElementById('fdParent').value;
+        await api('/admin/api/dataset-folders', { method: 'POST', body: JSON.stringify({ name, parent_id: parent }) });
+      } else if (__fdMode === 'rename') {
+        const name = document.getElementById('fdName').value.trim();
+        if (!name) { msg.textContent = '请填写名称'; return; }
+        await api('/admin/api/dataset-folders/' + __fdId, { method: 'PUT', body: JSON.stringify({ name }) });
+      } else if (__fdMode === 'move') {
+        const dest = document.getElementById('fdDest').value;
+        await api('/admin/api/datasets/' + __moveDsId + '/move', { method: 'POST', body: JSON.stringify({ folder_id: dest }) });
+      }
+    });
+    if (msg.textContent) return;
     document.getElementById('folderDialog').close();
     await loadFolders(); renderFolderTree(); renderFolderBar(); loadDatasetsTable();
+    toast(__fdMode === 'move' ? '数据集已移动' : '目录已保存', 'success');
   } catch (err) { msg.textContent = err.message; }
 });
 document.getElementById('fdCancel').addEventListener('click', () => { document.getElementById('folderDialog').close(); });
 document.getElementById('dsNewRoot').addEventListener('click', () => openFolderDialog('create', ''));
 
 // ---- dataset management (data products) ----
+// Populate the "owning workspace" picker on the dataset create form.
+async function loadWSForDatasetSelect() {
+  const sel = document.getElementById('dsDatasetWS');
+  if (!sel) return;
+  try {
+    const data = await api('/admin/api/workspaces');
+    const wss = data.workspaces || [];
+    sel.innerHTML = '<option value="">工作区(必选)</option>' +
+      wss.map(w => `<option value="${esc(w.ID)}">${esc(w.Name)}</option>`).join('');
+    if (currentWorkspace && currentWorkspace !== '*') sel.value = currentWorkspace;
+  } catch (e) { /* ignore */ }
+}
+
 async function loadDatasetsTable() {
   const t = document.getElementById('datasetTable');
   try {
@@ -179,12 +199,13 @@ async function loadDatasetsTable() {
       renderFolderTree();
       return;
     }
-    t.innerHTML = '<thead><tr><th>名称</th><th>显示名</th><th>目录</th><th>数据源</th><th>状态</th><th>定义</th><th>操作</th></tr></thead><tbody>' +
+    t.innerHTML = '<thead><tr><th>名称</th><th>显示名</th><th>目录</th><th>数据源</th><th>工作区</th><th>状态</th><th>定义</th><th>操作</th></tr></thead><tbody>' +
       sets.map(d => `<tr>
         <td><code>${esc(d.name)}</code></td>
         <td>${esc(d.display_name || '')}</td>
         <td>${esc(folderName(d.folder_id))}</td>
         <td>${esc(dsName(d.datasource_id))}</td>
+        <td>${esc(d.workspace_id || '—')}</td>
         <td><span class="badge ${d.status === 'published' ? 'ok' : 'warning'}">${d.status === 'published' ? '已发布' : '草稿'}</span></td>
         <td><code title="${esc(d.definition || '')}">${esc((d.definition || '').length > 40 ? (d.definition || '').slice(0, 40) + '…' : (d.definition || ''))}</code></td>
         <td>
@@ -195,6 +216,7 @@ async function loadDatasetsTable() {
           <button class="danger" data-act="dsdel" data-id="${d.id}" data-name="${esc(d.name)}">删除</button>
         </td></tr>`).join('') + '</tbody>';
     renderFolderTree();
+    loadWSForDatasetSelect();
   } catch (e) {
     t.innerHTML = '<thead><tr><th>数据集</th></tr></thead><tbody><tr><td class="error">' + esc(e.message) + '</td></tr></tbody>';
   }
@@ -250,6 +272,8 @@ function dsResetForm() {
   document.getElementById('dsFolder').value = window.__curFolder || '';
   renderFields('[]');
   document.getElementById('dsStatus').value = 'draft';
+  const dws = document.getElementById('dsDatasetWS');
+  if (dws) dws.value = (currentWorkspace && currentWorkspace !== '*') ? currentWorkspace : '';
   document.getElementById('dsSave').textContent = '创建数据集';
   document.getElementById('dsCancel').classList.add('hidden');
   document.getElementById('dsMsg').textContent = '';
@@ -259,7 +283,7 @@ function isValidJSON(s) { try { JSON.parse(s); return true; } catch { return fal
 
 document.getElementById('dsCancel').addEventListener('click', dsResetForm);
 
-document.getElementById('dsSave').addEventListener('click', async () => {
+document.getElementById('dsSave').addEventListener('click', async (e) => {
   const msg = document.getElementById('dsMsg');
   msg.textContent = '';
   const name = document.getElementById('datasetName').value.trim();
@@ -273,15 +297,31 @@ document.getElementById('dsSave').addEventListener('click', async () => {
   if (!dsId) { msg.textContent = '请选择数据源'; return; }
   if (!editId && !def.trim()) { msg.textContent = '请填写定义 SQL'; return; }
   if (fields && !isValidJSON(fields)) { msg.textContent = '字段契约需为合法 JSON'; return; }
+  // Resolve the owning workspace. From the all-workspaces view it is required
+  // explicitly; when scoped to a concrete workspace it defaults to that one.
+  const wsSel = document.getElementById('dsDatasetWS');
+  let wsID = wsSel ? wsSel.value : '';
+  if (!wsID && currentWorkspace && currentWorkspace !== '*') wsID = currentWorkspace;
+  if (!editId && !wsID) { msg.textContent = '请选择数据集所属的工作区'; return; }
   const body = editId
     ? { display_name: document.getElementById('dsDisp').value, definition: def, status, fields, folder_id: folderId }
-    : { name, display_name: document.getElementById('dsDisp').value, datasource_id: dsId, definition: def, status, fields, folder_id: folderId };
+    : { name, display_name: document.getElementById('dsDisp').value, datasource_id: dsId, definition: def, status, fields, folder_id: folderId, workspace_id: wsID };
   try {
-    if (editId) await api('/admin/api/datasets/' + editId, { method: 'PUT', body: JSON.stringify(body) });
-    else await api('/admin/api/datasets', { method: 'POST', body: JSON.stringify(body) });
+    const isEdit = !!editId;
+    await withButtonBusy(e.currentTarget, isEdit ? '保存中...' : '创建中...', async () => {
+      if (editId) await api('/admin/api/datasets/' + editId, { method: 'PUT', body: JSON.stringify(body) });
+      else await api('/admin/api/datasets', { method: 'POST', body: JSON.stringify(body) });
+    });
     dsResetForm();
     loadDatasetsTable();
+    toast(isEdit ? '数据集已更新' : '数据集已创建', 'success');
   } catch (e) { msg.textContent = e.message; }
+});
+
+// Switching the active workspace re-scopes the dataset list (the backend filters
+// by X-Workspace-Id) and refreshes the owning-workspace picker.
+window.addEventListener('workspace-changed', () => {
+  loadDatasetsTable();
 });
 
 document.getElementById('datasetTable').addEventListener('click', async (e) => {
@@ -292,13 +332,19 @@ document.getElementById('datasetTable').addEventListener('click', async (e) => {
   try {
     if (act === 'dsdel') {
       if (!confirm('删除数据集「' + name + '」将级联删除其下所有表权限 / 行策略 / 列脱敏 / 业务语义。确认？')) return;
-      await api('/admin/api/datasets/' + id, { method: 'DELETE' });
+      await withButtonBusy(e.target, '删除中...', async () => {
+        await api('/admin/api/datasets/' + id, { method: 'DELETE' });
+      });
       if (window.__dsGovId === id) { window.__dsGovId = null; document.getElementById('dsGov').classList.add('hidden'); }
       loadDatasetsTable();
+      toast('数据集已删除', 'success');
     } else if (act === 'dspub') {
       const st = e.target.dataset.status;
-      await api('/admin/api/datasets/' + id + (st === 'published' ? '/unpublish' : '/publish'), { method: 'POST' });
+      await withButtonBusy(e.target, st === 'published' ? '取消中...' : '发布中...', async () => {
+        await api('/admin/api/datasets/' + id + (st === 'published' ? '/unpublish' : '/publish'), { method: 'POST' });
+      });
       loadDatasetsTable();
+      toast(st === 'published' ? '已取消发布' : '已发布数据集', 'success');
     } else if (act === 'dsmove') {
       openFolderDialog('move', id);
     } else if (act === 'dsedit') {
@@ -309,20 +355,24 @@ document.getElementById('datasetTable').addEventListener('click', async (e) => {
       document.getElementById('dsDisp').value = data.display_name || '';
       document.getElementById('dsDs').value = data.datasource_id || '';
       document.getElementById('dsDef').value = data.definition || '';
+      const dws = document.getElementById('dsDatasetWS');
+      if (dws) dws.value = data.workspace_id || '';
       document.getElementById('dsFolder').value = data.folder_id || '';
       renderFields((data.fields && data.fields !== '[]') ? data.fields : '[]');
       document.getElementById('dsStatus').value = data.status || 'draft';
       document.getElementById('dsSave').textContent = '保存修改';
       document.getElementById('dsCancel').classList.remove('hidden');
       document.getElementById('dsMsg').textContent = '编辑模式：名称不可改';
+      document.getElementById('datasetName').scrollIntoView({ behavior: 'smooth', block: 'center' });
     } else if (act === 'dsgov') {
       window.__dsGovId = id;
       document.getElementById('dsGovName').textContent = name;
       document.getElementById('dsGov').classList.remove('hidden');
       loadRolesInto('#dsgRole'); loadRolesInto('#dsgPolicyRole'); loadRolesInto('#dsgMaskRole');
       loadDatasetGov();
+      document.getElementById('dsGov').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-  } catch (err) { alert(err.message); }
+  } catch (err) { toast(err.message, 'error'); }
 });
 
 // ---- dataset consumption catalog (collapsible tree) ----
@@ -403,13 +453,17 @@ function toggleCatalogDetail(box, el) {
       <div class="row"><button class="sec" data-act="copy" data-val="${esc(d.name)}">复制消费句柄</button></div>`;
     el.insertAdjacentElement('afterend', div);
     wireCatalogCopy(box);
-  }).catch(e => alert(e.message));
+  }).catch(e => toast(e.message, 'error'));
 }
 function wireCatalogCopy(box) {
   box.querySelectorAll('[data-act="copy"]').forEach(btn => {
     btn.onclick = async () => {
-      try { await navigator.clipboard.writeText(btn.dataset.val); btn.textContent = '已复制!'; setTimeout(() => btn.textContent = '复制消费句柄', 1500); }
-      catch (err) { alert('复制失败'); }
+      try {
+        await navigator.clipboard.writeText(btn.dataset.val);
+        btn.textContent = '已复制!';
+        toast('消费句柄已复制', 'success');
+        setTimeout(() => btn.textContent = '复制消费句柄', 1500);
+      } catch (err) { toast('复制失败', 'error'); }
     };
   });
 }
@@ -446,7 +500,7 @@ async function loadDatasetGov() {
       (s.semantics || []).map(x => `<tr><td>${esc(x.column_name || '表级')}</td><td>${esc(x.description || '')}</td>
         <td>${esc(x.synonyms || '')}</td><td>${esc(x.examples || '')}</td>
         <td><button class="danger" data-act="dsgdelsem" data-id="${esc(x.id)}">删除</button></td></tr>`).join('') + '</tbody>';
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 document.getElementById('dsgAddPerm').addEventListener('click', async () => {
@@ -457,8 +511,8 @@ document.getElementById('dsgAddPerm').addEventListener('click', async () => {
     allowed_cols: JSON.parse(document.getElementById('dsgAllowed').value || '[]'),
     denied_cols: JSON.parse(document.getElementById('dsgDenied').value || '[]'),
   };
-  try { await api('/admin/api/datasets/' + id + '/permissions', { method: 'POST', body: JSON.stringify(body) }); loadDatasetGov(); }
-  catch (e) { alert(e.message); }
+  try { await api('/admin/api/datasets/' + id + '/permissions', { method: 'POST', body: JSON.stringify(body) }); loadDatasetGov(); toast('数据集权限已添加', 'success'); }
+  catch (e) { toast(e.message, 'error'); }
 });
 document.getElementById('dsgAddPolicy').addEventListener('click', async () => {
   const id = window.__dsGovId; if (!id) return;
@@ -467,8 +521,8 @@ document.getElementById('dsgAddPolicy').addEventListener('click', async () => {
     predicate: document.getElementById('dsgPred').value,
     priority: parseInt(document.getElementById('dsgPrio').value || '10', 10),
   };
-  try { await api('/admin/api/datasets/' + id + '/policies', { method: 'POST', body: JSON.stringify(body) }); loadDatasetGov(); }
-  catch (e) { alert(e.message); }
+  try { await api('/admin/api/datasets/' + id + '/policies', { method: 'POST', body: JSON.stringify(body) }); loadDatasetGov(); toast('行级策略已添加', 'success'); }
+  catch (e) { toast(e.message, 'error'); }
 });
 document.getElementById('dsgAddMask').addEventListener('click', async () => {
   const id = window.__dsGovId; if (!id) return;
@@ -478,8 +532,8 @@ document.getElementById('dsgAddMask').addEventListener('click', async () => {
     strategy: document.getElementById('dsgMaskStrat').value,
     keep: 0,
   };
-  try { await api('/admin/api/datasets/' + id + '/masks', { method: 'POST', body: JSON.stringify(body) }); loadDatasetGov(); }
-  catch (e) { alert(e.message); }
+  try { await api('/admin/api/datasets/' + id + '/masks', { method: 'POST', body: JSON.stringify(body) }); loadDatasetGov(); toast('脱敏规则已添加', 'success'); }
+  catch (e) { toast(e.message, 'error'); }
 });
 document.getElementById('dsgAddSem').addEventListener('click', async () => {
   const id = window.__dsGovId; if (!id) return;
@@ -489,8 +543,8 @@ document.getElementById('dsgAddSem').addEventListener('click', async () => {
     synonyms: JSON.parse(document.getElementById('dsgSemSyn').value || '[]'),
     examples: JSON.parse(document.getElementById('dsgSemEx').value || '[]'),
   };
-  try { await api('/admin/api/datasets/' + id + '/semantics', { method: 'POST', body: JSON.stringify(body) }); loadDatasetGov(); }
-  catch (e) { alert(e.message); }
+  try { await api('/admin/api/datasets/' + id + '/semantics', { method: 'POST', body: JSON.stringify(body) }); loadDatasetGov(); toast('业务语义已添加', 'success'); }
+  catch (e) { toast(e.message, 'error'); }
 });
 document.getElementById('dsGov').addEventListener('click', async (e) => {
   const act = e.target.dataset.act;
@@ -502,7 +556,8 @@ document.getElementById('dsGov').addEventListener('click', async (e) => {
     else if (act === 'dsgdelmask') await api('/admin/api/datasets/' + id + '/masks/' + e.target.dataset.id, { method: 'DELETE' });
     else if (act === 'dsgdelsem') await api('/admin/api/datasets/' + id + '/semantics/' + e.target.dataset.id, { method: 'DELETE' });
     loadDatasetGov();
-  } catch (err) { alert(err.message); }
+    toast('治理配置已删除', 'success');
+  } catch (err) { toast(err.message, 'error'); }
 });
 
 document.querySelector('[data-tab="datasets"]').addEventListener('click', async () => {
@@ -510,4 +565,11 @@ document.querySelector('[data-tab="datasets"]').addEventListener('click', async 
   await loadFolders();
   fillFolderSelect('dsFolder', '');
   renderFolderTree(); renderFolderBar(); loadDatasetsTable();
+});
+
+document.getElementById('dsDef').addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    document.getElementById('dsSave').click();
+  }
 });

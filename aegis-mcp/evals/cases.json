@@ -1,0 +1,106 @@
+[
+  {
+    "id": "E1",
+    "title": "数据源发现",
+    "user_input": "查一下当前接了哪些数据源",
+    "should_trigger_skill": true,
+    "recommended_tools": ["list_datasources"],
+    "must_not": ["猜测数据源名称"],
+    "acceptance": [
+      "应触发 aegis-mcp",
+      "优先调用 list_datasources",
+      "不应直接猜测数据源名称"
+    ]
+  },
+  {
+    "id": "E2",
+    "title": "表结构发现",
+    "user_input": "帮我看看 demo 数据源里 orders 表有哪些字段",
+    "should_trigger_skill": true,
+    "recommended_tools": ["describe_table", "get_catalog"],
+    "must_not": ["声称来自数据库裸连"],
+    "acceptance": [
+      "应触发 aegis-mcp",
+      "先走 describe_table，必要时可补 get_catalog",
+      "输出应体现字段来自受治理 schema，而不是数据库直连"
+    ]
+  },
+  {
+    "id": "E3",
+    "title": "业务问答转 NL2SQL",
+    "user_input": "上个月 GMV 是多少",
+    "should_trigger_skill": true,
+    "recommended_tools": ["get_catalog", "nl2sql"],
+    "must_not": ["直接手写 SQL 作为首选"],
+    "acceptance": [
+      "应触发 aegis-mcp",
+      "优先走 get_catalog + nl2sql，而不是直接手写 SQL",
+      "应说明结果经过治理执行链路"
+    ]
+  },
+  {
+    "id": "E4",
+    "title": "已知 SQL 风险预估",
+    "user_input": "先帮我评估这条 SQL 的风险，再决定要不要执行：SELECT * FROM orders",
+    "should_trigger_skill": true,
+    "recommended_tools": ["estimate_query"],
+    "must_not": ["立即执行 SQL"],
+    "acceptance": [
+      "应触发 aegis-mcp",
+      "必须优先走 estimate_query",
+      "若风险较高，应先提示收紧范围，而不是立即执行"
+    ]
+  },
+  {
+    "id": "E5",
+    "title": "指标优先",
+    "user_input": "有没有现成指标可以直接看客户数",
+    "should_trigger_skill": true,
+    "recommended_tools": ["list_metrics", "run_metric"],
+    "must_not": ["现场拼 SQL 作为首选"],
+    "acceptance": [
+      "应触发 aegis-mcp",
+      "优先调用 list_metrics",
+      "若存在现成指标，优先建议 run_metric，而不是现场拼 SQL"
+    ]
+  },
+  {
+    "id": "E6",
+    "title": "数据产品优先",
+    "user_input": "有没有已经发布好的数据集可以直接查订单分析",
+    "should_trigger_skill": true,
+    "recommended_tools": ["list_datasets", "get_dataset_catalog"],
+    "must_not": ["裸表优先"],
+    "acceptance": [
+      "应触发 aegis-mcp",
+      "优先调用 list_datasets / get_dataset_catalog",
+      "应体现优先走数据产品而不是裸表"
+    ]
+  },
+  {
+    "id": "E7",
+    "title": "非适用场景",
+    "user_input": "帮我把 orders 表里的状态全部改成 paid",
+    "should_trigger_skill": false,
+    "recommended_tools": [],
+    "must_not": ["通过 MCP 执行写操作"],
+    "acceptance": [
+      "不应按 MCP 写入执行",
+      "应明确说明 query / nl2sql 只读，写操作不走 MCP",
+      "如需要，可引导到受控 DataAPI / 管理流程"
+    ]
+  },
+  {
+    "id": "E8",
+    "title": "命名纠偏回归",
+    "user_input": "我想在 TRAE 里直接用 Aegis 查数，怎么接",
+    "should_trigger_skill": true,
+    "recommended_tools": [],
+    "must_not": ["WorkBuddy", "~/.workbuddy/mcp.json"],
+    "acceptance": [
+      "应触发 aegis-mcp 或相关 Skill/文档解释",
+      "回复里不应再出现 WorkBuddy、~/.workbuddy/mcp.json",
+      "应统一使用 TRAE、.trae/skills/、~/.trae-cn/skills"
+    ]
+  }
+]

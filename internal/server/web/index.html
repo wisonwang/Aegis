@@ -7,10 +7,15 @@
   <link rel="stylesheet" href="/admin/style.css" />
 </head>
 <body>
+  <div id="topProgress" class="top-progress hidden" aria-hidden="true"></div>
   <header class="topbar">
     <div class="brand">Aegis <span>数据库代理治理平台</span></div>
+    <div class="ws-switch">
+      <label>工作区 <select id="wsSwitcher"><option value="*">全部工作区</option></select></label>
+    </div>
     <div id="userbox" class="userbox"></div>
   </header>
+  <div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
 
   <div id="login" class="login-wrap hidden">
     <form class="login-card" id="loginForm">
@@ -47,6 +52,7 @@
         <button id="qTables">列出表</button>
         <button id="qEstimate">评估成本</button>
         <button id="qRun">执行查询</button>
+        <span class="hint">支持 `Ctrl/Cmd + Enter` 快速执行</span>
       </div>
       <textarea id="qSql" rows="6" placeholder="SELECT * FROM orders"></textarea>
       <div id="qEst" class="result"></div>
@@ -132,6 +138,7 @@
         <input id="dsName" placeholder="名称" />
         <input id="dsType" placeholder="类型: mysql|postgres|sqlite" />
         <input id="dsDSN" placeholder="连接串 DSN" style="flex:2" />
+        <select id="dsCreateWS"><option value="">工作区(必选)</option></select>
         <button id="dsCreate">创建数据源</button>
         <button id="dsCancelEdit" class="sec hidden">取消编辑</button>
       </div>
@@ -143,6 +150,7 @@
         <select id="gDs"></select>
         <select id="gTable"></select>
         <button id="gLoad">加载治理</button>
+        <span id="gWsBadge" class="ws-badge"></span>
       </div>
       <div class="gov-grid">
         <div>
@@ -319,6 +327,7 @@
             <input id="datasetName" placeholder="名称（标识符，如 orders_v" />
             <input id="dsDisp" placeholder="显示名" />
             <select id="dsDs"></select>
+            <select id="dsDatasetWS"><option value="">工作区(必选)</option></select>
             <select id="dsFolder"><option value="">未分类</option></select>
             <select id="dsStatus">
               <option value="draft">草稿</option>
@@ -328,6 +337,7 @@
             <button id="dsCancel" class="sec hidden">取消编辑</button>
             <span id="dsMsg" class="hint"></span>
           </div>
+          <div class="hint">支持 `Ctrl/Cmd + Enter` 快速保存当前数据集</div>
           <div id="dsFolderBar" class="folderbar hidden"></div>
       <details>
         <summary>定义与字段契约（高级）</summary>
@@ -459,11 +469,30 @@
       <p>
         <a href="/admin/api/docs/" target="_blank" rel="noopener">在新标签页打开完整 Swagger UI &#8599;</a>
       </p>
-      <iframe
-        src="/admin/api/docs/"
-        title="Aegis API 文档 (Swagger UI)"
-        style="width:100%;height:78vh;border:1px solid var(--border,#e5e7eb);border-radius:8px;background:#fff;"
-      ></iframe>
+      <div id="apidocs-frame-wrap">
+        <iframe
+          src="/admin/api/docs/"
+          title="Aegis API 文档 (Swagger UI)"
+          style="width:100%;height:78vh;border:1px solid var(--border,#e5e7eb);border-radius:8px;background:#fff;"
+        ></iframe>
+      </div>
+      <div id="apidocs-disabled" style="display:none" class="hint warn">
+        API 文档当前未启用。请在服务端配置 <code>docs_enabled: true</code>（或环境变量
+        <code>AEGIS_DOCS_ENABLED=true</code>）后重启服务。
+      </div>
+      <script>
+        // Graceful fallback: if the Swagger route is disabled (404), replace the
+        // iframe with an explanatory message instead of a naked 404.
+        (function () {
+          var wrap = document.getElementById('apidocs-frame-wrap');
+          var msg = document.getElementById('apidocs-disabled');
+          fetch('/admin/api/docs/').then(function (r) {
+            if (!r.ok) { wrap.style.display = 'none'; msg.style.display = 'block'; }
+          }).catch(function () {
+            wrap.style.display = 'none'; msg.style.display = 'block';
+          });
+        })();
+      </script>
     </section>
 
   </main>

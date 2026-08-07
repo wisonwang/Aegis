@@ -35,6 +35,7 @@ type MetricDefinition struct {
 	Unit         string        `json:"unit,omitempty"` // "CNY" | "count" | "%" ...
 	CreatedAt    time.Time     `json:"created_at"`
 	UpdatedAt    time.Time     `json:"updated_at"`
+	WorkspaceID  string        `json:"workspace_id"` // inherited from the datasource (ADR-0007)
 }
 
 // UpsertMetric inserts or updates a metric definition, keyed by
@@ -91,7 +92,7 @@ func (s *Store) GetMetric(ctx context.Context, dsID, name string) (*MetricDefini
 // ListMetrics returns all metric definitions for a datasource (order by name).
 // Scoped to the active workspace from ctx.
 func (s *Store) ListMetrics(ctx context.Context, dsID string) ([]*MetricDefinition, error) {
-	q := `SELECT id,datasource_id,name,description,sql_template,params,unit,created_at,updated_at
+	q := `SELECT id,datasource_id,name,description,sql_template,params,unit,created_at,updated_at,workspace_id
 		 FROM metric_definitions WHERE datasource_id=?`
 	args := []interface{}{dsID}
 	if !CrossesWorkspaces(ctx) {
@@ -109,7 +110,7 @@ func (s *Store) ListMetrics(ctx context.Context, dsID string) ([]*MetricDefiniti
 		m := &MetricDefinition{}
 		var paramsJSON string
 		if err := rows.Scan(&m.ID, &m.DataSourceID, &m.Name, &m.Description, &m.SQLTemplate,
-			&paramsJSON, &m.Unit, &m.CreatedAt, &m.UpdatedAt); err != nil {
+			&paramsJSON, &m.Unit, &m.CreatedAt, &m.UpdatedAt, &m.WorkspaceID); err != nil {
 			return nil, err
 		}
 		if paramsJSON != "" {
@@ -120,10 +121,10 @@ func (s *Store) ListMetrics(ctx context.Context, dsID string) ([]*MetricDefiniti
 	return out, nil
 }
 
-// DeleteMetric removes a metric by id.
-func (s *Store) DeleteMetric(id string) error {
-	_, err := s.db.Exec(`DELETE FROM metric_definitions WHERE id=?`, id)
-	return err
+// DeleteMetric removes a metric by id, scoped to the caller's workspace unless
+// the caller crosses workspaces (platform admin).
+func (s *Store) DeleteMetric(ctx context.Context, id string) error {
+	return s.deleteWorkspaceScoped(ctx, "metric_definitions", id)
 }
 
 // MetricNameFromID is a helper used by callers that receive a metric id in a

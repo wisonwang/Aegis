@@ -24,6 +24,7 @@ type Dataset struct {
 	Status       string    `json:"status"`        // draft | published
 	Fields       string    `json:"fields"`        // JSON array of {name,type,description} — the stable output contract
 	FolderID     string    `json:"folder_id"`     // catalog folder id ("" = uncategorized / root)
+	WorkspaceID  string    `json:"workspace_id"`   // owning workspace (ADR-0007); inherited from the request scope at write time
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -139,7 +140,7 @@ func (s *Store) CreateDataset(ctx context.Context, d *Dataset) error {
 // GetDataset returns a dataset by id, or nil if not found. Scoped to the active
 // workspace from ctx (platform admin may pass WorkspaceAll).
 func (s *Store) GetDataset(ctx context.Context, id string) (*Dataset, error) {
-	q := `SELECT id,name,display_name,description,datasource_id,definition,status,fields,folder_id,created_at,updated_at
+	q := `SELECT id,name,display_name,description,datasource_id,definition,status,fields,folder_id,created_at,updated_at,workspace_id
 		 FROM datasets WHERE id=?`
 	args := []interface{}{id}
 	if !CrossesWorkspaces(ctx) {
@@ -152,7 +153,7 @@ func (s *Store) GetDataset(ctx context.Context, id string) (*Dataset, error) {
 // GetDatasetByName returns a dataset by unique name, or nil if not found.
 // Scoped to the active workspace from ctx.
 func (s *Store) GetDatasetByName(ctx context.Context, name string) (*Dataset, error) {
-	q := `SELECT id,name,display_name,description,datasource_id,definition,status,fields,folder_id,created_at,updated_at
+	q := `SELECT id,name,display_name,description,datasource_id,definition,status,fields,folder_id,created_at,updated_at,workspace_id
 		 FROM datasets WHERE name=?`
 	args := []interface{}{name}
 	if !CrossesWorkspaces(ctx) {
@@ -165,7 +166,7 @@ func (s *Store) GetDatasetByName(ctx context.Context, name string) (*Dataset, er
 func scanDataset(row *sql.Row) (*Dataset, error) {
 	d := &Dataset{}
 	err := row.Scan(&d.ID, &d.Name, &d.DisplayName, &d.Description, &d.DataSourceID,
-		&d.Definition, &d.Status, &d.Fields, &d.FolderID, &d.CreatedAt, &d.UpdatedAt)
+		&d.Definition, &d.Status, &d.Fields, &d.FolderID, &d.CreatedAt, &d.UpdatedAt, &d.WorkspaceID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -178,7 +179,7 @@ func scanDataset(row *sql.Row) (*Dataset, error) {
 // ListDatasets returns every dataset, ordered by name. Scoped to the active
 // workspace from ctx (platform admin may pass WorkspaceAll).
 func (s *Store) ListDatasets(ctx context.Context) ([]*Dataset, error) {
-	q := `SELECT id,name,display_name,description,datasource_id,definition,status,fields,folder_id,created_at,updated_at
+	q := `SELECT id,name,display_name,description,datasource_id,definition,status,fields,folder_id,created_at,updated_at,workspace_id
 		 FROM datasets`
 	args := []interface{}{}
 	if !CrossesWorkspaces(ctx) {
@@ -195,7 +196,7 @@ func (s *Store) ListDatasets(ctx context.Context) ([]*Dataset, error) {
 	for rows.Next() {
 		d := &Dataset{}
 		if err := rows.Scan(&d.ID, &d.Name, &d.DisplayName, &d.Description, &d.DataSourceID,
-			&d.Definition, &d.Status, &d.Fields, &d.FolderID, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			&d.Definition, &d.Status, &d.Fields, &d.FolderID, &d.CreatedAt, &d.UpdatedAt, &d.WorkspaceID); err != nil {
 			return nil, err
 		}
 		out = append(out, d)

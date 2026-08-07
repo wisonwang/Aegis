@@ -13,7 +13,7 @@ governance + masking and writes an audit trail — before any bytes reach the DB
 
 ---
 
-## 1. MCP (drop-in for Claude Desktop & any MCP client)
+## 1. MCP (drop-in for Claude Desktop, TRAE & any MCP client)
 
 Copy [`mcp/claude_desktop_config.json`](mcp/claude_desktop_config.json) into your
 Claude Desktop / MCP client config:
@@ -37,6 +37,13 @@ all governed by Aegis. No database credentials ever leave the gateway.
 Minimal Python client: [`mcp/client.py`](mcp/client.py)
 (`pip install httpx && python3 client.py`).
 
+TRAE local HTTP MCP example: [`trae/mcp_http_config.json`](trae/mcp_http_config.json)
+with usage notes in [`trae/README.md`](trae/README.md).
+
+Scenario-driven end-to-end demo and verification docs:
+[`../docs/mcp-demo-case.md`](../docs/mcp-demo-case.md) and
+[`../docs/mcp-demo-test-report.md`](../docs/mcp-demo-test-report.md).
+
 ---
 
 ## 2. DataAPI (REST)
@@ -59,7 +66,7 @@ python3 dataapi/agent.py "How many customers do we have?"
 Start Aegis with the seeded demo tenant (auto-created on first boot):
 
 ```bash
-docker compose up -d        # or: go run ./cmd/aegis -config config.json
+docker compose up -d        # or: go run ./cmd/aegis -config conf/config.demo.json
 ```
 
 Seeded demo accounts (change before any real deployment!):
@@ -70,5 +77,5 @@ Seeded demo accounts (change before any real deployment!):
 | `analyst`  | `analyst123` | analyst (governed) |
 | `mcp-agent`| `mcp123`     | analyst (used by `X-MCP-API-Key`) |
 
-The MCP API key `mcp-demo-key` is set in `config.json` (`mcp.api_key`) and the
+The MCP API key `mcp-demo-key` is set in `conf/config.demo.json` (`mcp.api_key`) and the
 compose file (`AEGIS_MCP_API_KEY`).

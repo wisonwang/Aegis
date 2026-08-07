@@ -53,8 +53,9 @@ func (h *Handler) AdminListMasks(w http.ResponseWriter, r *http.Request) {
 			"table_name":  m.TableName,
 			"column_name": m.ColumnName,
 			"strategy":    m.Strategy,
-			"keep":        m.Keep,
-			"updated_at":  m.UpdatedAt,
+			"keep":         m.Keep,
+			"updated_at":   m.UpdatedAt,
+			"workspace_id": m.WorkspaceID,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"masks": out})
@@ -78,7 +79,7 @@ type upsertMaskRequest struct {
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasources/{id}/masks [post]
 func (h *Handler) AdminUpsertMask(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
+	dsID, ctx, rerr := h.resolveDSBound(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -109,7 +110,7 @@ func (h *Handler) AdminUpsertMask(w http.ResponseWriter, r *http.Request) {
 		Strategy:     req.Strategy,
 		Keep:         req.Keep,
 	}
-	if err := h.Store.UpsertColumnMask(r.Context(), m); err != nil {
+	if err := h.Store.UpsertColumnMask(ctx, m); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -126,9 +127,13 @@ func (h *Handler) AdminUpsertMask(w http.ResponseWriter, r *http.Request) {
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasources/{id}/masks/{mask} [delete]
 func (h *Handler) AdminDeleteMask(w http.ResponseWriter, r *http.Request) {
-	mask := pathParam(r, "mask")
-	if err := h.Store.DeleteColumnMask(mask); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	_, ctx, rerr := h.resolveDSBound(r.Context(), pathParam(r, "id"))
+	if rerr != nil {
+		writeError(w, http.StatusNotFound, rerr.Error())
+		return
+	}
+	if err := h.Store.DeleteColumnMask(ctx, pathParam(r, "mask")); err != nil {
+		writeMutationError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -167,7 +172,7 @@ type maskRecommendation struct {
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasources/{id}/masks/recommend [post]
 func (h *Handler) AdminRecommendMasks(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
+	dsID, dsCtx, rerr := h.resolveDSBound(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -230,7 +235,7 @@ func (h *Handler) AdminRecommendMasks(w http.ResponseWriter, r *http.Request) {
 					RoleID: role.ID, DataSourceID: dsID, TableName: c.TableName,
 					ColumnName: c.ColumnName, Strategy: strategy, Keep: keep,
 				}
-				if e := h.Store.UpsertColumnMask(r.Context(), m); e != nil {
+				if e := h.Store.UpsertColumnMask(dsCtx, m); e != nil {
 					writeError(w, http.StatusInternalServerError, e.Error())
 					return
 				}

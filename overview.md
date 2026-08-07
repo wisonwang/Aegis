@@ -39,7 +39,7 @@
 - 前端嵌入校验：`/admin/` 含「数据目录」tab；`users.js`/`datasets.js` 含全部新钩子。
 
 ## 六、待办（非阻塞）
-- 提交前 `git checkout config.json`（本地 `edition=enterprise` 仅用于验证）。
+- 提交前检查 `conf/config.local.json` 的本地验证项（如 `edition=enterprise`），避免把个人调试配置直接带入提交。
 - 数据集字段级分类/脱敏联动（D6 蓝图）尚未实现。
 - P1b 桥接（D3）、P2 层级（D4）待排期。
 - 当前改动均未提交 git。

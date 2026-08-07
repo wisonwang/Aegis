@@ -3,6 +3,10 @@
 > 战略第一成功指标 = **采用率**，不是功能数。
 > 本文是两步可交付物：① GitHub 仓库发布动作清单（你或我执行，全部可逆）；② 落地页文案母本（直接用作 README 英雄区 / Release notes / 对外介绍）。
 > 楔子定位：自托管、治理默认开启的 AI 数据网关——把内部库变成受控 Agent 工具，不打重型数据目录的功能广度战。
+> 若准备进入正式商用推进，请同时参考：
+> - [生产上线检查表](file:///Users/vincent/workspace/fosun/datahub/docs/production-readiness-checklist.md)
+> - [商用包装方案](file:///Users/vincent/workspace/fosun/datahub/docs/commercial-packaging-plan.md)
+> - [发布与供应链说明](file:///Users/vincent/workspace/fosun/datahub/docs/release-operations.md)
 
 ## 一、GitHub 仓库发布动作清单
 
@@ -76,3 +80,31 @@ Agent 立刻获得 `query` / `estimate_query` / `nl2sql` 三个受治理工具�
 ## 四、与剩余待办的衔接
 - 多租户工作区（企业版前置、最后企业门槛）属重编码，优先级应**由采用反馈驱动**。
 - 本清单是「采用率验证」的第一步（叙事 + 发布就绪 + 度量方法）；真正闭环在仓库设置动作落地后看指标。
+
+---
+
+## 附录：GitHub 仓库设置命令（需安装 gh CLI 并登录）
+
+当前环境未检测到 `gh`，下列命令已按仓库 `wisonwang/aegis` 准备，复制到本地运行即可（全部可逆）：
+
+```bash
+# 1. 安装 gh 并登录（若尚未完成）
+brew install gh      # macOS
+gh auth login
+
+# 2. 设置仓库描述与 Topics（可重复执行，覆盖更新）
+gh repo edit wisonwang/aegis \
+  --description "AI-native data gateway — turn internal databases into governed Agent tools in minutes. Self-hosted, governance that can't be bypassed." \
+  --add-topic "data-governance,llm,ai-agents,mcp,model-context-protocol,database-proxy,nl2sql,data-security,self-hosted,golang"
+
+# 3. 上传社交预览图
+# 已在 docs/pics/aegis-social-preview.png 生成 1280×640 PNG。
+# 请到 GitHub 仓库 Settings → General → Social preview 手动上传（GitHub API 不支持图片上传）。
+
+# 4. 打 tag 并发布 Release（里程碑动作，请确认后再执行）
+git tag v0.6.0
+git push origin v0.6.0
+gh release create v0.6.0 --title "Aegis v0.6.0 — AI Data Supply Gateway" --notes-file CHANGELOG.md
+```
+
+> **注意**：当前沙箱未安装 `gh`，以上命令未实际执行。运行前请确认已登录 GitHub、目标仓库路径正确，且 Release/tag 动作符合你的发布节奏。

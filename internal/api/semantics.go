@@ -61,7 +61,7 @@ type upsertSemanticRequest struct {
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasources/{id}/semantics [post]
 func (h *Handler) AdminUpsertSemantic(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
+	dsID, ctx, rerr := h.resolveDSBound(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -81,7 +81,7 @@ func (h *Handler) AdminUpsertSemantic(w http.ResponseWriter, r *http.Request) {
 		Synonyms:     string(syn),
 		Examples:     string(ex),
 	}
-	if err := h.Store.UpsertSemantic(r.Context(), sem); err != nil {
+	if err := h.Store.UpsertSemantic(ctx, sem); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -98,9 +98,13 @@ func (h *Handler) AdminUpsertSemantic(w http.ResponseWriter, r *http.Request) {
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasources/{id}/semantics/{sem} [delete]
 func (h *Handler) AdminDeleteSemantic(w http.ResponseWriter, r *http.Request) {
-	sem := pathParam(r, "sem")
-	if err := h.Store.DeleteSemantic(sem); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	_, ctx, rerr := h.resolveDSBound(r.Context(), pathParam(r, "id"))
+	if rerr != nil {
+		writeError(w, http.StatusNotFound, rerr.Error())
+		return
+	}
+	if err := h.Store.DeleteSemantic(ctx, pathParam(r, "sem")); err != nil {
+		writeMutationError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

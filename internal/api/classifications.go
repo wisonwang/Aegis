@@ -60,7 +60,7 @@ type upsertClassificationRequest struct {
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasources/{id}/classifications [post]
 func (h *Handler) AdminUpsertClassification(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
+	dsID, ctx, rerr := h.resolveDSBound(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -78,7 +78,7 @@ func (h *Handler) AdminUpsertClassification(w http.ResponseWriter, r *http.Reque
 		Level:        req.Level,
 		Tags:         string(tags),
 	}
-	if err := h.Store.UpsertClassification(r.Context(), dc); err != nil {
+	if err := h.Store.UpsertClassification(ctx, dc); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -95,9 +95,13 @@ func (h *Handler) AdminUpsertClassification(w http.ResponseWriter, r *http.Reque
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasources/{id}/classifications/{cls} [delete]
 func (h *Handler) AdminDeleteClassification(w http.ResponseWriter, r *http.Request) {
-	cls := pathParam(r, "cls")
-	if err := h.Store.DeleteClassification(cls); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	_, ctx, rerr := h.resolveDSBound(r.Context(), pathParam(r, "id"))
+	if rerr != nil {
+		writeError(w, http.StatusNotFound, rerr.Error())
+		return
+	}
+	if err := h.Store.DeleteClassification(ctx, pathParam(r, "cls")); err != nil {
+		writeMutationError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

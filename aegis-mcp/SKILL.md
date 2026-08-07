@@ -1,13 +1,13 @@
 ---
 name: aegis-mcp
-description: This skill should be used when a user asks data-related questions that require querying databases, running SQL, exploring schemas, discovering datasets, or computing business metrics through the Aegis governed data gateway. It covers invoking the Aegis MCP server (registered as the `aegis` MCP connector in WorkBuddy) — its tools (query, nl2sql, estimate_query, list_datasources, list_tables, describe_table, get_catalog, list_datasets, get_dataset_catalog, list_metrics, run_metric), resources, and prompts — so WorkBuddy can answer data questions safely under table/row/column governance and value masking.
+description: This skill should be used when a user asks data-related questions that require querying databases, running SQL, exploring schemas, discovering datasets, or computing business metrics through the Aegis governed data gateway. It covers invoking the Aegis MCP server (registered in TRAE as the `aegis` MCP server) — its tools (query, nl2sql, estimate_query, list_datasources, list_tables, describe_table, get_catalog, list_datasets, get_dataset_catalog, list_metrics, run_metric), resources, and prompts — so TRAE can answer data questions safely under table/row/column governance and value masking.
 agent_created: true
 ---
 
 # Aegis MCP — Governed Data Gateway Invocation
 
 ## Overview
-Aegis is a self-hosted, governance-by-default AI data gateway. Through its MCP server (registered as the `aegis` connector in WorkBuddy), WorkBuddy gains tool-based access to query governed data sources, translate natural language to SQL, estimate query risk, and run curated metrics/datasets. Every call is rewritten and masked by the governance engine (default-deny), so the agent never bypasses table/row/column policies.
+Aegis is a self-hosted, governance-by-default AI data gateway. Through its MCP server (registered in TRAE as the `aegis` MCP server), TRAE gains tool-based access to query governed data sources, translate natural language to SQL, estimate query risk, and run curated metrics/datasets. Every call is rewritten and masked by the governance engine (default-deny), so the agent never bypasses table/row/column policies.
 
 ## When to use this skill
 - The user asks a question answerable from a database (e.g. "上个月 GMV 是多少", "查一下订单表结构").
@@ -16,9 +16,10 @@ Aegis is a self-hosted, governance-by-default AI data gateway. Through its MCP s
 - Do NOT use for: writing to databases through uncontrolled paths, or anything outside the connected data sources.
 
 ## Prerequisites
-- The `aegis` MCP connector must be **Trusted** in WorkBuddy (Settings → Connectors → find `aegis` → Trust). It is configured in `~/.workbuddy/mcp.json` pointing at `http://localhost:8080/mcp`.
+- The `aegis` MCP server must be configured in TRAE (Settings → MCP → Create → Manual configuration) and point to `http://localhost:8080/mcp`.
+- For project-local usage, import this skill into the current project's `.trae/skills/aegis-mcp/` directory, or install it globally under `~/.trae-cn/skills/aegis-mcp/`.
 - The Aegis server must be running (default `:8080`). If the MCP tools are unavailable, verify the server is up: `curl -s -o /dev/null -w '%{http_code}' localhost:8080/metrics` (expect 200).
-- Auth is handled by the connector (static `X-MCP-API-Key: mcp-demo-key` → `mcp-agent`/analyst role, or `Bearer <JWT>`). No per-call auth is needed once connected.
+- Auth is handled by the MCP server configuration (static `X-MCP-API-Key: mcp-demo-key` → `mcp-agent`/analyst role, or `Bearer <JWT>`). No per-call auth is needed once connected.
 
 ## Core capabilities (MCP tools)
 All tools accept a `datasource` argument as the data source id or name. Full input schemas and raw HTTP examples are in `references/mcp-tools.md`.
@@ -55,4 +56,4 @@ All tools accept a `datasource` argument as the data source id or name. Full inp
 - Large result sets are truncated by `MaxRows`; the `rewritten_sql` field is the actually executed statement.
 
 ## References
-- `references/mcp-tools.md` — full tool catalog with exact input schemas, resource/prompt definitions, and raw HTTP JSON-RPC examples (useful when the MCP connector is unavailable).
+- `references/mcp-tools.md` — full tool catalog with exact input schemas, resource/prompt definitions, and raw HTTP JSON-RPC examples (useful when the TRAE MCP server entry is unavailable).

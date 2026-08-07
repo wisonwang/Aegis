@@ -1,0 +1,3 @@
+# Aegis end-to-end test suite — dependencies
+# Only pytest is required; HTTP calls use the Python standard library.
+pytest>=8

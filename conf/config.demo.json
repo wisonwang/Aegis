@@ -1,10 +1,15 @@
 {
+  "environment": "development",
   "listen_addr": ":8080",
-  "jwt_secret": "please-change-me-in-production",
+  "jwt_secret": "demo-dev-secret",
+  "mask_secret": "demo-dev-mask-secret",
   "jwt_expiry": "24h",
   "db_path": "aegis.db",
+  "db_type": "sqlite",
   "data_dir": "./data",
+  "edition": "enterprise",
   "seed_demo": true,
+  "docs_enabled": true,
   "mcp": {
     "enabled": true,
     "path": "/mcp",
@@ -12,10 +17,12 @@
     "require_auth": true
   },
   "limits": {
-    "max_rows": 1000,
+    "max_rows": 10000,
+    "max_affected_rows": 10000,
+    "max_bytes": 4194304,
     "query_timeout": "30s",
-    "rate_per_min": 120,
-    "admin_exempt": true
+    "rate_per_min": 60,
+    "admin_exempt": false
   },
   "alerting": {
     "denied_count": 10,
@@ -64,5 +71,9 @@
     "model": "gpt-4o-mini",
     "timeout_sec": 30,
     "max_retries": 2
+  },
+  "logging": {
+    "format": "text",
+    "level": "debug"
   }
 }

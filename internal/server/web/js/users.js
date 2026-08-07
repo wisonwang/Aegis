@@ -50,18 +50,30 @@ document.getElementById('usersTable').addEventListener('click', async (e) => {
   const uid = e.target.dataset.uid;
   try {
     if (act === 'deluser') {
-      await api('/admin/api/users/' + uid, { method: 'DELETE' });
+      if (!confirm('确认删除该用户？')) return;
+      await withButtonBusy(e.target, '删除中...', async () => {
+        await api('/admin/api/users/' + uid, { method: 'DELETE' });
+      });
+      toast('用户已删除', 'success');
     } else if (act === 'addrole') {
       const role = e.target.parentElement.querySelector('.rolePick').value;
-      await api('/admin/api/users/' + uid + '/roles', { method: 'POST', body: JSON.stringify({ role }) });
+      await withButtonBusy(e.target, '添加中...', async () => {
+        await api('/admin/api/users/' + uid + '/roles', { method: 'POST', body: JSON.stringify({ role }) });
+      });
+      toast('角色已添加', 'success');
     } else if (act === 'delrole') {
       const role = e.target.parentElement.querySelector('.rolePick').value;
-      await api('/admin/api/users/' + uid + '/roles/' + encodeURIComponent(role), { method: 'DELETE' });
+      await withButtonBusy(e.target, '移除中...', async () => {
+        await api('/admin/api/users/' + uid + '/roles/' + encodeURIComponent(role), { method: 'DELETE' });
+      });
+      toast('角色已移除', 'success');
     } else if (act === 'upwd') {
       const pw = prompt('为用户设置新密码:');
       if (!pw) return;
-      await api('/admin/api/users/' + uid + '/password', { method: 'POST', body: JSON.stringify({ password: pw }) });
-      alert('密码已更新');
+      await withButtonBusy(e.target, '更新中...', async () => {
+        await api('/admin/api/users/' + uid + '/password', { method: 'POST', body: JSON.stringify({ password: pw }) });
+      });
+      toast('密码已更新', 'success');
       return;
     } else if (act === 'akey') {
       openAPIKeyDialog(uid, e.target.dataset.name);
@@ -71,7 +83,7 @@ document.getElementById('usersTable').addEventListener('click', async (e) => {
       return;
     }
     loadUsers();
-  } catch (err) { alert(err.message); }
+  } catch (err) { toast(err.message, 'error'); }
 });
 
 // ---- user edit mode ----
@@ -96,7 +108,7 @@ async function startUserEdit(uid) {
     st.classList.remove('hidden');
     document.getElementById('uCreate').textContent = '保存修改';
     document.getElementById('uCancel').classList.remove('hidden');
-  } catch (err) { alert(err.message); }
+  } catch (err) { toast(err.message, 'error'); }
 }
 function resetUserForm() {
   editingUserId = null;
@@ -161,52 +173,64 @@ document.getElementById('akTable').addEventListener('click', async (e) => {
   const akid = e.target.dataset.akid;
   if (!akid) return;
   if (!confirm('确认吊销该 API Key？')) return;
-  await api('/admin/api/users/' + akUserID + '/apikeys/' + akid, { method: 'DELETE' });
-  loadAPIKeys(akUserID);
+  try {
+    await withButtonBusy(e.target, '吊销中...', async () => {
+      await api('/admin/api/users/' + akUserID + '/apikeys/' + akid, { method: 'DELETE' });
+    });
+    loadAPIKeys(akUserID);
+    toast('API Key 已吊销', 'success');
+  } catch (err) { toast(err.message, 'error'); }
 });
-document.getElementById('akCreate').addEventListener('click', async () => {
+document.getElementById('akCreate').addEventListener('click', async (e) => {
   const name = document.getElementById('akName').value || 'key';
   const exp = document.getElementById('akExpires').value;
   try {
-    const data = await api('/admin/api/users/' + akUserID + '/apikeys', { method: 'POST', body: JSON.stringify({ name, expires_in: exp }) });
-    const box = document.getElementById('akNewKey');
-    box.classList.remove('hidden');
-    box.innerHTML = '新 Key（仅显示一次）：<code style="word-break:break-all">' + esc(data.key) + '</code>';
-  } catch (err) { alert(err.message); }
+    await withButtonBusy(e.currentTarget, '生成中...', async () => {
+      const data = await api('/admin/api/users/' + akUserID + '/apikeys', { method: 'POST', body: JSON.stringify({ name, expires_in: exp }) });
+      const box = document.getElementById('akNewKey');
+      box.classList.remove('hidden');
+      box.innerHTML = '新 Key（仅显示一次）：<code style="word-break:break-all">' + esc(data.key) + '</code>';
+    });
+    toast('API Key 已生成', 'success');
+  } catch (err) { toast(err.message, 'error'); }
   document.getElementById('akName').value = '';
   document.getElementById('akExpires').value = '';
   loadAPIKeys(akUserID);
 });
 document.getElementById('akClose').addEventListener('click', () => document.getElementById('apiKeyDialog').close());
 
-document.getElementById('uCreate').addEventListener('click', async () => {
+document.getElementById('uCreate').addEventListener('click', async (e) => {
+  const isEdit = !!editingUserId;
   try {
-    if (editingUserId) {
-      const body = {
-        display_name: document.getElementById('uDisp').value,
-        email: document.getElementById('uEmail').value,
-        type: document.getElementById('uType').value,
-        status: document.getElementById('uStatus').value,
-        attributes: JSON.parse(document.getElementById('uAttrs').value || '{}'),
-      };
-      await api('/admin/api/users/' + editingUserId, { method: 'PUT', body: JSON.stringify(body) });
-      resetUserForm();
-    } else {
-      const utype = document.getElementById('uType').value;
-      const ws = document.getElementById('uWS').value;
-      const body = {
-        username: document.getElementById('uName').value,
-        display_name: document.getElementById('uDisp').value,
-        email: document.getElementById('uEmail').value,
-        type: utype,
-        password: utype === 'service' ? '' : document.getElementById('uPass').value,
-        workspace: ws || undefined,
-        attributes: JSON.parse(document.getElementById('uAttrs').value || '{}'),
-      };
-      await api('/admin/api/users', { method: 'POST', body: JSON.stringify(body) });
-    }
+    await withButtonBusy(e.currentTarget, isEdit ? '保存中...' : '创建中...', async () => {
+      if (editingUserId) {
+        const body = {
+          display_name: document.getElementById('uDisp').value,
+          email: document.getElementById('uEmail').value,
+          type: document.getElementById('uType').value,
+          status: document.getElementById('uStatus').value,
+          attributes: JSON.parse(document.getElementById('uAttrs').value || '{}'),
+        };
+        await api('/admin/api/users/' + editingUserId, { method: 'PUT', body: JSON.stringify(body) });
+        resetUserForm();
+      } else {
+        const utype = document.getElementById('uType').value;
+        const ws = document.getElementById('uWS').value;
+        const body = {
+          username: document.getElementById('uName').value,
+          display_name: document.getElementById('uDisp').value,
+          email: document.getElementById('uEmail').value,
+          type: utype,
+          password: utype === 'service' ? '' : document.getElementById('uPass').value,
+          workspace: ws || undefined,
+          attributes: JSON.parse(document.getElementById('uAttrs').value || '{}'),
+        };
+        await api('/admin/api/users', { method: 'POST', body: JSON.stringify(body) });
+      }
+    });
     loadUsers();
-  } catch (e) { alert(e.message); }
+    toast(isEdit ? '用户已更新' : '用户已创建', 'success');
+  } catch (e) { toast(e.message, 'error'); }
 });
 
 // ---- roles ----
@@ -234,13 +258,16 @@ document.getElementById('rolesTable').addEventListener('click', async (e) => {
   try {
     if (act === 'delrole') {
       if (!confirm('确认删除该角色？关联的用户授权、表/行/列权限将一并移除。')) return;
-      await api('/admin/api/roles/' + id, { method: 'DELETE' });
+      await withButtonBusy(e.target, '删除中...', async () => {
+        await api('/admin/api/roles/' + id, { method: 'DELETE' });
+      });
+      toast('角色已删除', 'success');
     } else if (act === 'editrole') {
       startRoleEdit(id);
       return;
     }
     loadRoles(); loadRolesInto('#gRole'); loadRolesInto('#gPolicyRole'); loadRolesInto('#gMaskRole');
-  } catch (err) { alert(err.message); }
+  } catch (err) { toast(err.message, 'error'); }
 });
 async function startRoleEdit(id) {
   const data = await api('/admin/api/roles');
@@ -262,17 +289,21 @@ function resetRoleForm() {
   document.getElementById('rCancel').classList.add('hidden');
 }
 document.getElementById('rCancel').addEventListener('click', resetRoleForm);
-document.getElementById('rCreate').addEventListener('click', async () => {
+document.getElementById('rCreate').addEventListener('click', async (e) => {
+  const isEdit = !!editingRoleId;
   try {
     const body = { name: document.getElementById('rName').value, description: document.getElementById('rDesc').value };
-    if (editingRoleId) {
-      await api('/admin/api/roles/' + editingRoleId, { method: 'PUT', body: JSON.stringify(body) });
-      resetRoleForm();
-    } else {
-      await api('/admin/api/roles', { method: 'POST', body: JSON.stringify(body) });
-    }
+    await withButtonBusy(e.currentTarget, isEdit ? '保存中...' : '创建中...', async () => {
+      if (editingRoleId) {
+        await api('/admin/api/roles/' + editingRoleId, { method: 'PUT', body: JSON.stringify(body) });
+        resetRoleForm();
+      } else {
+        await api('/admin/api/roles', { method: 'POST', body: JSON.stringify(body) });
+      }
+    });
     loadRoles(); loadRolesInto('#gRole'); loadRolesInto('#gPolicyRole'); loadRolesInto('#gMaskRole');
-  } catch (e) { alert(e.message); }
+    toast(isEdit ? '角色已更新' : '角色已创建', 'success');
+  } catch (e) { toast(e.message, 'error'); }
 });
 async function loadRolesInto(sel) {
   try {
@@ -305,11 +336,18 @@ async function loadUsersIntoWS() {
     sel.innerHTML = (data.users || []).map(u => `<option value="${esc(u.id)}">${esc(u.username)} (${esc(u.display_name || '')})</option>`).join('');
   } catch (e) { /* ignore */ }
 }
-document.getElementById('wsCreate').addEventListener('click', async () => {
+document.getElementById('wsCreate').addEventListener('click', async (e) => {
   const body = { name: document.getElementById('wsName').value, slug: document.getElementById('wsSlug').value };
-  if (!body.name) { alert('请填写名称'); return; }
-  try { await api('/admin/api/workspaces', { method: 'POST', body: JSON.stringify(body) }); document.getElementById('wsName').value = ''; document.getElementById('wsSlug').value = ''; loadWorkspaces(); }
-  catch (e) { alert(e.message); }
+  if (!body.name) { toast('请填写名称', 'warning'); return; }
+  try {
+    await withButtonBusy(e.currentTarget, '创建中...', async () => {
+      await api('/admin/api/workspaces', { method: 'POST', body: JSON.stringify(body) });
+    });
+    document.getElementById('wsName').value = '';
+    document.getElementById('wsSlug').value = '';
+    loadWorkspaces();
+    toast('工作区已创建', 'success');
+  } catch (e) { toast(e.message, 'error'); }
 });
 document.getElementById('wsLoad').addEventListener('click', loadWorkspaces);
 document.getElementById('wsTable').addEventListener('click', async (e) => {
@@ -318,15 +356,19 @@ document.getElementById('wsTable').addEventListener('click', async (e) => {
   try {
     if (act === 'wsdel') {
       if (!confirm('删除工作区将移除其所有成员关联。确认？')) return;
-      await api('/admin/api/workspaces/' + e.target.dataset.id, { method: 'DELETE' });
+      await withButtonBusy(e.target, '删除中...', async () => {
+        await api('/admin/api/workspaces/' + e.target.dataset.id, { method: 'DELETE' });
+      });
       loadWorkspaces();
+      toast('工作区已删除', 'success');
     } else if (act === 'wsmem') {
       editingWsId = e.target.dataset.id;
       document.getElementById('wsMemName').textContent = e.target.dataset.name;
       document.getElementById('wsMembers').classList.remove('hidden');
       loadWsMembers();
+      document.getElementById('wsMembers').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-  } catch (err) { alert(err.message); }
+  } catch (err) { toast(err.message, 'error'); }
 });
 async function loadWsMembers() {
   if (!editingWsId) return;
@@ -342,16 +384,25 @@ async function loadWsMembers() {
       </tr>`).join('') + '</tbody>';
   } catch (e) { /* ignore */ }
 }
-document.getElementById('wsAddMem').addEventListener('click', async () => {
+document.getElementById('wsAddMem').addEventListener('click', async (e) => {
   if (!editingWsId) return;
   const body = { user_id: document.getElementById('wsMemUser').value, role: document.getElementById('wsMemRole').value };
-  try { await api('/admin/api/workspaces/' + editingWsId + '/members', { method: 'POST', body: JSON.stringify(body) }); loadWsMembers(); }
-  catch (e) { alert(e.message); }
+  try {
+    await withButtonBusy(e.currentTarget, '添加中...', async () => {
+      await api('/admin/api/workspaces/' + editingWsId + '/members', { method: 'POST', body: JSON.stringify(body) });
+    });
+    loadWsMembers();
+    toast('成员已添加', 'success');
+  } catch (e) { toast(e.message, 'error'); }
 });
 document.getElementById('wsMemTable').addEventListener('click', async (e) => {
   if (e.target.dataset.act !== 'wsrmmem') return;
-  try { await api('/admin/api/workspaces/' + editingWsId + '/members/' + encodeURIComponent(e.target.dataset.uid), { method: 'DELETE' }); loadWsMembers(); }
-  catch (err) { alert(err.message); }
+  try {
+    await withButtonBusy(e.target, '移除中...', async () => {
+      await api('/admin/api/workspaces/' + editingWsId + '/members/' + encodeURIComponent(e.target.dataset.uid), { method: 'DELETE' });
+    });
+    loadWsMembers();
+    toast('成员已移除', 'success');
+  } catch (err) { toast(err.message, 'error'); }
 });
 document.querySelector('[data-tab="ws"]').addEventListener('click', () => { loadWorkspaces(); loadUsersIntoWS(); });
-

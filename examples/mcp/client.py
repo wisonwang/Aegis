@@ -11,7 +11,7 @@ Shows the three calls an Agent needs against Aegis:
 Auth (pick one):
   * `X-MCP-API-Key`            -> maps to the seeded `mcp-agent` (analyst) account.
                                   No login needed. Matches config.json `mcp.api_key`.
-  * `Authorization: Bearer JWT`-> from `POST /api/v1/auth/login` (e.g. analyst/analyst123).
+  * `Authorization: Bearer JWT`-> from `POST /api/v1/login` (e.g. analyst/analyst123).
 
 Run:
     pip install httpx
@@ -24,7 +24,7 @@ import httpx
 BASE = "http://localhost:8080/mcp"
 API_KEY = "mcp-demo-key"          # == config.json mcp.api_key / AEGIS_MCP_API_KEY
 # JWT = "eyJ..."                  # alternative: pass Authorization: Bearer <JWT>
-DATASOURCE = "demo"               # seeded demo datasource (SQLite)
+DATASOURCE = "demo"               # seeded demo datasource
 
 HEADERS = {
     "Content-Type": "application/json",
@@ -72,7 +72,7 @@ def main():
         # 4a. governed query (row/column policies + masking applied server-side)
         q = rpc(s, "tools/call", params={
             "name": "query",
-            "arguments": {"datasource": DATASOURCE, "sql": "SELECT * FROM customers"},
+            "arguments": {"datasource": DATASOURCE, "sql": "SELECT guest_name, member_tier, phone FROM guest_profiles"},
         }, msg_id=3)
         print("\n[query] result:")
         print(json.dumps(q["result"], ensure_ascii=False, indent=2))
@@ -80,7 +80,7 @@ def main():
         # 4b. pre-execution cost / risk estimate (the wedge's risk-visibility)
         est = rpc(s, "tools/call", params={
             "name": "estimate_query",
-            "arguments": {"datasource": DATASOURCE, "sql": "SELECT * FROM customers"},
+            "arguments": {"datasource": DATASOURCE, "sql": "SELECT hotel_name, room_revenue FROM hotel_bookings"},
         }, msg_id=4)
         print("\n[estimate_query] result:")
         print(json.dumps(est["result"], ensure_ascii=False, indent=2))

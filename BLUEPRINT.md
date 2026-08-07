@@ -1,16 +1,16 @@
-# Aegis 项目蓝图（重新规划 · v1.1）
+# Aegis 项目蓝图（重新规划 · v1.2）
 
 > **本文是项目蓝图的单一事实来源（single source of truth）。**
-> 生成于 2026-07-28（v1.0）是对 v0.8 的复盘重排；**v1.1（2026-07-30）** 基于"大厂数据权限治理分层 × Aegis 采用价值"分析，新增 **§1.4 治理架构对齐（七层模型覆盖矩阵）** 与 **§1.5 市场定位与采用价值判断**，并修正多租户（ADR-001）状态漂移。
-> 全文以 **代码实际状态** 为据纠正文档漂移，主线包含：开源内核能力门禁（ADR-002）、多租户工作区设计（ADR-001）、OSS 采用加速策略（launch.md）、治理架构与大厂对齐。
-> 配套文档：`README.md`（使用手册）、`AI-SCENARIO.md`（AI 场景专项）、`docs/product-design.md`（**产品设计文档**）、`docs/adr/`（ADR-001/002）、`docs/launch.md`（发布就绪）、`docs/competitive_analysis.md`（竞争矩阵）、`CHANGELOG.md`、`SECURITY.md`（部署加固）。
+> 生成于 2026-07-28（v1.0）是对 v0.8 的复盘重排；**v1.1（2026-07-30）** 新增治理架构对齐与采用价值判断；**v1.2（2026-07-31）** 进一步把项目定位重构为「治理网关 + 数据产品层 + Agent/MCP 入口 + TRAE Skill 交付层」，同步更新 ADR-002 Phase 2 状态，并补充本地 TRAE Skill 开发配置策略。
+> 全文以 **代码实际状态** 为据纠正文档漂移，主线包含：开源内核能力门禁（ADR-002）、多租户工作区设计（ADR-001）、OSS 采用加速策略（launch.md）、治理架构与大厂对齐、TRAE Skill 本地交付策略。
+> 配套文档：`README.md`（使用手册）、`AI-SCENARIO.md`（AI 场景专项）、`docs/product-design.md`（**产品设计文档**）、`docs/skill-config.md`（本地 TRAE Skill 开发配置）、`docs/adr/`（ADR-001/002）、`docs/launch.md`（发布就绪）、`docs/competitive_analysis.md`（竞争矩阵）、`CHANGELOG.md`、`SECURITY.md`（部署加固）。
 
 ---
 
 ## 0. 一句话定位
 
 **Aegis = 自托管、治理默认开启的 AI 数据供给网关（AI Data Supply Gateway）。**
-把内部 MySQL / PostgreSQL / NoSQL 变成受表/行/列治理的 **DataAPI + MCP 服务**，让 LLM/Agent 像调工具一样安全取数——**LLM 现场生成的 SQL 也绕不过治理**。单 Go 二进制、分钟级落地、护城河 = 部署简单 + 治理不可绕过。
+把内部 MySQL / PostgreSQL / NoSQL 变成受表/行/列治理的 **DataAPI + MCP 服务 + 数据产品层 + TRAE Skill 可调用入口**，让 LLM/Agent 像调工具一样安全取数——**LLM 现场生成的 SQL 也绕不过治理**。单 Go 二进制、分钟级落地、护城河 = 部署简单 + 治理不可绕过 + Agent 交付简单。
 
 ---
 
@@ -103,7 +103,8 @@
 | | 语义指标层（模板 + 类型化参数 + 血缘） | ✅ | `1e0923c` |
 | | 查询血缘成本（EXPLAIN 风险预估） | ✅ | `0571258` |
 | | 数据集 / 数据产品（Data Products） | ✅ | 虚拟表复用治理 |
-| **商业化基座** | 开源内核能力门禁（运行时判定 + 企业包隔离） | ✅ 已落地 | `internal/capabilities` + `internal/enterprise`（`32c9b8f`）；分层策略 ADR-002 **已 Accepted（折中）**；Phase 2 拟把 datasets/approvals handler 体迁入 `internal/enterprise` |
+| **Agent 交付层** | TRAE Skill 源包（`aegis-mcp/`）+ 本地配置规划 | 🟡 已规划 | `aegis-mcp/` + `docs/skill-config.md`，项目级 `.trae/skills/` 作为本地导入目录 |
+| **商业化基座** | 开源内核能力门禁（运行时判定 + 企业包隔离） | ✅ 已落地 | `internal/capabilities` + `internal/enterprise`（`32c9b8f`）；分层策略 ADR-002 **已 Accepted（折中）**；Phase 2 已完成 `datasets` / `folders` / `metrics` / `approvals` 的 enterprise 运行时承接与联测 |
 
 ### 2.2 治理内核不变式（不可妥协）
 
@@ -133,11 +134,24 @@
 - **Community / 免费（护城河桌腿，必须单独有用）**：三级治理 + 动态脱敏（tokenize/fpe 等）、DataAPI + MCP 网关、本地数据源 MySQL/PostgreSQL/SQLite、基础审计 + 基础异常告警、单组织 RBAC、Schema 语义注入、**SSO（OIDC/LDAP）维持免费**。
 - **Enterprise / 企业付费**：`datasets` 数据产品 + 语义指标层、审批流、未来多租户 / SIEM 转发 / HA 控制面。
 
-> **剩余工程（非决策）**：Phase 2 把 `datasets`/审批流的 handler 体从 `internal/api` 物理迁入 `internal/enterprise`（当前 Phase 1 仅迁路由所有权 + 门禁，handler 暂留原处）。可逆性不变：未来可平滑升级为编译期 build-tag 或独立模块。
+> **状态更新**：ADR-002 Phase 2 已完成关键收口，`datasets` / `folders` / `metrics` / `approvals` 已由 `internal/enterprise` 承接运行时 handler，并补齐 capability gate 与路由联测。后续工程重心从“迁移 handler”转向“沉淀导出包边界、文档同步、可分发交付形式”。
 
 ### 3.2 多租户工作区时机（ADR-001 · 部分落地）
 
 设计已就绪（方案 A：共享表 + `workspace_id` 判别列 + 仓储层强制作用域）；**核心隔离代码已落地**——`internal/store/workspace.go` 实现 `WorkspaceAll` 哨兵（平台管理员跨工作区视图）、`DefaultWorkspaceID`、`WithWorkspace` 上下文传递与仓储层强制 `WHERE workspace_id = ?`。**尚未默认启用 / 完全接线到写路径与所有 handler**，属"最后一个企业门槛"，优先级**由采用反馈驱动**，非技术阻塞。先落 Phase 0（默认单工作区 + 判别列，现网零破坏迁移），再按需 Phase 1/2。
+
+### 3.3 TRAE Skill 交付策略（新增）
+
+Aegis 后续不只输出 API 与 MCP，还要输出“**TRAE 可直接调用的数据访问 Skill**”，让用户在 IDE/Work 中以更低门槛接入 Aegis。
+
+- **定位**：Skill 不是 MCP 的替代物，而是 Aegis MCP 的“任务编排与触发边界说明层”。
+- **单一事实来源**：仓库内以 `aegis-mcp/` 作为 Skill 源包；`.trae/skills/` 作为本地导入目录，不纳入 git。
+- **本地优先**：当前先支持本地 TRAE IDE / Work 桌面版开发调试，MCP 通过 `http://localhost:8080/mcp` 手动配置。
+- **交付节奏**：
+  1. 当前阶段：项目内源包 + 本地导入；
+  2. 下一阶段：补 zip 打包 / 导入脚本；
+  3. 远期：公开分发包或 Skill 市场化。
+- **约束**：历史 `.workbuddy/skills/` 仅保留兼容，不再作为主维护目录。
 
 ---
 
@@ -149,8 +163,8 @@
 发布就绪 + 叙事打磨                   多租户 Phase 0/1                   Helm / 云原生
 度量埋点 + 社区反馈闭环               SIEM 审计转发                     读写分离路由
 门禁分级策略落地 (ADR-002 A)          HA 控制面（PostgreSQL）           低代码 DataAPI
-文档漂移清零                          审批流增强（分组/时限/自动撤回）    治理即代码
-SIEM webhook 完善                     数据产品企业增强                  插件市场 / 向量检索
+文档漂移清零 + Skill 开发规范          审批流增强（分组/时限/自动撤回）    治理即代码
+SIEM webhook 完善 + Skill 本地打包     数据产品企业增强                  插件市场 / 向量检索
 ```
 
 ### 阶段 A · 采用率验证（最高优先级）
@@ -162,6 +176,7 @@ SIEM webhook 完善                     数据产品企业增强                
 - 门禁分级策略落地为 (A)：把 `Capabilities.Has` 接到未来企业能力，免费能力不受影响。
 - 度量埋点：README 文档链接 `?utm=`、Star/Clone 跟踪方法。
 - 社区反馈闭环：用 Show&tell 收集真实场景，反哺阶段 B 优先级。
+- 建立 TRAE Skill 本地开发标准：`aegis-mcp/` 源包、`.trae/skills/` 本地导入、MCP 手动配置、评测样例。
 
 ### 阶段 B · 企业门槛（采用反馈驱动）
 
@@ -185,12 +200,13 @@ SIEM webhook 完善                     数据产品企业增强                
 | # | 行动 | 归属 | 状态 / 阻塞 |
 |---|------|------|------------|
 | 1 | 落地 GitHub 发布动作（描述/Topics/Release/Show&tell） | 阶段 A | 需确认 `gh` 已登录 |
-| 2 | 完成 ADR-002 Phase 2：把 datasets/审批流 handler 体迁入 `internal/enterprise`（门禁策略已 Accepted·折中） | 阶段 A | 待排期 |
-| 3 | 修正文档漂移（README MVP、AI-SCENARIO 状态） | 阶段 A | ✅ 本次已完成 |
+| 2 | ADR-002 Phase 2 收口：同步文档、导出边界与可分发交付策略 | 阶段 A | 进行中 |
+| 3 | 修正文档漂移（README MVP、AI-SCENARIO 状态、Skill 相关命名） | 阶段 A | 进行中 |
 | 4 | README 英雄区 + 落地页叙事替换 | 阶段 A | 待审阅 |
 | 5 | 度量埋点（utm + Star/Clone 跟踪） | 阶段 A | 设计待定 |
-| 6 | SIEM 审计转发能力（webhook 由告警扩到审计流） | 阶段 B | 待排期 |
-| 7 | 多租户 ADR-001 Phase 0 设计评审 + 实施 | 阶段 B | 采用反馈驱动 |
+| 6 | 本地 TRAE Skill 配置标准化（`docs/skill-config.md` + `aegis-mcp/`） | 阶段 A | ✅ 已规划 |
+| 7 | SIEM 审计转发能力（webhook 由告警扩到审计流） | 阶段 B | 待排期 |
+| 8 | 多租户 ADR-001 Phase 0 设计评审 + 实施 | 阶段 B | 采用反馈驱动 |
 
 ---
 
@@ -228,10 +244,15 @@ SIEM webhook 完善                     数据产品企业增强                
 - `README.md` — 使用手册（DataAPI / MCP / NL2SQL / 指标 / 估算 / 数据集 / 权限 / 审计 / 告警 / 限流 / SSO / LDAP）。
 - `AI-SCENARIO.md` — 企业 AI 应用建设场景专项（五大风险 × 对策、场景映射、功能规划，状态已同步）。
 - `docs/product-design.md` — **产品设计文档**（定位/愿景、目标用户与场景、治理架构设计、产品功能与体验、差异化护城河、商业化与采用策略、路线图对齐、已知缺口）。
+- `docs/skill-config.md` — 本地 TRAE Skill 开发配置（项目技能目录、MCP 配置、导入与调试流程）。
 - `docs/adr/0001-multi-tenant-workspace.md` — 多租户工作区隔离模型（Proposed）。
 - `docs/adr/0002-open-core-tiering.md` — 开源内核与企业功能分层及隔离（**Accepted（折中）**：SSO 免费，datasets / 语义指标 / 审批流 / 多租户 / SIEM / HA 归企业）。
-- `docs/launch.md` — OSS 发布与采用加速清单。
+- `docs/launch.md` — OSS 发布与采用加速清单（含 GitHub 描述/Topics/Release 命令附录）。
 - `docs/competitive_analysis.md` — 竞争对比矩阵。
+- `docs/one-pager.md` — 一页式销售产品介绍（销售/售前物料）。
+- `docs/demo-walkthrough.md` — 演示 walkthrough + 客户案例模板 + PoC checklist。
+- `docs/pics/aegis-social-preview.{svg,png}` — GitHub 社交预览图（1280×640）。
+- `aegis-mcp/` — TRAE Skill 源包（`SKILL.md` + MCP 工具参考）。
 - `CHANGELOG.md` — 能力时间线（楔子策略里程碑）。
 - `SECURITY.md` — 部署加固清单与信任模型。
 - `overview_write_protection.md` — 写操作防护设计说明。

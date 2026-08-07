@@ -5,31 +5,34 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config is the top-level platform configuration.
-// It is loaded from a JSON file (default ./config.json) with optional
+// It is loaded from a JSON file (default conf/config.local.json) with optional
 // environment overrides (AEGIS_*).
 type Config struct {
-	ListenAddr string         `json:"listen_addr"` // HTTP listen address, e.g. ":8080"
-	JWTSecret  string         `json:"jwt_secret"`  // HMAC secret for token signing
-	JWTExpiry  string         `json:"jwt_expiry"`  // token TTL, e.g. "24h"
-	DBPath     string         `json:"db_path"`     // SQLite path for the control plane store (used when db_type is sqlite/empty)
-	DBType     string         `json:"db_type"`     // control-plane store backend: "sqlite" (default) | "mysql"
-	DBDSN      string         `json:"db_dsn"`      // MySQL DSN when db_type="mysql", e.g. root:pass@tcp(127.0.0.1:3306)/aegis?parseTime=true&charset=utf8mb4&loc=Local
-	DataDir    string         `json:"data_dir"`    // directory for demo/seeded database files
-	SeedDemo   bool           `json:"seed_demo"`   // seed demo datasource + users on first run
-	MCP        MCPConfig      `json:"mcp"`
-	Limits     Limits         `json:"limits"`
-	Alerting   AlertingConfig `json:"alerting"`
-	OIDC       OIDCConfig     `json:"oidc"`
-	LDAP       LDAPConfig     `json:"ldap"`
-	NL2SQL     NL2SQLConfig   `json:"nl2sql"`
-	Logging    LoggingConfig  `json:"logging"`
-	MaskSecret string         `json:"mask_secret"` // server key for keyed masking (tokenize/fpe); source from KMS in prod
-	Edition    string         `json:"edition"`      // "community" (default) | "enterprise"
-	LicenseKey string         `json:"license_key"`  // signed enterprise license token (alternative to edition=enterprise)
-	LicenseFile string        `json:"license_file"` // path to a file containing the license token
+	Environment string         `json:"environment"` // "production" (default) | "development"
+	ListenAddr  string         `json:"listen_addr"` // HTTP listen address, e.g. ":8080"
+	JWTSecret   string         `json:"jwt_secret"`  // HMAC secret for token signing
+	JWTExpiry   string         `json:"jwt_expiry"`  // token TTL, e.g. "24h"
+	DBPath      string         `json:"db_path"`     // SQLite path for the control plane store (used when db_type is sqlite/empty)
+	DBType      string         `json:"db_type"`     // control-plane store backend: "sqlite" (default) | "mysql"
+	DBDSN       string         `json:"db_dsn"`      // MySQL DSN when db_type="mysql", e.g. root:pass@tcp(127.0.0.1:3306)/aegis?parseTime=true&charset=utf8mb4&loc=Local
+	DataDir     string         `json:"data_dir"`    // directory for demo/seeded database files
+	SeedDemo    bool           `json:"seed_demo"`   // seed demo datasource + users on first run
+	MCP         MCPConfig      `json:"mcp"`
+	Limits      Limits         `json:"limits"`
+	Alerting    AlertingConfig `json:"alerting"`
+	OIDC        OIDCConfig     `json:"oidc"`
+	LDAP        LDAPConfig     `json:"ldap"`
+	NL2SQL      NL2SQLConfig   `json:"nl2sql"`
+	Logging     LoggingConfig  `json:"logging"`
+	MaskSecret  string         `json:"mask_secret"`  // server key for keyed masking (tokenize/fpe); source from KMS in prod
+	DocsEnabled bool           `json:"docs_enabled"` // expose Swagger docs under /admin/api/docs
+	Edition     string         `json:"edition"`      // "community" (default) | "enterprise"
+	LicenseKey  string         `json:"license_key"`  // signed enterprise license token (alternative to edition=enterprise)
+	LicenseFile string         `json:"license_file"` // path to a file containing the license token
 }
 
 // LoggingConfig selects the structured-log output format and minimum level.
@@ -56,7 +59,7 @@ type WorkspaceBinding struct {
 // The structured form lets a single IdP group grant both a platform role and
 // membership in one or more workspaces (ADR-001 Phase 1: group -> workspace).
 type ClaimMapping struct {
-	Role      string            `json:"role"`      // platform role granted by this group
+	Role       string             `json:"role"`       // platform role granted by this group
 	Workspaces []WorkspaceBinding `json:"workspaces"` // workspaces the user joins on login
 }
 
@@ -83,12 +86,12 @@ func (m *ClaimMapping) UnmarshalJSON(b []byte) error {
 // platform delegates authentication to an external IdP and auto-provisions
 // users on first login.
 type OIDCConfig struct {
-	Enabled       bool              `json:"enabled"`        // enable OIDC login flow
-	Issuer        string            `json:"issuer"`         // IdP issuer URL, e.g. "https://accounts.google.com"
-	ClientID      string            `json:"client_id"`      // OAuth2 client id
-	ClientSecret  string            `json:"client_secret"`  // OAuth2 client secret
-	RedirectURL   string            `json:"redirect_url"`   // callback URL registered with the IdP, e.g. "http://localhost:8080/api/v1/auth/oidc/callback"
-	Scopes        []string          `json:"scopes"`         // additional scopes beyond openid,profile,email
+	Enabled       bool                    `json:"enabled"`        // enable OIDC login flow
+	Issuer        string                  `json:"issuer"`         // IdP issuer URL, e.g. "https://accounts.google.com"
+	ClientID      string                  `json:"client_id"`      // OAuth2 client id
+	ClientSecret  string                  `json:"client_secret"`  // OAuth2 client secret
+	RedirectURL   string                  `json:"redirect_url"`   // callback URL registered with the IdP, e.g. "http://localhost:8080/api/v1/auth/oidc/callback"
+	Scopes        []string                `json:"scopes"`         // additional scopes beyond openid,profile,email
 	ClaimMappings map[string]ClaimMapping `json:"claim_mappings"` // map OIDC claim values to platform roles (+ optional workspaces). Legacy string form still supported.
 }
 
@@ -145,21 +148,21 @@ type AlertingConfig struct {
 // external directory and auto-provisions them on first login, mapping group
 // memberships to platform roles via ClaimMappings.
 type LDAPConfig struct {
-	Enabled       bool              `json:"enabled"`         // enable LDAP login flow
-	URL           string            `json:"url"`             // directory URL, e.g. "ldap://dc1.example.com:389" or "ldaps://dc1.example.com:636"
-	BindDN        string            `json:"bind_dn"`         // service account DN used to search (leave empty for anonymous bind)
-	BindPassword  string            `json:"bind_password"`   // service account password
-	BaseDN        string            `json:"base_dn"`         // search base, e.g. "dc=example,dc=com"
-	UserFilter    string            `json:"user_filter"`     // search filter with %s for the login name, e.g. "(uid=%s)" or "(sAMAccountName=%s)"
-	UserAttr      string            `json:"user_attr"`       // attribute used as local username, e.g. "uid" (falls back to user DN)
-	DisplayAttr   string            `json:"display_attr"`    // attribute used as display name, e.g. "displayName"
-	EmailAttr     string            `json:"email_attr"`      // attribute carrying the email, e.g. "mail"
-	GroupBaseDN   string            `json:"group_base_dn"`   // search base for groups, e.g. "ou=groups,dc=example,dc=com"
-	GroupFilter   string            `json:"group_filter"`    // group filter with %d for the user DN, e.g. "(member=%d)"
-	GroupNameAttr string            `json:"group_name_attr"` // attribute holding the group name, e.g. "cn"
+	Enabled       bool                    `json:"enabled"`         // enable LDAP login flow
+	URL           string                  `json:"url"`             // directory URL, e.g. "ldap://dc1.example.com:389" or "ldaps://dc1.example.com:636"
+	BindDN        string                  `json:"bind_dn"`         // service account DN used to search (leave empty for anonymous bind)
+	BindPassword  string                  `json:"bind_password"`   // service account password
+	BaseDN        string                  `json:"base_dn"`         // search base, e.g. "dc=example,dc=com"
+	UserFilter    string                  `json:"user_filter"`     // search filter with %s for the login name, e.g. "(uid=%s)" or "(sAMAccountName=%s)"
+	UserAttr      string                  `json:"user_attr"`       // attribute used as local username, e.g. "uid" (falls back to user DN)
+	DisplayAttr   string                  `json:"display_attr"`    // attribute used as display name, e.g. "displayName"
+	EmailAttr     string                  `json:"email_attr"`      // attribute carrying the email, e.g. "mail"
+	GroupBaseDN   string                  `json:"group_base_dn"`   // search base for groups, e.g. "ou=groups,dc=example,dc=com"
+	GroupFilter   string                  `json:"group_filter"`    // group filter with %d for the user DN, e.g. "(member=%d)"
+	GroupNameAttr string                  `json:"group_name_attr"` // attribute holding the group name, e.g. "cn"
 	ClaimMappings map[string]ClaimMapping `json:"claim_mappings"`  // map directory group values to platform roles (+ optional workspaces). Legacy string form still supported.
-	DefaultRoles  []string          `json:"default_roles"`   // roles granted to every LDAP-authenticated user
-	SkipTLSVerify bool              `json:"skip_tls_verify"` // insecure: skip TLS cert verification (dev only)
+	DefaultRoles  []string                `json:"default_roles"`   // roles granted to every LDAP-authenticated user
+	SkipTLSVerify bool                    `json:"skip_tls_verify"` // insecure: skip TLS cert verification (dev only)
 }
 
 // MCPConfig configures the Model Context Protocol endpoint used by AI agents.
@@ -184,7 +187,7 @@ func Load(path string) (*Config, error) {
 	}
 	applyEnv(cfg)
 	if cfg.JWTSecret == "" {
-		cfg.JWTSecret = "change-me-in-production"
+		cfg.JWTSecret = ""
 	}
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ":8080"
@@ -192,17 +195,24 @@ func Load(path string) (*Config, error) {
 	if cfg.MCP.Path == "" {
 		cfg.MCP.Path = "/mcp"
 	}
+	if cfg.Edition == "" {
+		cfg.Edition = "community"
+	}
+	if cfg.Environment == "" {
+		cfg.Environment = "production"
+	}
 	return cfg, nil
 }
 
 // Default returns a sane default configuration.
 func Default() *Config {
 	return &Config{
-		ListenAddr: ":8080",
-		JWTExpiry:  "24h",
-		DBPath:     "aegis.db",
-		DataDir:    "./data",
-		SeedDemo:   true,
+		Environment: "production",
+		ListenAddr:  ":8080",
+		JWTExpiry:   "24h",
+		DBPath:      "aegis.db",
+		DataDir:     "./data",
+		SeedDemo:    false,
 		MCP: MCPConfig{
 			Enabled:     true,
 			Path:        "/mcp",
@@ -240,12 +250,73 @@ func Default() *Config {
 			Format: "json",
 			Level:  "info",
 		},
+		// DocsEnabled defaults to true: the "API 接入" Swagger tab is a shipped,
+		// prominent feature and must not be broken out of the box. Trade-off: the
+		// OpenAPI spec (endpoint shapes) is then readable without auth at
+		// /admin/api/docs/. For production hardening, set docs_enabled:false (or
+		// AEGIS_DOCS_ENABLED=false) to disable it. Reversible via one flag.
+		DocsEnabled: true,
+		Edition:     "community",
 	}
+}
+
+func (c *Config) IsProduction() bool {
+	return strings.EqualFold(strings.TrimSpace(c.Environment), "production")
+}
+
+func (c *Config) Validate() error {
+	if c == nil {
+		return fmt.Errorf("config is nil")
+	}
+	c.Edition = strings.ToLower(strings.TrimSpace(c.Edition))
+	if c.Edition == "" {
+		c.Edition = "community"
+	}
+	switch c.Edition {
+	case "community", "enterprise":
+	default:
+		return fmt.Errorf("invalid edition %q: must be community or enterprise", c.Edition)
+	}
+	if !c.IsProduction() {
+		return nil
+	}
+	if isWeakSecret(c.JWTSecret, "change-me-in-production", "please-change-me-in-production") {
+		return fmt.Errorf("production requires a strong jwt_secret or AEGIS_JWT_SECRET")
+	}
+	if isWeakSecret(c.MaskSecret, string([]byte("aegis-dev-mask-secret-change-me"))) {
+		return fmt.Errorf("production requires a strong mask_secret or AEGIS_MASK_SECRET")
+	}
+	if c.SeedDemo {
+		return fmt.Errorf("production must set seed_demo=false")
+	}
+	if c.LDAP.SkipTLSVerify {
+		return fmt.Errorf("production must not enable ldap.skip_tls_verify")
+	}
+	if c.MCP.APIKey == "mcp-demo-key" {
+		return fmt.Errorf("production must not use the demo MCP API key")
+	}
+	return nil
+}
+
+func isWeakSecret(v string, blocked ...string) bool {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return true
+	}
+	for _, b := range blocked {
+		if v == b {
+			return true
+		}
+	}
+	return false
 }
 
 func applyEnv(cfg *Config) {
 	if v := os.Getenv("AEGIS_LISTEN_ADDR"); v != "" {
 		cfg.ListenAddr = v
+	}
+	if v := os.Getenv("AEGIS_ENV"); v != "" {
+		cfg.Environment = v
 	}
 	if v := os.Getenv("AEGIS_JWT_SECRET"); v != "" {
 		cfg.JWTSecret = v
@@ -265,8 +336,20 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("AEGIS_DATA_DIR"); v != "" {
 		cfg.DataDir = v
 	}
+	if v := os.Getenv("AEGIS_SEED_DEMO"); v != "" {
+		cfg.SeedDemo = v == "true" || v == "1"
+	}
+	if v := os.Getenv("AEGIS_DOCS_ENABLED"); v != "" {
+		cfg.DocsEnabled = v == "true" || v == "1"
+	}
+	if v := os.Getenv("AEGIS_MCP_ENABLED"); v != "" {
+		cfg.MCP.Enabled = v == "true" || v == "1"
+	}
 	if v := os.Getenv("AEGIS_MCP_API_KEY"); v != "" {
 		cfg.MCP.APIKey = v
+	}
+	if v := os.Getenv("AEGIS_MCP_REQUIRE_AUTH"); v != "" {
+		cfg.MCP.RequireAuth = v == "true" || v == "1"
 	}
 	if v := os.Getenv("AEGIS_MAX_ROWS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {

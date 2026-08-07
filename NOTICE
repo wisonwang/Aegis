@@ -1,0 +1,14 @@
+Aegis
+Copyright (c) 2026 wisonwang
+
+This project is distributed under the MIT License.
+See the LICENSE file for details.
+
+This repository also depends on third-party open source software.
+An initial summary of major direct dependencies and their common license
+families is available at:
+
+docs/third-party-notices.md
+
+Before formal commercial distribution, generate and archive a complete,
+version-accurate third-party license inventory together with release artifacts.

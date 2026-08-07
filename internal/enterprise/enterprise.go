@@ -3,8 +3,8 @@
 // (api, capabilities, config) and never the other way around.
 //
 // Phase 2: the enterprise boundary owns both route registration and the
-// runtime handler bodies for enterprise-gated endpoints. Metrics still reuse
-// api.Handler for now; datasets and approvals are served by the enterprise
+// runtime handler bodies for enterprise-gated endpoints. Data products
+// (datasets, folders, metrics) and approvals are all served by the enterprise
 // handler package behind the same capability gate.
 package enterprise
 
@@ -74,11 +74,11 @@ func Register(engine *gin.Engine, cfg *config.Config, st *store.Store, h *api.Ha
 	engine.POST("/admin/api/datasets/:id/move", gin.WrapF(admin(require(capabilities.CapDataProducts)(eh.AdminMoveDataset))))
 
 	// ---- Semantic metric layer (part of data products) : CapDataProducts ----
-	engine.GET("/api/v1/datasources/:id/metrics", gin.WrapF(auth(require(capabilities.CapDataProducts)(h.ListMetrics))))
-	engine.POST("/api/v1/datasources/:id/metrics/:name/run", gin.WrapF(auth(require(capabilities.CapDataProducts)(h.RunMetric))))
-	engine.GET("/admin/api/datasources/:id/metrics", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminListMetrics))))
-	engine.POST("/admin/api/datasources/:id/metrics", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminUpsertMetric))))
-	engine.DELETE("/admin/api/datasources/:id/metrics/:mid", gin.WrapF(admin(require(capabilities.CapDataProducts)(h.AdminDeleteMetric))))
+	engine.GET("/api/v1/datasources/:id/metrics", gin.WrapF(auth(require(capabilities.CapDataProducts)(eh.ListMetrics))))
+	engine.POST("/api/v1/datasources/:id/metrics/:name/run", gin.WrapF(auth(require(capabilities.CapDataProducts)(eh.RunMetric))))
+	engine.GET("/admin/api/datasources/:id/metrics", gin.WrapF(admin(require(capabilities.CapDataProducts)(eh.AdminListMetrics))))
+	engine.POST("/admin/api/datasources/:id/metrics", gin.WrapF(admin(require(capabilities.CapDataProducts)(eh.AdminUpsertMetric))))
+	engine.DELETE("/admin/api/datasources/:id/metrics/:mid", gin.WrapF(admin(require(capabilities.CapDataProducts)(eh.AdminDeleteMetric))))
 
 	// ---- Access approval workflow : CapApprovalWorkflow ----
 	engine.GET("/api/v1/me/approvals", gin.WrapF(auth(require(capabilities.CapApprovalWorkflow)(eh.UserListMyApprovals))))

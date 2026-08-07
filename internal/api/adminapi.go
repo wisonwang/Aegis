@@ -564,13 +564,48 @@ func (h *Handler) AdminListDataSources(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"datasources": ds})
+	// Resolve workspace ids to names so the "all workspaces" view can label
+	// each row with its owner instead of showing opaque ids.
+	wsName := map[string]string{}
+	if all, werr := h.Store.ListWorkspaces(); werr == nil {
+		for _, ws := range all {
+			wsName[ws.ID] = ws.Name
+		}
+	}
+	out := make([]map[string]interface{}, 0, len(ds))
+	for _, d := range ds {
+		masked := datasource.MaskDSN(d.DSN)
+		wsID := d.WorkspaceID
+		if wsID == "" {
+			wsID = store.DefaultWorkspaceID
+		}
+		out = append(out, map[string]interface{}{
+			"id":             d.ID,
+			"name":           d.Name,
+			"type":           d.Type,
+			"dsn":            masked,
+			"dsn_masked":     masked != d.DSN, // true only when a secret was actually redacted
+			"created_at":     d.CreatedAt,
+			"workspace_id":   wsID,
+			"workspace_name": wsName[wsID],
+		})
+	}
+	// dsn_docs points operators to the canonical DSN format reference so a
+	// misconfigured connection string is self-serviceable.
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"datasources": out,
+		"dsn_docs":    datasource.DSNDocsURL,
+	})
 }
 
 type createDSRequest struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
 	DSN  string `json:"dsn"`
+	// WorkspaceID is the owning workspace. Required when the caller is in the
+	// cross-workspace ("all") view, because there is no sane default there —
+	// silently falling back to "default" is how governance ends up orphaned.
+	WorkspaceID string `json:"workspace_id"`
 }
 
 // @Summary admin Create Data Source
@@ -580,6 +615,9 @@ type createDSRequest struct {
 // @Security BearerAuth
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasources [post]
+// @Description The `dsn` is a driver-specific connection string. See the DSN
+// format reference (returned as `dsn_docs` from GET /admin/api/datasources) for
+// per-type examples. Passwords in `dsn` are never echoed back on list endpoints.
 func (h *Handler) AdminCreateDataSource(w http.ResponseWriter, r *http.Request) {
 	var req createDSRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.Type == "" {
@@ -590,12 +628,47 @@ func (h *Handler) AdminCreateDataSource(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "unsupported datasource type "+req.Type)
 		return
 	}
+	if req.DSN != "" {
+		if err := datasource.ValidateDSN(req.Type, req.DSN); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	ctx, werr := h.datasourceWriteCtx(r.Context(), req.WorkspaceID)
+	if werr != nil {
+		writeError(w, http.StatusBadRequest, werr.Error())
+		return
+	}
 	d := &store.DataSource{Name: req.Name, Type: datasource.NormalizeType(req.Type), DSN: req.DSN}
-	if err := h.Store.CreateDataSource(r.Context(), d); err != nil {
+	if err := h.Store.CreateDataSource(ctx, d); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]string{"id": d.ID})
+	writeJSON(w, http.StatusCreated, map[string]string{"id": d.ID, "workspace_id": store.WriteWorkspace(ctx)})
+}
+
+// datasourceWriteCtx decides which workspace a new datasource lands in.
+//
+//   - explicit workspace_id in the body wins (must exist);
+//   - otherwise the caller's active workspace is used;
+//   - in the cross-workspace ("all") view there is no active workspace, so an
+//     explicit choice is REQUIRED. Defaulting to "default" there is what made
+//     every object collapse into a single tenant before ADR-0007.
+func (h *Handler) datasourceWriteCtx(ctx context.Context, want string) (context.Context, error) {
+	if want == "" || want == store.WorkspaceAll {
+		if store.CrossesWorkspaces(ctx) {
+			return ctx, errStr("workspace_id is required when creating from the all-workspaces view")
+		}
+		return ctx, nil
+	}
+	ws, err := h.Store.GetWorkspace(want)
+	if err != nil {
+		return ctx, err
+	}
+	if ws == nil {
+		return ctx, errStr("workspace not found: " + want)
+	}
+	return store.WithWorkspace(ctx, ws.ID), nil
 }
 
 // @Summary admin Update Data Source
@@ -622,6 +695,17 @@ func (h *Handler) AdminUpdateDataSource(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
+	if req.DSN != "" {
+		// The admin list returns a masked DSN. If that masked value is pasted
+		// straight back into an update we must NOT overwrite the real secret
+		// with the placeholder — treat it as "no change".
+		if datasource.IsMasked(req.DSN) {
+			req.DSN = ""
+		} else if err := datasource.ValidateDSN(req.Type, req.DSN); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	if req.Type != "" && !datasource.IsKnownType(req.Type) {
 		writeError(w, http.StatusBadRequest, "unsupported datasource type "+req.Type)
 		return
@@ -638,6 +722,20 @@ func (h *Handler) AdminUpdateDataSource(w http.ResponseWriter, r *http.Request) 
 	if err := h.Store.UpdateDataSource(d); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// Re-parenting a datasource must drag its whole governance set with it,
+	// otherwise the permissions stay behind in the old tenant and silently
+	// stop applying to the datasource that still references them.
+	if req.WorkspaceID != "" && req.WorkspaceID != store.WorkspaceAll && req.WorkspaceID != d.WorkspaceID {
+		ws, werr := h.Store.GetWorkspace(req.WorkspaceID)
+		if werr != nil || ws == nil {
+			writeError(w, http.StatusBadRequest, "workspace not found: "+req.WorkspaceID)
+			return
+		}
+		if err := h.Store.MoveDataSource(d.ID, ws.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -679,7 +777,7 @@ func (h *Handler) AdminListTablePermissions(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	table := pathParam(r, "table")
-	out, err := h.listPermView(dsID, table)
+	out, err := h.listPermView(r.Context(), dsID, table)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -687,13 +785,17 @@ func (h *Handler) AdminListTablePermissions(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]interface{}{"permissions": out})
 }
 
-func (h *Handler) listPermView(dsID, table string) ([]map[string]interface{}, error) {
+// listPermView renders table permissions for a datasource. It MUST take the
+// request context: using context.Background() here silently pinned the view to
+// the "default" workspace, so grants created in any other workspace were
+// invisible in the admin UI even though they were live in the engine.
+func (h *Handler) listPermView(ctx context.Context, dsID, table string) ([]map[string]interface{}, error) {
 	roles, _ := h.Store.ListRoles()
 	nameByID := map[string]string{}
 	for _, role := range roles {
 		nameByID[role.ID] = role.Name
 	}
-	perms, err := h.Store.ListTablePermissions(context.Background(), "", dsID, table)
+	perms, err := h.Store.ListTablePermissions(ctx, "", dsID, table)
 	if err != nil {
 		return nil, err
 	}
@@ -707,6 +809,7 @@ func (h *Handler) listPermView(dsID, table string) ([]map[string]interface{}, er
 			"ops":          p.Ops,
 			"allowed_cols": json.RawMessage(orEmpty(p.AllowedCols)),
 			"denied_cols":  json.RawMessage(orEmpty(p.DeniedCols)),
+			"workspace_id": p.WorkspaceID,
 		})
 	}
 	return out, nil
@@ -729,7 +832,10 @@ type createPermRequest struct {
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasources/{id}/tables/{table}/permissions [post]
 func (h *Handler) AdminCreateTablePermission(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
+	// Bind the write to the datasource's own workspace, not the admin's active
+	// view: a grant on a "globex" datasource must never be stamped "default"
+	// just because the admin was browsing in the cross-workspace view.
+	dsID, ctx, rerr := h.resolveDSBound(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -755,7 +861,7 @@ func (h *Handler) AdminCreateTablePermission(w http.ResponseWriter, r *http.Requ
 		AllowedCols:  string(allowed),
 		DeniedCols:   string(denied),
 	}
-	if err := h.Store.CreateTablePermission(r.Context(), p); err != nil {
+	if err := h.Store.CreateTablePermission(ctx, p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -771,9 +877,13 @@ func (h *Handler) AdminCreateTablePermission(w http.ResponseWriter, r *http.Requ
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasources/{id}/permissions/{perm} [delete]
 func (h *Handler) AdminDeleteTablePermission(w http.ResponseWriter, r *http.Request) {
-	id := pathParam(r, "perm")
-	if err := h.Store.DeleteTablePermission(id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	_, ctx, rerr := h.resolveDSBound(r.Context(), pathParam(r, "id"))
+	if rerr != nil {
+		writeError(w, http.StatusNotFound, rerr.Error())
+		return
+	}
+	if err := h.Store.DeleteTablePermission(ctx, pathParam(r, "perm")); err != nil {
+		writeMutationError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -815,6 +925,7 @@ func (h *Handler) AdminListRowPolicies(w http.ResponseWriter, r *http.Request) {
 			"table_name": p.TableName,
 			"predicate":  p.Predicate,
 			"priority":   p.Priority,
+			"workspace_id": p.WorkspaceID,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"policies": out})
@@ -836,7 +947,7 @@ type createPolicyRequest struct {
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasources/{id}/tables/{table}/policies [post]
 func (h *Handler) AdminCreateRowPolicy(w http.ResponseWriter, r *http.Request) {
-	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
+	dsID, ctx, rerr := h.resolveDSBound(r.Context(), pathParam(r, "id"))
 	if rerr != nil {
 		writeError(w, http.StatusNotFound, rerr.Error())
 		return
@@ -859,7 +970,7 @@ func (h *Handler) AdminCreateRowPolicy(w http.ResponseWriter, r *http.Request) {
 		Predicate:    req.Predicate,
 		Priority:     req.Priority,
 	}
-	if err := h.Store.CreateRowPolicy(r.Context(), p); err != nil {
+	if err := h.Store.CreateRowPolicy(ctx, p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -875,9 +986,13 @@ func (h *Handler) AdminCreateRowPolicy(w http.ResponseWriter, r *http.Request) {
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasources/{id}/policies/{policy} [delete]
 func (h *Handler) AdminDeleteRowPolicy(w http.ResponseWriter, r *http.Request) {
-	id := pathParam(r, "policy")
-	if err := h.Store.DeleteRowPolicy(id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	_, ctx, rerr := h.resolveDSBound(r.Context(), pathParam(r, "id"))
+	if rerr != nil {
+		writeError(w, http.StatusNotFound, rerr.Error())
+		return
+	}
+	if err := h.Store.DeleteRowPolicy(ctx, pathParam(r, "policy")); err != nil {
+		writeMutationError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

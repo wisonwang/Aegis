@@ -9,8 +9,11 @@ dist/
 # local agent memory (project-private, do not publish)
 .workbuddy/memory/
 
-# local config overrides (keep placeholders out of VCS if desired)
-# config.json
+# local TRAE project artifacts (generated/imported skills, local settings)
+.trae/
+
+# local config overrides (keep placeholders + secrets out of VCS)
+conf/config.local.json
 
 # temp / cleanup staging (build artifacts, logs, runtime db, throwaway scripts)
 temp/

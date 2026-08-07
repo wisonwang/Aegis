@@ -65,6 +65,10 @@ type DataSource struct {
 	Type      string    `json:"type"` // mysql | postgres | sqlite
 	DSN       string    `json:"dsn"`  // driver-specific connection string
 	CreatedAt time.Time `json:"created_at"`
+	// WorkspaceID is the owning workspace. It is the anchor for every piece of
+	// governance hung off this datasource (table permissions, row policies,
+	// column masks, semantics, classifications, datasets) — see ADR-0007.
+	WorkspaceID string `json:"workspace_id"`
 }
 
 // TablePermission grants a role a set of operations on a table, optionally
@@ -77,6 +81,7 @@ type TablePermission struct {
 	Ops         string `json:"ops"`         // comma separated: SELECT,INSERT,UPDATE,DELETE
 	AllowedCols string `json:"allowed_cols"` // JSON array; empty means "all allowed"
 	DeniedCols  string `json:"denied_cols"`  // JSON array; always wins over allowed
+	WorkspaceID string `json:"workspace_id"` // inherited from the datasource (ADR-0007)
 }
 
 // RowPolicy is a SQL predicate injected into queries for the role. It may
@@ -88,6 +93,7 @@ type RowPolicy struct {
 	TableName   string `json:"table_name"`
 	Predicate   string `json:"predicate"`
 	Priority    int    `json:"priority"`
+	WorkspaceID string `json:"workspace_id"` // inherited from the datasource (ADR-0007)
 }
 
 // ColumnMask is a dynamic-masking rule applied to a column's *values* (as
@@ -104,6 +110,7 @@ type ColumnMask struct {
 	Strategy     string    `json:"strategy"` // phone|email|card|hash|redact|partial
 	Keep         int       `json:"keep"`     // param for the "partial" strategy
 	UpdatedAt    time.Time `json:"updated_at"`
+	WorkspaceID  string    `json:"workspace_id"` // inherited from the datasource (ADR-0007)
 }
 
 // MaskSpec is the resolved masking rule for a single column.
@@ -141,7 +148,7 @@ func Open(path string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1) // sqlite single-writer
 	s := &Store{db: db, kind: "sqlite"}
-	if err := s.migrate(); err != nil {
+	if err := s.runMigrations(); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -160,7 +167,7 @@ func OpenMySQL(dsn string) (*Store, error) {
 		return nil, fmt.Errorf("ping mysql store: %w", err)
 	}
 	s := &Store{db: db, kind: "mysql"}
-	if err := s.migrate(); err != nil {
+	if err := s.runMigrations(); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -224,7 +231,7 @@ func (s *Store) createIndex(ddl string) error {
 	return nil
 }
 
-func (s *Store) migrate() error {
+func (s *Store) legacyMigrate() error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS users (
 			id VARCHAR(64) PRIMARY KEY, username VARCHAR(191) UNIQUE NOT NULL,
@@ -360,27 +367,34 @@ func migrateWorkspaces(s *Store) error {
 		return err
 	}
 	// Backfill membership for users that are not yet members of default.
+	// Uses the legacy workspace_members / user_roles tables directly so this
+	// baseline migration (0001) stays independent of role_assignments, which
+	// is introduced by migration 0002. 0002 backfills workspace_members into
+	// role_assignments afterwards.
 	users, err := s.ListUsers("")
 	if err != nil {
 		return err
 	}
 	for _, u := range users {
-		ok, err := s.IsWorkspaceMember(DefaultWorkspaceID, u.ID)
-		if err != nil {
+		var n int
+		if err := s.db.QueryRow(
+			`SELECT COUNT(*) FROM workspace_members WHERE workspace_id=? AND user_id=?`,
+			DefaultWorkspaceID, u.ID).Scan(&n); err != nil {
 			return err
 		}
-		if ok {
+		if n > 0 {
 			continue
 		}
 		role := WsRoleMember
-		if rs, rerr := s.ListRolesForUser(u.ID); rerr == nil {
-			for _, r := range rs {
-				if r.Name == "admin" {
-					role = WsRoleAdmin
-				}
-			}
+		var rname string
+		if err := s.db.QueryRow(
+			`SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=?`,
+			u.ID).Scan(&rname); err == nil && rname == "admin" {
+			role = WsRoleAdmin
 		}
-		if err := s.AddWorkspaceMember(DefaultWorkspaceID, u.ID, role, true); err != nil {
+		if _, err := s.db.Exec(
+			`INSERT INTO workspace_members (workspace_id,user_id,role,is_default,created_at) VALUES (?,?,?,?,?)`,
+			DefaultWorkspaceID, u.ID, role, true, time.Now()); err != nil {
 			return err
 		}
 	}
@@ -486,7 +500,7 @@ func (s *Store) ListUsers(ws string) ([]*User, error) {
 	      FROM users`
 	args := []interface{}{}
 	if ws != "" {
-		q += ` WHERE id IN (SELECT user_id FROM workspace_members WHERE workspace_id=?)`
+		q += ` WHERE id IN (SELECT principal_id FROM role_assignments WHERE workspace_id=?)`
 		args = append(args, ws)
 	}
 	q += ` ORDER BY username`
@@ -532,6 +546,9 @@ func (s *Store) DeleteUser(id string) error {
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(`DELETE FROM user_roles WHERE user_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM role_assignments WHERE principal_id=?`, id); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM users WHERE id=?`, id); err != nil {
@@ -685,9 +702,14 @@ func (s *Store) CreateRole(r *Role) error {
 	return err
 }
 
+// GetRole looks up a platform role by name. Workspace-scoped rows are excluded
+// on purpose: they are membership levels reachable only by id, and letting an
+// IdP group mapping resolve to one would grant it platform-wide.
 func (s *Store) GetRole(name string) (*Role, error) {
 	r := &Role{}
-	err := s.db.QueryRow(`SELECT id,name,description,is_system FROM roles WHERE name=?`, name).
+	err := s.db.QueryRow(
+		`SELECT id,name,description,is_system FROM roles
+		 WHERE name=? AND (scope IS NULL OR scope <> 'workspace')`, name).
 		Scan(&r.ID, &r.Name, &r.Description, &r.System)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -711,8 +733,17 @@ func (s *Store) GetRoleByID(id string) (*Role, error) {
 	return r, nil
 }
 
+// ListRoles returns the platform-scoped roles only. Since ADR-0006 Phase 1 the
+// roles table also holds the three fixed workspace roles (scope='workspace');
+// those are membership levels, not grantable platform roles, so they must not
+// leak into role management, permission grants or mask/dataset role pickers.
+// The predicate is written as "not workspace" rather than "= platform" so a
+// row with an unexpected/empty scope still shows up — silently hiding a real
+// platform role is worse than showing one extra.
 func (s *Store) ListRoles() ([]*Role, error) {
-	rows, err := s.db.Query(`SELECT id,name,description,is_system FROM roles ORDER BY name`)
+	rows, err := s.db.Query(
+		`SELECT id,name,description,is_system FROM roles
+		 WHERE scope IS NULL OR scope <> 'workspace' ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -743,6 +774,7 @@ func (s *Store) DeleteRole(id string) error {
 	defer tx.Rollback()
 	for _, q := range []string{
 		`DELETE FROM user_roles WHERE role_id=?`,
+		`DELETE FROM role_assignments WHERE role_id=?`,
 		`DELETE FROM table_permissions WHERE role_id=?`,
 		`DELETE FROM row_policies WHERE role_id=?`,
 		`DELETE FROM column_masks WHERE role_id=?`,
@@ -763,21 +795,39 @@ func (s *Store) UpdateRole(id, name, description string) error {
 	return err
 }
 
+// AddUserRole grants a platform (global) role to a user. Platform assignments
+// live in role_assignments with an empty workspace_id (ADR-0006). The legacy
+// user_roles table is retained read-only for rollback but is no longer written.
+// AddUserRole grants a platform-scoped role (workspace_id=''). Workspace roles
+// live in the same table since ADR-0006 Phase 1, so guard against granting one
+// globally — that would give a user "member" everywhere, bypassing membership.
 func (s *Store) AddUserRole(userID, roleID string) error {
+	var scope sql.NullString
+	if err := s.db.QueryRow(`SELECT scope FROM roles WHERE id=?`, roleID).Scan(&scope); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("role %s not found", roleID)
+		}
+		return err
+	}
+	if scope.Valid && scope.String == "workspace" {
+		return fmt.Errorf("role %s is workspace-scoped; assign it via workspace membership", roleID)
+	}
 	_, err := s.db.Exec(
-		`INSERT ` + s.insertIgnore() + ` INTO user_roles (user_id,role_id) VALUES (?,?)`, userID, roleID)
+		`INSERT `+s.insertIgnore()+` INTO role_assignments (principal_id,role_id,workspace_id,is_default) VALUES (?,?,?,?)`,
+		userID, roleID, "", 0)
 	return err
 }
 
 func (s *Store) RemoveUserRole(userID, roleID string) error {
-	_, err := s.db.Exec(`DELETE FROM user_roles WHERE user_id=? AND role_id=?`, userID, roleID)
+	_, err := s.db.Exec(`DELETE FROM role_assignments WHERE principal_id=? AND role_id=? AND workspace_id=''`, userID, roleID)
 	return err
 }
 
 func (s *Store) ListRolesForUser(userID string) ([]*Role, error) {
 	rows, err := s.db.Query(
 		`SELECT r.id,r.name,r.description,r.is_system FROM roles r
-		 JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=? ORDER BY r.name`, userID)
+		 JOIN role_assignments ra ON ra.role_id=r.id
+		 WHERE ra.principal_id=? AND ra.workspace_id='' ORDER BY r.name`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -810,14 +860,34 @@ func (s *Store) CreateDataSource(ctx context.Context, d *DataSource) error {
 
 func (s *Store) GetDataSource(ctx context.Context, id string) (*DataSource, error) {
 	d := &DataSource{}
-	q := `SELECT id,name,type,dsn,created_at FROM datasources WHERE id=?`
+	q := `SELECT id,name,type,dsn,created_at,COALESCE(workspace_id,'') FROM datasources WHERE id=?`
 	args := []interface{}{id}
 	if !CrossesWorkspaces(ctx) {
 		q += ` AND workspace_id=?`
 		args = append(args, WorkspaceID(ctx))
 	}
 	err := s.db.QueryRow(q, args...).
-		Scan(&d.ID, &d.Name, &d.Type, &d.DSN, &d.CreatedAt)
+		Scan(&d.ID, &d.Name, &d.Type, &d.DSN, &d.CreatedAt, &d.WorkspaceID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// GetDataSourceByID looks a datasource up by primary key with NO workspace
+// filter. Datasource IDs are globally unique, so this is safe — but it
+// deliberately bypasses tenant scoping and must only be used by infrastructure
+// that has already passed a governance check, e.g. the connection-pool manager
+// which needs the DSN regardless of which workspace the caller sits in.
+// Callers that make authorization decisions MUST use GetDataSource instead.
+func (s *Store) GetDataSourceByID(id string) (*DataSource, error) {
+	d := &DataSource{}
+	err := s.db.QueryRow(
+		`SELECT id,name,type,dsn,created_at,COALESCE(workspace_id,'') FROM datasources WHERE id=?`, id).
+		Scan(&d.ID, &d.Name, &d.Type, &d.DSN, &d.CreatedAt, &d.WorkspaceID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -828,7 +898,7 @@ func (s *Store) GetDataSource(ctx context.Context, id string) (*DataSource, erro
 }
 
 func (s *Store) ListDataSources(ctx context.Context) ([]*DataSource, error) {
-	q := `SELECT id,name,type,dsn,created_at FROM datasources`
+	q := `SELECT id,name,type,dsn,created_at,COALESCE(workspace_id,'') FROM datasources`
 	args := []interface{}{}
 	if !CrossesWorkspaces(ctx) {
 		q += ` WHERE workspace_id=?`
@@ -843,7 +913,7 @@ func (s *Store) ListDataSources(ctx context.Context) ([]*DataSource, error) {
 	var out []*DataSource
 	for rows.Next() {
 		d := &DataSource{}
-		if err := rows.Scan(&d.ID, &d.Name, &d.Type, &d.DSN, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Type, &d.DSN, &d.CreatedAt, &d.WorkspaceID); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -855,6 +925,35 @@ func (s *Store) UpdateDataSource(d *DataSource) error {
 	_, err := s.db.Exec(`UPDATE datasources SET name=?, type=?, dsn=? WHERE id=?`,
 		d.Name, d.Type, d.DSN, d.ID)
 	return err
+}
+
+// MoveDataSource re-parents a datasource and every governance object hanging
+// off it into another workspace, in a single transaction. Governance must
+// travel with the datasource, otherwise permissions would be orphaned in the
+// old tenant and silently stop applying (ADR-0007).
+func (s *Store) MoveDataSource(id, workspaceID string) error {
+	if workspaceID == "" || workspaceID == WorkspaceAll {
+		return fmt.Errorf("move datasource: invalid target workspace %q", workspaceID)
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, q := range []string{
+		`UPDATE table_permissions SET workspace_id=? WHERE datasource_id=?`,
+		`UPDATE row_policies SET workspace_id=? WHERE datasource_id=?`,
+		`UPDATE column_masks SET workspace_id=? WHERE datasource_id=?`,
+		`UPDATE schema_semantics SET workspace_id=? WHERE datasource_id=?`,
+		`UPDATE data_classifications SET workspace_id=? WHERE datasource_id=?`,
+		`UPDATE datasets SET workspace_id=? WHERE datasource_id=?`,
+		`UPDATE datasources SET workspace_id=? WHERE id=?`,
+	} {
+		if _, err := tx.Exec(q, workspaceID, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) DeleteDataSource(id string) error {
@@ -896,7 +995,7 @@ func (s *Store) CreateTablePermission(ctx context.Context, p *TablePermission) e
 // An empty roleID selects all roles (consistent with ListColumnMasks). Results are
 // scoped to the active workspace from ctx (platform admin may pass WorkspaceAll).
 func (s *Store) ListTablePermissions(ctx context.Context, roleID, dsID, tableName string) ([]*TablePermission, error) {
-	q := `SELECT id,role_id,datasource_id,table_name,ops,allowed_cols,denied_cols
+	q := `SELECT id,role_id,datasource_id,table_name,ops,allowed_cols,denied_cols,COALESCE(workspace_id,'')
 	      FROM table_permissions WHERE datasource_id=?`
 	args := []interface{}{dsID}
 	if !CrossesWorkspaces(ctx) {
@@ -919,7 +1018,7 @@ func (s *Store) ListTablePermissions(ctx context.Context, roleID, dsID, tableNam
 	var out []*TablePermission
 	for rows.Next() {
 		p := &TablePermission{}
-		if err := rows.Scan(&p.ID, &p.RoleID, &p.DataSourceID, &p.TableName, &p.Ops, &p.AllowedCols, &p.DeniedCols); err != nil {
+		if err := rows.Scan(&p.ID, &p.RoleID, &p.DataSourceID, &p.TableName, &p.Ops, &p.AllowedCols, &p.DeniedCols, &p.WorkspaceID); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -927,9 +1026,34 @@ func (s *Store) ListTablePermissions(ctx context.Context, roleID, dsID, tableNam
 	return out, nil
 }
 
-func (s *Store) DeleteTablePermission(id string) error {
-	_, err := s.db.Exec(`DELETE FROM table_permissions WHERE id=?`, id)
-	return err
+func (s *Store) DeleteTablePermission(ctx context.Context, id string) error {
+	return s.deleteWorkspaceScoped(ctx, "table_permissions", id)
+}
+
+// deleteWorkspaceScoped deletes a governance row by id while refusing to touch
+// rows that live outside the caller's active workspace. A cross-workspace
+// context (platform admin "all" view) may delete anything.
+//
+// It returns ErrNotFound when nothing matched, so an out-of-scope id is
+// indistinguishable from a non-existent one — a caller cannot probe another
+// tenant's id space. Legacy rows with NULL/'' workspace_id count as "default".
+//
+// table is always an internal literal, never user input.
+func (s *Store) deleteWorkspaceScoped(ctx context.Context, table, id string) error {
+	q := `DELETE FROM ` + table + ` WHERE id=?`
+	args := []interface{}{id}
+	if !CrossesWorkspaces(ctx) {
+		q += ` AND COALESCE(NULLIF(workspace_id,''),'` + DefaultWorkspaceID + `')=?`
+		args = append(args, WorkspaceID(ctx))
+	}
+	res, err := s.db.Exec(q, args...)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // Row policies ---------------------------------------------------------------
@@ -948,7 +1072,7 @@ func (s *Store) CreateRowPolicy(ctx context.Context, p *RowPolicy) error {
 // ListRowPolicies returns policies for a role+datsource; table "" means all tables.
 // An empty roleID selects all roles. Scoped to the active workspace from ctx.
 func (s *Store) ListRowPolicies(ctx context.Context, roleID, dsID, table string) ([]*RowPolicy, error) {
-	q := `SELECT id,role_id,datasource_id,table_name,predicate,priority
+	q := `SELECT id,role_id,datasource_id,table_name,predicate,priority,COALESCE(workspace_id,'')
 	      FROM row_policies WHERE datasource_id=?`
 	args := []interface{}{dsID}
 	if !CrossesWorkspaces(ctx) {
@@ -972,7 +1096,7 @@ func (s *Store) ListRowPolicies(ctx context.Context, roleID, dsID, table string)
 	var out []*RowPolicy
 	for rows.Next() {
 		p := &RowPolicy{}
-		if err := rows.Scan(&p.ID, &p.RoleID, &p.DataSourceID, &p.TableName, &p.Predicate, &p.Priority); err != nil {
+		if err := rows.Scan(&p.ID, &p.RoleID, &p.DataSourceID, &p.TableName, &p.Predicate, &p.Priority, &p.WorkspaceID); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -980,9 +1104,8 @@ func (s *Store) ListRowPolicies(ctx context.Context, roleID, dsID, table string)
 	return out, nil
 }
 
-func (s *Store) DeleteRowPolicy(id string) error {
-	_, err := s.db.Exec(`DELETE FROM row_policies WHERE id=?`, id)
-	return err
+func (s *Store) DeleteRowPolicy(ctx context.Context, id string) error {
+	return s.deleteWorkspaceScoped(ctx, "row_policies", id)
 }
 
 // Column masks ---------------------------------------------------------------
@@ -1017,7 +1140,7 @@ func (s *Store) UpsertColumnMask(ctx context.Context, p *ColumnMask) error {
 // An empty table selects all tables. Results are ordered for stability.
 // Scoped to the active workspace from ctx.
 func (s *Store) ListColumnMasks(ctx context.Context, roleID, dsID, table string) ([]*ColumnMask, error) {
-	q := `SELECT id,role_id,datasource_id,table_name,column_name,strategy,keep,updated_at
+	q := `SELECT id,role_id,datasource_id,table_name,column_name,strategy,keep,updated_at,COALESCE(workspace_id,'')
 	      FROM column_masks WHERE datasource_id=?`
 	args := []interface{}{dsID}
 	if !CrossesWorkspaces(ctx) {
@@ -1041,7 +1164,7 @@ func (s *Store) ListColumnMasks(ctx context.Context, roleID, dsID, table string)
 	var out []*ColumnMask
 	for rows.Next() {
 		m := &ColumnMask{}
-		if err := rows.Scan(&m.ID, &m.RoleID, &m.DataSourceID, &m.TableName, &m.ColumnName, &m.Strategy, &m.Keep, &m.UpdatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.RoleID, &m.DataSourceID, &m.TableName, &m.ColumnName, &m.Strategy, &m.Keep, &m.UpdatedAt, &m.WorkspaceID); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
@@ -1049,9 +1172,8 @@ func (s *Store) ListColumnMasks(ctx context.Context, roleID, dsID, table string)
 	return out, nil
 }
 
-func (s *Store) DeleteColumnMask(id string) error {
-	_, err := s.db.Exec(`DELETE FROM column_masks WHERE id=?`, id)
-	return err
+func (s *Store) DeleteColumnMask(ctx context.Context, id string) error {
+	return s.deleteWorkspaceScoped(ctx, "column_masks", id)
 }
 
 // Permission resolution ------------------------------------------------------
@@ -1060,6 +1182,18 @@ func (s *Store) DeleteColumnMask(id string) error {
 // governance view for the given datasource. Default policy is deny: a table
 // only appears here if at least one role grants an operation on it.
 func (s *Store) ResolvePermissions(ctx context.Context, userID, dsID string) (map[string]*TableEffective, error) {
+	// Never resolve governance across tenants. A cross-workspace context ("*")
+	// is a *listing* affordance for admins; if it leaked into resolution we
+	// would union another tenant's grants and row policies into this query's
+	// effective permissions. Governance for a datasource always lives in that
+	// datasource's own workspace (ADR-0007), so narrow to it.
+	if CrossesWorkspaces(ctx) {
+		ws := DefaultWorkspaceID
+		if ds, err := s.GetDataSourceByID(dsID); err == nil && ds != nil && ds.WorkspaceID != "" {
+			ws = ds.WorkspaceID
+		}
+		ctx = WithWorkspace(ctx, ws)
+	}
 	roles, err := s.ListRolesForUser(userID)
 	if err != nil {
 		return nil, err

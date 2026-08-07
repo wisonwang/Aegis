@@ -131,15 +131,21 @@ func (s *Store) GetClassification(ctx context.Context, dsID, table, column strin
 	return dc, nil
 }
 
-// DeleteClassification removes one entry by id.
-func (s *Store) DeleteClassification(id string) error {
-	_, err := s.db.Exec(`DELETE FROM data_classifications WHERE id=?`, id)
-	return err
+// DeleteClassification removes one entry by id, scoped to the caller's workspace.
+func (s *Store) DeleteClassification(ctx context.Context, id string) error {
+	return s.deleteWorkspaceScoped(ctx, "data_classifications", id)
 }
 
 // DeleteClassificationsByTable removes all classifications for a table (used
-// when a datasource or dataset is deleted).
-func (s *Store) DeleteClassificationsByTable(dsID, table string) error {
-	_, err := s.db.Exec(`DELETE FROM data_classifications WHERE datasource_id=? AND table_name=?`, dsID, table)
+// when a datasource or dataset is deleted). Scoped to the caller's workspace
+// unless running in the cross-workspace admin context.
+func (s *Store) DeleteClassificationsByTable(ctx context.Context, dsID, table string) error {
+	q := `DELETE FROM data_classifications WHERE datasource_id=? AND table_name=?`
+	args := []interface{}{dsID, table}
+	if !CrossesWorkspaces(ctx) {
+		q += ` AND COALESCE(NULLIF(workspace_id,''),'` + DefaultWorkspaceID + `')=?`
+		args = append(args, WorkspaceID(ctx))
+	}
+	_, err := s.db.Exec(q, args...)
 	return err
 }

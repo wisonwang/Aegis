@@ -45,7 +45,7 @@ async function loadAudit() {
     const page = Math.floor(auditOffset / AUDIT_PAGE) + 1;
     const pages = Math.max(1, Math.ceil(data.total / AUDIT_PAGE));
     document.getElementById('aPageInfo').textContent = `第 ${page}/${pages} 页 · 共 ${data.total} 条`;
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 document.getElementById('aLoad').addEventListener('click', () => { auditOffset = 0; loadAudit(); });
 document.getElementById('aPrev').addEventListener('click', () => { auditOffset = Math.max(0, auditOffset - AUDIT_PAGE); loadAudit(); });
@@ -86,13 +86,12 @@ async function loadAlerts() {
         <td>${a.resolved ? '<span class="badge ok">已处理</span>' : '<span class="badge denied">未处理</span>'}</td>
         <td>${a.resolved ? '' : `<button class="sec" data-act="resolve" data-id="${a.id}">标记处理</button>`}</td>
       </tr>`).join('') + '</tbody>';
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 document.getElementById('alertTable').addEventListener('click', async (e) => {
   if (e.target.dataset.act !== 'resolve') return;
-  try { await api('/admin/api/alerts/' + e.target.dataset.id + '/resolve', { method: 'POST' }); loadAlerts(); }
-  catch (err) { alert(err.message); }
+  try { await api('/admin/api/alerts/' + e.target.dataset.id + '/resolve', { method: 'POST' }); loadAlerts(); toast('告警已标记处理', 'success'); }
+  catch (err) { toast(err.message, 'error'); }
 });
 document.getElementById('alLoad').addEventListener('click', () => { alertOffset = 0; loadAlerts(); });
 document.querySelector('[data-tab="alerts"]').addEventListener('click', () => { alertOffset = 0; loadAlerts(); });
-

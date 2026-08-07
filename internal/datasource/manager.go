@@ -49,7 +49,12 @@ func (m *Manager) Get(dsID string) (*sql.DB, error) {
 	if db, ok := m.pools[dsID]; ok {
 		return db, nil
 	}
-	ds, err := m.store.GetDataSource(context.Background(), dsID)
+	// Pool lookup is infrastructure, not authorization: the caller has already
+	// passed governance by the time it needs a connection. Using the
+	// workspace-scoped GetDataSource here would implicitly pin every pool to
+	// the "default" workspace and make datasources in any other workspace
+	// permanently unreachable (ADR-0007).
+	ds, err := m.store.GetDataSourceByID(dsID)
 	if err != nil {
 		return nil, err
 	}

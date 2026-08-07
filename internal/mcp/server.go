@@ -11,6 +11,8 @@ import (
 	"github.com/wisonwang/aegis/internal/api"
 	"github.com/wisonwang/aegis/internal/auth"
 	"github.com/wisonwang/aegis/internal/config"
+	"github.com/wisonwang/aegis/internal/datasource"
+	"github.com/wisonwang/aegis/internal/metrics"
 	"github.com/wisonwang/aegis/internal/proxy"
 	"github.com/wisonwang/aegis/internal/store"
 	"github.com/google/uuid"
@@ -125,6 +127,7 @@ func (s *Server) dispatch(r *http.Request, req jsonrpcRequest) (*jsonrpcResponse
 		s.mu.Lock()
 		sid := uuid.NewString()
 		s.sessions[sid] = &session{id: sid, init: true}
+		metrics.SetMCPSessions(len(s.sessions))
 		s.mu.Unlock()
 		resp.Result = map[string]interface{}{
 			"protocolVersion": "2024-11-05",
@@ -212,7 +215,21 @@ func (s *Server) callTool(r *http.Request, params json.RawMessage) (interface{},
 		if err != nil {
 			return nil, err
 		}
-		payload = ds
+		// Never leak the raw DSN (which may carry a password) to agents. The
+		// masked value keeps host/db visible for disambiguation while hiding
+		// the credential; agents address sources by name, not by DSN.
+		views := make([]map[string]interface{}, 0, len(ds))
+		for _, d := range ds {
+			masked := datasource.MaskDSN(d.DSN)
+			views = append(views, map[string]interface{}{
+				"id":         d.ID,
+				"name":       d.Name,
+				"type":       d.Type,
+				"dsn":        masked,
+				"dsn_masked": masked != d.DSN,
+			})
+		}
+		payload = views
 	case "list_tables":
 		dsName, _ := args["datasource"].(string)
 		dsID, err := resolveDatasource(ctx, s.store, dsName)

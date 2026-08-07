@@ -3,6 +3,9 @@
 > **定位**：本文是 Aegis（AI Data Supply Gateway）的**产品设计单一事实来源**，与 `BLUEPRINT.md`（战略/路线图）、`README.md`（使用手册）、`AI-SCENARIO.md`（AI 场景）、`docs/adr/`（决策记录）配套。
 > **版本**：v1.0 · 2026-07-30，基于"大厂数据权限治理分层 × Aegis 采用价值"分析提炼。
 > **核心结论**：Aegis 的护城河在"**治理执行闭环**"（网关强制 + 默认拒绝 + 动态脱敏 + 全量审计），且比大厂内部平台更 AI 原生；采用价值集中在"给 LLM/Agent 受治理取数"这一新兴市场。
+> 商用推进时，建议配套阅读：
+> - [生产上线检查表](file:///Users/vincent/workspace/fosun/datahub/docs/production-readiness-checklist.md)
+> - [商用包装方案](file:///Users/vincent/workspace/fosun/datahub/docs/commercial-packaging-plan.md)
 
 ---
 
@@ -228,6 +231,7 @@ SIEM webhook 完善           数据产品企业增强           插件市场/�
 - `docs/launch.md` — OSS 发布与采用加速
 - `docs/competitive_analysis.md` — 竞争对比矩阵
 - `SECURITY.md` — 部署加固与信任模型
-- `.workbuddy/skills/aegis-mcp/` — Aegis MCP 调用技能（含 `references/mcp-tools.md` 完整工具 schema）
+- `docs/skill-config.md` — 本地 TRAE Skill 开发配置
+- `aegis-mcp/` — Aegis MCP 调用 Skill 源包（含 `references/mcp-tools.md` 完整工具 schema）
 
 *本文随代码与战略演进维护；任何定位/治理模型变更须同步本文件与 `BLUEPRINT.md`。*

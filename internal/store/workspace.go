@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -68,6 +69,24 @@ func WriteWorkspace(ctx context.Context) string {
 	return WorkspaceID(ctx)
 }
 
+// BoundContext pins ctx to the datasource's own workspace.
+//
+// This is the anchor rule of ADR-0007: every governance object (table
+// permission, row policy, column mask, semantic, classification, dataset)
+// belongs to the workspace of the datasource it governs — NOT to whichever
+// workspace the operator happens to be viewing. Without this, an admin working
+// in the cross-workspace view would stamp "default" on governance for a
+// datasource that lives in another tenant, silently orphaning the rule.
+//
+// The result is always a concrete workspace id, never "*".
+func (d *DataSource) BoundContext(ctx context.Context) context.Context {
+	ws := d.WorkspaceID
+	if ws == "" || ws == WorkspaceAll {
+		ws = DefaultWorkspaceID
+	}
+	return WithWorkspace(ctx, ws)
+}
+
 // Workspace is a tenant boundary within a single Aegis deployment.
 type Workspace struct {
 	ID        string
@@ -93,6 +112,47 @@ const (
 	WsRoleMember = "member"
 	WsRoleViewer = "viewer"
 )
+
+// wsRoleIDPrefix namespaces the ids of the three seeded workspace-role rows.
+//
+// roles.name carries a UNIQUE constraint, so workspace roles cannot reuse the
+// platform name space: an IdP that maps a group to a platform role called
+// "viewer" would otherwise collide with the workspace "viewer" membership
+// level. Workspace roles are therefore addressed by their deterministic id
+// (ws-role:<level>) and their roles.name is prefixed "ws:" purely to satisfy
+// the unique index — the display value is always derived from the id.
+const wsRoleIDPrefix = "ws-role:"
+
+// wsRoleNamePrefix keeps the seeded rows out of the platform name space.
+const wsRoleNamePrefix = "ws:"
+
+// workspaceRoleID resolves a workspace-role level (one of WsRole*) to the
+// roles.id of its seeded workspace-scoped row (ADR-0006). This is the bridge
+// that lets the unified role_assignments table store workspace roles by id
+// instead of by the free-text string the legacy workspace_members used.
+func (s *Store) workspaceRoleID(level string) (string, error) {
+	switch level {
+	case WsRoleAdmin, WsRoleMember, WsRoleViewer:
+	default:
+		return "", fmt.Errorf("store: unknown workspace role %q", level)
+	}
+	id := wsRoleIDPrefix + level
+	var got string
+	err := s.db.QueryRow(`SELECT id FROM roles WHERE id=? AND scope='workspace'`, id).Scan(&got)
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("store: workspace role %q not seeded", level)
+	}
+	if err != nil {
+		return "", err
+	}
+	return got, nil
+}
+
+// workspaceRoleLevel is the inverse: it turns a seeded role id back into the
+// level string the API and UI speak (workspace_admin | member | viewer).
+func workspaceRoleLevel(roleID string) string {
+	return strings.TrimPrefix(roleID, wsRoleIDPrefix)
+}
 
 func (s *Store) CreateWorkspace(w *Workspace) error {
 	if w.ID == "" {
@@ -134,6 +194,10 @@ func (s *Store) DeleteWorkspace(id string) error {
 		tx.Rollback()
 		return err
 	}
+	if _, err := tx.Exec(`DELETE FROM role_assignments WHERE workspace_id=?`, id); err != nil {
+		tx.Rollback()
+		return err
+	}
 	if _, err := tx.Exec(`DELETE FROM workspaces WHERE id=?`, id); err != nil {
 		tx.Rollback()
 		return err
@@ -172,8 +236,15 @@ func (s *Store) ListWorkspaces() ([]*Workspace, error) {
 	return out, nil
 }
 
-// AddWorkspaceMember links a user to a workspace. isDefault marks the user's
-// primary workspace (used when no explicit X-Workspace-Id is provided).
+// AddWorkspaceMember links a user to a workspace with exactly one membership
+// level. isDefault marks the user's primary workspace (used when no explicit
+// X-Workspace-Id is provided).
+//
+// Set-semantics, not append: the legacy workspace_members table was keyed on
+// (workspace_id, user_id), so a user could only ever hold one level. The
+// unified role_assignments key includes role_id, which would silently let a
+// "change role" call stack workspace_admin AND member on the same user — the
+// levels are a hierarchy, not a set, so the previous level is replaced.
 func (s *Store) AddWorkspaceMember(wsID, userID, role string, isDefault bool) error {
 	if wsID == "" || userID == "" {
 		return errors.New("store: workspace and user id required")
@@ -181,15 +252,50 @@ func (s *Store) AddWorkspaceMember(wsID, userID, role string, isDefault bool) er
 	if role == "" {
 		role = WsRoleMember
 	}
-	_, err := s.db.Exec(
-		`INSERT INTO workspace_members (workspace_id,user_id,role,is_default,created_at) VALUES (?,?,?,?,?)`,
-		wsID, userID, role, isDefault, time.Now())
-	return err
+	roleID, err := s.workspaceRoleID(role)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Preserve the original join time when this is a level change, not a new
+	// membership — the member list is ordered by it.
+	// ORDER BY + LIMIT rather than MIN(): the SQLite driver loses the column's
+	// declared type through an aggregate and hands back a string.
+	var created sql.NullTime
+	if err := tx.QueryRow(
+		`SELECT created_at FROM role_assignments
+		 WHERE workspace_id=? AND principal_id=? ORDER BY created_at LIMIT 1`,
+		wsID, userID).Scan(&created); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	joinedAt := time.Now()
+	if created.Valid && !created.Time.IsZero() {
+		joinedAt = created.Time
+	}
+	if _, err := tx.Exec(
+		`DELETE FROM role_assignments WHERE workspace_id=? AND principal_id=?`, wsID, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO role_assignments (principal_id,role_id,workspace_id,is_default,created_at) VALUES (?,?,?,?,?)`,
+		userID, roleID, wsID, isDefault, joinedAt); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) ListWorkspaceMembers(wsID string) ([]*WorkspaceMember, error) {
+	// The membership level is derived from role_id, not roles.name: name is
+	// prefixed to dodge the platform name space (see wsRoleIDPrefix), so the
+	// id is the authoritative source for the value the API exposes.
 	rows, err := s.db.Query(
-		`SELECT workspace_id,user_id,role,is_default,created_at FROM workspace_members WHERE workspace_id=? ORDER BY created_at`,
+		`SELECT ra.workspace_id, ra.principal_id, ra.role_id, ra.is_default, ra.created_at
+		 FROM role_assignments ra
+		 WHERE ra.workspace_id=? ORDER BY ra.created_at`,
 		wsID)
 	if err != nil {
 		return nil, err
@@ -198,8 +304,17 @@ func (s *Store) ListWorkspaceMembers(wsID string) ([]*WorkspaceMember, error) {
 	var out []*WorkspaceMember
 	for rows.Next() {
 		m := &WorkspaceMember{}
-		if err := rows.Scan(&m.WorkspaceID, &m.UserID, &m.Role, &m.IsDefault, &m.CreatedAt); err != nil {
+		// created_at is nullable in role_assignments (rows backfilled by
+		// migration 0002 predate the timestamp). Scan defensively so a NULL
+		// degrades to the zero time instead of failing the whole listing.
+		var roleID string
+		var created sql.NullTime
+		if err := rows.Scan(&m.WorkspaceID, &m.UserID, &roleID, &m.IsDefault, &created); err != nil {
 			return nil, err
+		}
+		m.Role = workspaceRoleLevel(roleID)
+		if created.Valid {
+			m.CreatedAt = created.Time
 		}
 		out = append(out, m)
 	}
@@ -208,7 +323,7 @@ func (s *Store) ListWorkspaceMembers(wsID string) ([]*WorkspaceMember, error) {
 
 func (s *Store) RemoveWorkspaceMember(wsID, userID string) error {
 	_, err := s.db.Exec(
-		`DELETE FROM workspace_members WHERE workspace_id=? AND user_id=?`, wsID, userID)
+		`DELETE FROM role_assignments WHERE workspace_id=? AND principal_id=?`, wsID, userID)
 	return err
 }
 
@@ -218,11 +333,11 @@ func (s *Store) RemoveWorkspaceMember(wsID, userID string) error {
 func (s *Store) DefaultWorkspaceForUser(userID string) (string, error) {
 	var id string
 	err := s.db.QueryRow(
-		`SELECT workspace_id FROM workspace_members WHERE user_id=? AND is_default=1 LIMIT 1`, userID).
+		`SELECT workspace_id FROM role_assignments WHERE principal_id=? AND is_default=1 LIMIT 1`, userID).
 		Scan(&id)
 	if err == sql.ErrNoRows {
 		err = s.db.QueryRow(
-			`SELECT workspace_id FROM workspace_members WHERE user_id=? LIMIT 1`, userID).
+			`SELECT workspace_id FROM role_assignments WHERE principal_id=? LIMIT 1`, userID).
 			Scan(&id)
 	}
 	if err == sql.ErrNoRows {
@@ -236,10 +351,13 @@ func (s *Store) DefaultWorkspaceForUser(userID string) (string, error) {
 
 // UserWorkspaces returns the workspaces a user is a member of.
 func (s *Store) UserWorkspaces(userID string) ([]*Workspace, error) {
+	// DISTINCT is defensive: AddWorkspaceMember enforces one level per user per
+	// workspace, but a stray duplicate must never make a workspace appear twice
+	// in the user's switcher.
 	rows, err := s.db.Query(
-		`SELECT w.id,w.name,w.slug,w.settings,w.created_at
-		 FROM workspaces w JOIN workspace_members m ON m.workspace_id=w.id
-		 WHERE m.user_id=? ORDER BY w.name`, userID)
+		`SELECT DISTINCT w.id,w.name,w.slug,w.settings,w.created_at
+		 FROM workspaces w JOIN role_assignments ra ON ra.workspace_id=w.id
+		 WHERE ra.principal_id=? ORDER BY w.name`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +377,7 @@ func (s *Store) UserWorkspaces(userID string) ([]*Workspace, error) {
 func (s *Store) IsWorkspaceMember(wsID, userID string) (bool, error) {
 	var n int
 	err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM workspace_members WHERE workspace_id=? AND user_id=?`, wsID, userID).
+		`SELECT COUNT(*) FROM role_assignments WHERE workspace_id=? AND principal_id=?`, wsID, userID).
 		Scan(&n)
 	if err != nil {
 		return false, err

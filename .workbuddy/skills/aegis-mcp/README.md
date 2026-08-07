@@ -1,5 +1,7 @@
 # aegis-mcp 技能
 
+> 兼容遗留目录。当前主维护入口已切换到 `aegis-mcp/`，本地 TRAE Skill 开发配置见 `docs/skill-config.md`。除兼容存量环境外，不再以本目录作为单一事实来源。
+
 调用本地 **Aegis 受治理数据网关** MCP 服务的 WorkBuddy 技能(项目级,纳入 git 跟踪)。
 
 ## 用途

@@ -2,17 +2,33 @@
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
 
-![Go](https://img.shields.io/badge/Go-1.26-blue.svg)
+![Go](https://img.shields.io/badge/Go-1.25%2B-blue.svg)
 
 ![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-purple.svg)
 
 ![Deploy](https://img.shields.io/badge/deploy-single%20binary-orange.svg)
 
-> **把内部数据库变成受治理的 AI Agent 工具**——单二进制、默认开启治理、LLM 生成的 SQL 也绕不过权限。详见 [CHANGELOG](CHANGELOG.md) · [SECURITY](SECURITY.md) · [examples](examples/)。
+> ## 🛡️ 把内部数据库，变成受控的 Agent 工具
+>
+> **Aegis** 是一个自托管的 **AI 数据网关**（*AI Data Supply Gateway*）。一分钟落地，把你的 MySQL / PostgreSQL 封装成带**表/行/列治理**的 DataAPI 与 MCP 服务——**LLM 生成的 SQL 也绕不过治理**。
+>
+> `docker compose up -d` 跑起来 · 5 分钟接进 Claude Desktop · 详见 [CHANGELOG](CHANGELOG.md) · [SECURITY](SECURITY.md) · [examples](examples/)
 
 > 使用 Golang 构建的**数据库代理 / 数据服务治理平台**：集中管理数据库访问权限、封装表/行/列级数据权限，并以 **DataAPI** 与 **MCP 服务** 的形式统一对外提供数据能力，供业务系统与 AI Agent 使用。
 
 > **命名（Rebrand）：** 项目已由 **DataHub** 更名为 **Aegis**（副标题 *AI Data Supply Gateway*），以规避与 LinkedIn / Acryl 同名数据目录产品（metadata catalog）的品牌与 SEO 混淆。代码级标识符已同步更名完成：模块路径 `github.com/wisonwang/aegis`、`aegis://` URI 方案、`aegis_svc` 受限账号、`AEGIS_*` 环境变量、`cmd/aegis` 入口目录。
+
+**快速导航**
+
+- 生产上线检查表：[docs/production-readiness-checklist.md](docs/production-readiness-checklist.md)
+- 商用包装方案：[docs/commercial-packaging-plan.md](docs/commercial-packaging-plan.md)
+- 生产部署模板：[docs/deployment-production.md](docs/deployment-production.md)
+- FAQ：[docs/faq.md](docs/faq.md)
+- 支持策略：[docs/support-policy.md](docs/support-policy.md)
+- 发布策略：[docs/release-policy.md](docs/release-policy.md)
+- 发布与供应链说明：[docs/release-operations.md](docs/release-operations.md)
+- 第三方许可说明：[docs/third-party-notices.md](docs/third-party-notices.md)
+- 示例入口：[examples/README.md](examples/README.md)
 
 
 
@@ -54,14 +70,67 @@ AI 应用（ChatBI / Agent 工作流 / RAG / Copilot）的 SQL 由 LLM 现场生
 
 **推荐仓库 Topics**：`ai-agent` · `mcp` · `data-governance` · `llm` · `text-to-sql` · `data-security` · `sql-proxy` · `rag`
 
+## 这是什么
+
+- **一句话**：Aegis 是面向 AI Agent 的受治理数据网关，把内部数据库变成可安全调用的 `DataAPI + MCP` 工具。
+- **适合你**：需要给 Agent / Copilot / ChatBI 接数据库，但不能接受裸连数据库、无审计、无脱敏、无权限收口。
+- **不替代**：Aegis 不是重型数据目录，不主打全量血缘、主数据、数据开发平台；它优先解决的是“Agent 安全取数”。
+
+## 版本分层
+
+| 能力 | Community | Enterprise |
+|------|-----------|------------|
+| 表 / 行 / 列治理 | Yes | Yes |
+| 动态脱敏 | Yes | Yes |
+| DataAPI / MCP / NL2SQL | Yes | Yes |
+| 基础审计 / 基础告警 | Yes | Yes |
+| Datasets / Metrics / 审批流 | No | Yes |
+| 多租户 / SIEM / HA | No | Yes |
+
+完整商用口径见 [docs/commercial-packaging-plan.md](docs/commercial-packaging-plan.md)。
+
+## MCP Demo
+
+如果你想最快验证“Aegis 如何把数据库变成受治理的 Agent 工具”，可以直接跑内置 Demo。当前 Demo 采用“酒店运营晨会备数”场景：Agent 在会前通过 MCP 自动发现 `hotel_bookings` / `guest_profiles` 两张经营表，评估查询风险，运行 `confirmed_room_revenue` / `arrival_guest_count` 指标，读取已发布数据产品 `hotel_confirmed_bookings`，并用 NL2SQL 追问已确认订单的房费收入。
+
+```bash
+# 分析师视角：通过 MCP API Key 访问，结果受脱敏与治理约束
+make mcp-e2e
+
+# 管理员视角：通过 Bearer JWT 访问，可对比看到未脱敏结果
+make mcp-e2e-admin
+```
+
+两套 Demo 都会自动：
+
+- 启动临时 SQLite 控制面与演示数据源
+- 启动本地 fake LLM，跑通 `nl2sql`
+- 通过 MCP 覆盖 `tools / resources / prompts / query / estimate / metrics / datasets`
+- 对比 `analyst` 与 `admin` 两种身份下的住客脱敏与酒店经营口径差异
+
+配套文档：
+
+- Demo 案例设计：[docs/mcp-demo-case.md](docs/mcp-demo-case.md)
+- Demo 测试报告：[docs/mcp-demo-test-report.md](docs/mcp-demo-test-report.md)
+- 示例入口：[examples/README.md](examples/README.md)
+
 ## 快速开始
 
 ```bash
 # 1. 构建
 go build -o aegis ./cmd/aegis
 
-# 2. 运行（首次启动会自动写入演示租户：用户/角色/数据源/权限）
-./aegis -config config.json
+# 2. 生产配置模板（默认是 community、安全优先，不会自动播种 demo）
+./aegis -config conf/config.local.json
+
+# 3. 本地 demo / 调试配置（会自动播种演示租户）
+./aegis -config conf/config.demo.json
+
+# 或直接使用本地调试 Makefile（默认走 demo 配置）
+make run
+
+# 4. 生产部署参考
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 启动后访问：
@@ -78,6 +147,13 @@ go build -o aegis ./cmd/aegis
 | `analyst`   | `analyst123` | analyst | 受表/行/列权限约束，属性 `tenant=acme` |
 | `mcp-agent` | `mcp123`     | analyst | 供 MCP 静态 API Key 使用的服务账号    |
 
+说明：
+
+- `conf/config.local.json` 是**生产安全模板**：默认 `community`、`seed_demo=false`、`docs_enabled=false`
+- `conf/config.demo.json` 是**本地演示配置**：仅用于开发 / Demo，包含演示账号和 `mcp-demo-key`
+- 生产环境请通过环境变量或 Secret 注入 `AEGIS_JWT_SECRET`、`AEGIS_MASK_SECRET`、`AEGIS_MCP_API_KEY`
+- 生产部署请结合 [docs/deployment-production.md](docs/deployment-production.md) 中的 `docker-compose.prod.yml`、`nginx`、`systemd` 模板
+
 ---
 
 ## DataAPI 示例
@@ -92,16 +168,16 @@ curl -s localhost:8080/api/v1/datasources -H "Authorization: Bearer $TOKEN"
 
 # 执行受治理的查询（行级策略自动注入 tenant_id = 'acme'）
 curl -s localhost:8080/api/v1/query -H "Authorization: Bearer $TOKEN" \
-  -d '{"datasource":"demo","sql":"SELECT * FROM orders"}'
+  -d '{"datasource":"demo","sql":"SELECT hotel_name, room_revenue FROM hotel_bookings"}'
 ```
 
 返回中 `rewritten_sql` 即为实际下发到后端、已注入行级策略的 SQL，例如：
 
 ```sql
-SELECT * FROM (SELECT * FROM orders WHERE tenant_id = 'acme') AS orders
+SELECT hotel_name, room_revenue FROM (SELECT * FROM hotel_bookings WHERE tenant_id = 'acme') AS hotel_bookings
 ```
 
-`analyst` 只能看到 `tenant_id='acme'` 的订单，而 `admin` 能看到全部。
+`analyst` 只能看到 `tenant_id='acme'` 的酒店订单，而 `admin` 能看到全部。
 
 ---
 
@@ -327,7 +403,7 @@ POST /api/v1/datasets/{id}/query      执行受治理的数据集查询
 
 MCP 侧同步暴露：`list_datasets` / `get_dataset_catalog` 工具，以及 `aegis://dataset/<名称>/schema` 资源。
 
-示例：演示租户已内置数据集 `paid_orders`（已支付订单，按租户隔离），`analyst` 仅能看到 `tenant_id='acme'` 的已支付订单；`admin` 绕过治理可见全部。
+示例：演示租户已内置数据集 `hotel_confirmed_bookings`（已确认及在住订单经营看板，按租户隔离），`analyst` 仅能看到 `tenant_id='acme'` 的酒店订单；`admin` 绕过治理可见全部。
 
 ```bash
 # 列出可消费的数据集

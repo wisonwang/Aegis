@@ -120,6 +120,6 @@ Aegis 当前已有可用的用户/角色/权限 API，但模型本身存在"未�
 - **实现缺陷修复**：Go 的 nil slice 会序列化为 `null`——`ListDatasets`/`ListFolders`/`ListDatasetsByFolder` 的空结果改为返回非空 `[]`，避免前端把 `datasets`/`folders` 收到 `null`。
 
 ### 待办（非阻塞）
-- `config.json` 本地 `edition=enterprise` 为本地验证用，提交前需 `git checkout config.json` 还原。
+- `conf/config.local.json` 中的本地 `edition=enterprise` 仅用于验证；提交前需确认没有把个人调试配置误当成通用默认值。
 - 数据集字段级分类/脱敏联动（D6 蓝图）尚未实现。
 - P1b 桥接、P2 层级待排期。

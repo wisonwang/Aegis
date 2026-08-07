@@ -35,6 +35,11 @@ type createDatasetRequest struct {
 	Definition   string `json:"definition"`
 	Status       string `json:"status"` // optional: draft (default) | published
 	Fields       string `json:"fields"` // optional JSON array of {name,type,description}
+	// WorkspaceID is the owning workspace. Honored for admins; required when
+	// creating from the all-workspaces view so a dataset never silently lands in
+	// "default" (ADR-0007). The datasource lookup stays workspace-agnostic so
+	// an admin can bind a dataset to any datasource they can see.
+	WorkspaceID string `json:"workspace_id"`
 }
 
 // @Summary admin Create Dataset
@@ -90,11 +95,27 @@ func (h *Handler) AdminCreateDataset(w http.ResponseWriter, r *http.Request) {
 	if d.Fields == "" {
 		d.Fields = "[]"
 	}
-	if err := h.Store.CreateDataset(r.Context(), d); err != nil {
+	// Decide which workspace stamps the new dataset. The datasource lookup
+	// above uses the request context (admin "*" reaches any datasource); only
+	// the dataset write is scoped to the chosen workspace.
+	writeCtx := r.Context()
+	if req.WorkspaceID != "" && req.WorkspaceID != store.WorkspaceAll {
+		ws, werr := h.Store.GetWorkspace(req.WorkspaceID)
+		if werr != nil {
+			writeError(w, http.StatusInternalServerError, werr.Error())
+			return
+		}
+		if ws == nil {
+			writeError(w, http.StatusBadRequest, "workspace not found: "+req.WorkspaceID)
+			return
+		}
+		writeCtx = store.WithWorkspace(writeCtx, ws.ID)
+	}
+	if err := h.Store.CreateDataset(writeCtx, d); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]string{"id": d.ID})
+	writeJSON(w, http.StatusCreated, map[string]string{"id": d.ID, "workspace_id": store.WriteWorkspace(writeCtx)})
 }
 
 // @Summary admin Get Dataset
@@ -284,7 +305,7 @@ func (h *Handler) AdminListDatasetPermissions(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	out, err := h.listPermView(d.DataSourceID, d.Name)
+	out, err := h.listPermView(r.Context(), d.DataSourceID, d.Name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -301,11 +322,12 @@ func (h *Handler) AdminListDatasetPermissions(w http.ResponseWriter, r *http.Req
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasets/{id}/permissions [post]
 func (h *Handler) AdminCreateDatasetPermission(w http.ResponseWriter, r *http.Request) {
-	d, _, err := h.datasetCtx(r.Context(), pathParam(r, "id"))
+	d, ds, err := h.datasetCtx(r.Context(), pathParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
+	ctx := ds.BoundContext(r.Context())
 	var req createPermRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Role == "" || req.Ops == "" {
 		writeError(w, http.StatusBadRequest, "role and ops are required")
@@ -326,7 +348,7 @@ func (h *Handler) AdminCreateDatasetPermission(w http.ResponseWriter, r *http.Re
 		AllowedCols:  string(allowed),
 		DeniedCols:   string(denied),
 	}
-	if err := h.Store.CreateTablePermission(r.Context(), p); err != nil {
+	if err := h.Store.CreateTablePermission(ctx, p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -342,8 +364,13 @@ func (h *Handler) AdminCreateDatasetPermission(w http.ResponseWriter, r *http.Re
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasets/{id}/permissions/{perm} [delete]
 func (h *Handler) AdminDeleteDatasetPermission(w http.ResponseWriter, r *http.Request) {
-	if err := h.Store.DeleteTablePermission(pathParam(r, "perm")); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	_, ds, err := h.datasetCtx(r.Context(), pathParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if err := h.Store.DeleteTablePermission(ds.BoundContext(r.Context()), pathParam(r, "perm")); err != nil {
+		writeMutationError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -394,11 +421,12 @@ func (h *Handler) AdminListDatasetPolicies(w http.ResponseWriter, r *http.Reques
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasets/{id}/policies [post]
 func (h *Handler) AdminCreateDatasetPolicy(w http.ResponseWriter, r *http.Request) {
-	d, _, err := h.datasetCtx(r.Context(), pathParam(r, "id"))
+	d, ds, err := h.datasetCtx(r.Context(), pathParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
+	ctx := ds.BoundContext(r.Context())
 	var req createPolicyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Role == "" || req.Predicate == "" {
 		writeError(w, http.StatusBadRequest, "role and predicate are required")
@@ -416,7 +444,7 @@ func (h *Handler) AdminCreateDatasetPolicy(w http.ResponseWriter, r *http.Reques
 		Predicate:    req.Predicate,
 		Priority:     req.Priority,
 	}
-	if err := h.Store.CreateRowPolicy(r.Context(), p); err != nil {
+	if err := h.Store.CreateRowPolicy(ctx, p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -432,8 +460,13 @@ func (h *Handler) AdminCreateDatasetPolicy(w http.ResponseWriter, r *http.Reques
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasets/{id}/policies/{policy} [delete]
 func (h *Handler) AdminDeleteDatasetPolicy(w http.ResponseWriter, r *http.Request) {
-	if err := h.Store.DeleteRowPolicy(pathParam(r, "policy")); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	_, ds, err := h.datasetCtx(r.Context(), pathParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if err := h.Store.DeleteRowPolicy(ds.BoundContext(r.Context()), pathParam(r, "policy")); err != nil {
+		writeMutationError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -486,11 +519,12 @@ func (h *Handler) AdminListDatasetMasks(w http.ResponseWriter, r *http.Request) 
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasets/{id}/masks [post]
 func (h *Handler) AdminUpsertDatasetMask(w http.ResponseWriter, r *http.Request) {
-	d, _, err := h.datasetCtx(r.Context(), pathParam(r, "id"))
+	d, ds, err := h.datasetCtx(r.Context(), pathParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
+	ctx := ds.BoundContext(r.Context())
 	var req upsertMaskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
@@ -517,7 +551,7 @@ func (h *Handler) AdminUpsertDatasetMask(w http.ResponseWriter, r *http.Request)
 		Strategy:     req.Strategy,
 		Keep:         req.Keep,
 	}
-	if err := h.Store.UpsertColumnMask(r.Context(), m); err != nil {
+	if err := h.Store.UpsertColumnMask(ctx, m); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -533,8 +567,13 @@ func (h *Handler) AdminUpsertDatasetMask(w http.ResponseWriter, r *http.Request)
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasets/{id}/masks/{mask} [delete]
 func (h *Handler) AdminDeleteDatasetMask(w http.ResponseWriter, r *http.Request) {
-	if err := h.Store.DeleteColumnMask(pathParam(r, "mask")); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	_, ds, err := h.datasetCtx(r.Context(), pathParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if err := h.Store.DeleteColumnMask(ds.BoundContext(r.Context()), pathParam(r, "mask")); err != nil {
+		writeMutationError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -570,11 +609,12 @@ func (h *Handler) AdminListDatasetSemantics(w http.ResponseWriter, r *http.Reque
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasets/{id}/semantics [post]
 func (h *Handler) AdminUpsertDatasetSemantic(w http.ResponseWriter, r *http.Request) {
-	d, _, err := h.datasetCtx(r.Context(), pathParam(r, "id"))
+	d, ds, err := h.datasetCtx(r.Context(), pathParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
+	ctx := ds.BoundContext(r.Context())
 	var req upsertSemanticRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
@@ -590,7 +630,7 @@ func (h *Handler) AdminUpsertDatasetSemantic(w http.ResponseWriter, r *http.Requ
 		Synonyms:     string(syn),
 		Examples:     string(ex),
 	}
-	if err := h.Store.UpsertSemantic(r.Context(), sem); err != nil {
+	if err := h.Store.UpsertSemantic(ctx, sem); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -606,8 +646,13 @@ func (h *Handler) AdminUpsertDatasetSemantic(w http.ResponseWriter, r *http.Requ
 // @Success 200 {object} map[string]interface{}
 // @Router /admin/api/datasets/{id}/semantics/{sem} [delete]
 func (h *Handler) AdminDeleteDatasetSemantic(w http.ResponseWriter, r *http.Request) {
-	if err := h.Store.DeleteSemantic(pathParam(r, "sem")); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	_, ds, err := h.datasetCtx(r.Context(), pathParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if err := h.Store.DeleteSemantic(ds.BoundContext(r.Context()), pathParam(r, "sem")); err != nil {
+		writeMutationError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

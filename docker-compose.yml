@@ -6,7 +6,11 @@ services:
     volumes:
       - ./data:/app/data
       - ./aegis.db:/app/aegis.db
+      - ./conf/config.demo.json:/app/conf/config.demo.json:ro
     environment:
-      - AEGIS_JWT_SECRET=change-me
+      - AEGIS_ENV=development
+      - AEGIS_JWT_SECRET=demo-dev-secret
+      - AEGIS_MASK_SECRET=demo-dev-mask-secret
       - AEGIS_MCP_API_KEY=mcp-demo-key
     restart: unless-stopped
+    command: ["-config", "/app/conf/config.demo.json"]

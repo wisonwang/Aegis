@@ -21,9 +21,9 @@ exposing it:
 - [ ] **Rotate all seed credentials.** The first boot seeds
       `admin/admin123`, `analyst/analyst123`, `mcp-agent/mcp123`. Change or
       disable them via the admin API / your own provisioning.
-- [ ] **Set `AEGIS_JWT_SECRET`** (or `config.json` `jwt_secret`). An empty /
+- [ ] **Set `AEGIS_JWT_SECRET`** (or `conf/config.local.json` `jwt_secret`). An empty /
       default secret lets anyone forge a platform JWT.
-- [ ] **Set `AEGIS_MASK_SECRET`** (or `config.json` `mask_secret`). This key
+- [ ] **Set `AEGIS_MASK_SECRET`** (or `conf/config.local.json` `mask_secret`). This key
       drives the keyed masking strategies `tokenize` and `fpe`. If it is unset,
       Aegis starts with an **unsafe development default** and logs a startup
       warning — do not run that way in production.

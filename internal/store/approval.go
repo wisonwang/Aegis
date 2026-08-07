@@ -37,6 +37,7 @@ type ApprovalRequest struct {
 	GrantedPermID  string    `json:"granted_perm_id"` // linked table_permissions.id once approved
 	CreatedAt      time.Time `json:"created_at"`
 	ResolvedAt     time.Time `json:"resolved_at"`
+	WorkspaceID    string    `json:"workspace_id"` // inherited from the datasource (ADR-0007)
 }
 
 // CreateApprovalRequest persists a new pending request. Scoped to the active
@@ -65,7 +66,7 @@ func (s *Store) CreateApprovalRequest(ctx context.Context, req *ApprovalRequest)
 func (s *Store) GetApprovalRequest(id string) (*ApprovalRequest, error) {
 	q := `SELECT id, applicant_id, applicant_name, datasource_id, datasource_name,
 	       table_name, role_name, ops, justification, status, approver_id,
-	       approver_name, granted_perm_id, created_at, resolved_at
+	       approver_name, granted_perm_id, created_at, resolved_at, workspace_id
 	      FROM approval_requests WHERE id=?`
 	r := &ApprovalRequest{}
 	var apprID, apprName, grantID sql.NullString
@@ -73,7 +74,7 @@ func (s *Store) GetApprovalRequest(id string) (*ApprovalRequest, error) {
 	err := s.db.QueryRow(q, id).Scan(
 		&r.ID, &r.ApplicantID, &r.ApplicantName, &r.DataSourceID, &r.DataSourceName,
 		&r.TableName, &r.RoleName, &r.Ops, &r.Justification, &r.Status,
-		&apprID, &apprName, &grantID, &r.CreatedAt, &resolvedAt)
+		&apprID, &apprName, &grantID, &r.CreatedAt, &resolvedAt, &r.WorkspaceID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -96,7 +97,7 @@ func (s *Store) GetApprovalRequest(id string) (*ApprovalRequest, error) {
 func (s *Store) ListApprovalRequests(ctx context.Context, status, dsID, applicantID string) ([]*ApprovalRequest, error) {
 	q := `SELECT id, applicant_id, applicant_name, datasource_id, datasource_name,
 	       table_name, role_name, ops, justification, status, approver_id,
-	       approver_name, granted_perm_id, created_at, resolved_at
+	       approver_name, granted_perm_id, created_at, resolved_at, workspace_id
 	      FROM approval_requests WHERE 1=1`
 	args := []interface{}{}
 	if !CrossesWorkspaces(ctx) {
@@ -129,7 +130,7 @@ func (s *Store) ListApprovalRequests(ctx context.Context, status, dsID, applican
 		if err := rows.Scan(
 			&r.ID, &r.ApplicantID, &r.ApplicantName, &r.DataSourceID, &r.DataSourceName,
 			&r.TableName, &r.RoleName, &r.Ops, &r.Justification, &r.Status,
-			&apprID, &apprName, &grantID, &r.CreatedAt, &resolvedAt); err != nil {
+			&apprID, &apprName, &grantID, &r.CreatedAt, &resolvedAt, &r.WorkspaceID); err != nil {
 			return nil, err
 		}
 		r.ApproverID = apprID.String

@@ -2,7 +2,7 @@
 
 This reference documents the Aegis MCP server endpoint `http://localhost:8080/mcp`
 (JSON-RPC 2.0 over Streamable HTTP; also speaks SSE via `Accept: text/event-stream`).
-Use it when the WorkBuddy `aegis` connector is unavailable and you must call the
+Use it when the TRAE `aegis` MCP server entry is unavailable and you must call the
 endpoint directly (e.g. via `curl`).
 
 ## Authentication

@@ -1,0 +1,19 @@
+services:
+  aegis:
+    build: .
+    image: aegis:local
+    restart: unless-stopped
+    command: ["-config", "/app/conf/config.local.json"]
+    environment:
+      - AEGIS_ENV=production
+      - AEGIS_JWT_SECRET=${AEGIS_JWT_SECRET:?set AEGIS_JWT_SECRET}
+      - AEGIS_MASK_SECRET=${AEGIS_MASK_SECRET:?set AEGIS_MASK_SECRET}
+      - AEGIS_MCP_API_KEY=${AEGIS_MCP_API_KEY:?set AEGIS_MCP_API_KEY}
+      - AEGIS_LOG_FORMAT=json
+      - AEGIS_LOG_LEVEL=info
+    volumes:
+      - ./conf/config.local.json:/app/conf/config.local.json:ro
+      - ./data:/app/data
+      - ./aegis.db:/app/aegis.db
+    ports:
+      - "127.0.0.1:8080:8080"

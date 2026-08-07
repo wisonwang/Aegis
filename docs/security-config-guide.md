@@ -4,7 +4,7 @@
 
 ## 快速加固（5 分钟）
 
-将以下配置应用到 `config.json`，或通过环境变量覆盖：
+将以下配置应用到 `conf/config.local.json`，或通过环境变量覆盖：
 
 ### 配置文件方式
 
@@ -118,13 +118,13 @@ openssl rand -hex 32
 
 ```bash
 # 临时放宽行数限制（仅本次启动）
-AEGIS_MAX_ROWS=100000 ./aegis -config config.json
+AEGIS_MAX_ROWS=100000 ./aegis -config conf/config.local.json
 
 # 临时放宽写操作影响行数
-AEGIS_MAX_AFFECTED_ROWS=1000000 ./aegis -config config.json
+AEGIS_MAX_AFFECTED_ROWS=1000000 ./aegis -config conf/config.local.json
 
 # 临时允许无 WHERE 写操作（危险！仅维护窗口使用）
-AEGIS_ALLOW_NO_WHERE_WRITES=true ./aegis -config config.json
+AEGIS_ALLOW_NO_WHERE_WRITES=true ./aegis -config conf/config.local.json
 ```
 
 > **注意**：所有临时提权仍会记录在审计日志中。建议在维护窗口结束后立即恢复。

@@ -41,7 +41,7 @@ document.getElementById('mtName').addEventListener('change', () => {
   box.innerHTML = html || '<div class="hint">该指标无参数</div>';
 });
 
-document.getElementById('mtRun').addEventListener('click', async () => {
+document.getElementById('mtRun').addEventListener('click', async (e) => {
   const id = document.getElementById('mtDs').value;
   const name = document.getElementById('mtName').value;
   const linBox = document.getElementById('mtLineage');
@@ -55,25 +55,28 @@ document.getElementById('mtRun').addEventListener('click', async () => {
     params[inp.dataset.param] = p && p.type === 'number' ? Number(v) : v;
   });
   linBox.innerHTML = '运行中...'; resBox.innerHTML = '';
-  try {
-    const data = await api('/api/v1/datasources/' + id + '/metrics/' + encodeURIComponent(name) + '/run', {
-      method: 'POST',
-      body: JSON.stringify({ params }),
-    });
-    let html = '<div>执行 SQL: <code>' + esc(data.sql) + '</code></div>';
-    if (data.lineage) {
-      const l = data.lineage;
-      html += '<div class="hint">血缘：表 [' + (l.tables || []).map(esc).join(', ') + '] · 敏感度 <b>' + esc(l.max_sensitivity || 'public') + '</b>' +
-        (l.has_pii ? ' · <span class="badge error">含 PII</span>' : '') +
-        (l.columns && l.columns.length ? ' · 敏感列: ' + l.columns.map(esc).join(', ') : '') + '</div>';
-    }
-    if (data.query_result && data.query_result.rows) {
-      html += renderRows(data.query_result.columns, data.query_result.rows);
-    } else if (data.query_result) {
-      html += '<div>影响行数: ' + (data.query_result.affected_rows || 0) + '</div>';
-    }
-    linBox.innerHTML = html;
-  } catch (e) { linBox.innerHTML = '<div class="error">' + esc(e.message) + '</div>'; }
+  await withButtonBusy(e.currentTarget, '运行中...', async () => {
+    try {
+      const data = await api('/api/v1/datasources/' + id + '/metrics/' + encodeURIComponent(name) + '/run', {
+        method: 'POST',
+        body: JSON.stringify({ params }),
+      });
+      let html = '<div>执行 SQL: <code>' + esc(data.sql) + '</code></div>';
+      if (data.lineage) {
+        const l = data.lineage;
+        html += '<div class="hint">血缘：表 [' + (l.tables || []).map(esc).join(', ') + '] · 敏感度 <b>' + esc(l.max_sensitivity || 'public') + '</b>' +
+          (l.has_pii ? ' · <span class="badge error">含 PII</span>' : '') +
+          (l.columns && l.columns.length ? ' · 敏感列: ' + l.columns.map(esc).join(', ') : '') + '</div>';
+      }
+      if (data.query_result && data.query_result.rows) {
+        html += renderRows(data.query_result.columns, data.query_result.rows);
+      } else if (data.query_result) {
+        html += '<div>影响行数: ' + (data.query_result.affected_rows || 0) + '</div>';
+      }
+      linBox.innerHTML = html;
+      toast('指标运行完成', 'success');
+    } catch (e) { linBox.innerHTML = '<div class="error">' + esc(e.message) + '</div>'; }
+  });
 });
 
 document.querySelector('[data-tab="metrics"]').addEventListener('click', loadMTDs);
@@ -118,8 +121,8 @@ document.getElementById('mtAdminTable').addEventListener('click', async (e) => {
   const mid = e.target.dataset.id;
   if (act === 'mtdel') {
     const id = document.getElementById('mtDs').value;
-    try { await api('/admin/api/datasources/' + id + '/metrics/' + mid, { method: 'DELETE' }); loadMTAdmin(); loadMTMetrics(); }
-    catch (err) { alert(err.message); }
+    try { await api('/admin/api/datasources/' + id + '/metrics/' + mid, { method: 'DELETE' }); loadMTAdmin(); loadMTMetrics(); toast('指标已删除', 'success'); }
+    catch (err) { toast(err.message, 'error'); }
   } else if (act === 'mtedit') {
     const m = mtMetrics.find(x => x.id === mid);
     if (!m) return;
@@ -134,7 +137,7 @@ document.getElementById('mtAdminTable').addEventListener('click', async (e) => {
     document.getElementById('mtDefCancel').classList.remove('hidden');
   }
 });
-document.getElementById('mtDefSave').addEventListener('click', async () => {
+document.getElementById('mtDefSave').addEventListener('click', async (e) => {
   const id = document.getElementById('mtDs').value;
   const msg = document.getElementById('mtDefMsg');
   msg.textContent = '';
@@ -149,8 +152,10 @@ document.getElementById('mtDefSave').addEventListener('click', async () => {
     sql_template: sql, params, unit: document.getElementById('mtDefUnit').value,
   };
   try {
-    await api('/admin/api/datasources/' + id + '/metrics', { method: 'POST', body: JSON.stringify(body) });
+    await withButtonBusy(e.currentTarget, '保存中...', async () => {
+      await api('/admin/api/datasources/' + id + '/metrics', { method: 'POST', body: JSON.stringify(body) });
+    });
     resetMtDefForm(); loadMTAdmin(); loadMTMetrics();
+    toast('指标已保存', 'success');
   } catch (e) { msg.textContent = e.message; }
 });
-

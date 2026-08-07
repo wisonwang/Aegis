@@ -105,7 +105,7 @@ func (h *Handler) UserSubmitApproval(w http.ResponseWriter, r *http.Request) {
 		Ops:            ops,
 		Justification:  req.Justification,
 	}
-	if err := h.Store.CreateApprovalRequest(r.Context(), ar); err != nil {
+	if err := h.Store.CreateApprovalRequest(ds.BoundContext(r.Context()), ar); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -195,7 +195,7 @@ func (h *Handler) AdminApproveApproval(w http.ResponseWriter, r *http.Request) {
 		TableName:    ar.TableName,
 		Ops:          ar.Ops,
 	}
-	if err := h.Store.CreateTablePermission(r.Context(), perm); err != nil {
+	if err := h.Store.CreateTablePermission(ds.BoundContext(r.Context()), perm); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -272,9 +272,12 @@ func (h *Handler) AdminRevokeApproval(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "only approved requests can be revoked (status="+ar.Status+")")
 		return
 	}
-	// Remove the grant this approval created, if it still exists.
+	// Remove the grant this approval created, if it still exists. Revocation
+	// must always succeed regardless of the admin's active workspace — a grant
+	// left behind after a revoke is a governance hole — so use the
+	// cross-workspace context here deliberately.
 	if ar.GrantedPermID != "" {
-		_ = h.Store.DeleteTablePermission(ar.GrantedPermID)
+		_ = h.Store.DeleteTablePermission(store.WithWorkspace(r.Context(), store.WorkspaceAll), ar.GrantedPermID)
 	}
 	c := claimsFromContext(r.Context())
 	approverName := c.DisplayName

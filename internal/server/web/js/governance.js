@@ -3,10 +3,28 @@
 // (split from app.js by // ---- section markers; logic unchanged)
 
 // ---- governance ----
+// The workspace the operator is currently acting in (mirrors the topbar
+// switcher). Surfaced as a badge so it's obvious which tenant's governance is
+// being edited (ADR-0007).
+function activeWorkspaceLabel() {
+  if (!currentWorkspace) return '我的工作区';
+  if (currentWorkspace === '*') return '全部工作区';
+  const sel = document.getElementById('wsSwitcher');
+  if (sel) {
+    const opt = sel.querySelector('option[value="' + currentWorkspace + '"]');
+    if (opt) return opt.textContent;
+  }
+  return currentWorkspace;
+}
+function updateGovWsBadge() {
+  const el = document.getElementById('gWsBadge');
+  if (el) el.textContent = '工作区：' + activeWorkspaceLabel();
+}
 document.getElementById('gDs').addEventListener('change', async () => {
   const id = document.getElementById('gDs').value;
   const data = await api('/api/v1/datasources/' + id + '/tables');
   document.getElementById('gTable').innerHTML = data.tables.map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join('');
+  updateGovWsBadge();
 });
 document.getElementById('gLoad').addEventListener('click', loadGov);
 async function loadGov() {
@@ -37,7 +55,23 @@ async function loadGov() {
     (sm.semantics || []).map(x => `<tr><td>${esc(x.column_name || '表级')}</td><td>${esc(x.description || '')}</td>
       <td>${esc(x.synonyms || '')}</td><td>${esc(x.examples || '')}</td>
       <td><button class="danger" data-act="gdelsem" data-id="${esc(x.id)}">删除</button></td></tr>`).join('') + '</tbody>';
+  updateGovWsBadge();
 }
+
+// Switching the active workspace re-scopes the datasource dropdown (the backend
+// filters by X-Workspace-Id); refresh the table list and the gov view for the
+// now-selected datasource, if any.
+window.addEventListener('workspace-changed', () => {
+  updateGovWsBadge();
+  loadDataSources('#gDs').then(() => {
+    const id = document.getElementById('gDs').value;
+    if (id) {
+      document.getElementById('gDs').dispatchEvent(new Event('change'));
+    } else {
+      document.getElementById('gTable').innerHTML = '<option value="">（请选择表）</option>';
+    }
+  });
+});
 
 // ---- gov: column masks / classifications / semantics (base tables) ----
 function govDSTable() {
@@ -52,29 +86,29 @@ document.getElementById('gAddMask').addEventListener('click', async () => {
     strategy: document.getElementById('gMaskStrat').value,
     keep: parseInt(document.getElementById('gMaskKeep').value || '0', 10) || 0,
   };
-  try { await api('/admin/api/datasources/' + id + '/masks', { method: 'POST', body: JSON.stringify(body) }); loadGov(); }
-  catch (e) { alert(e.message); }
+  try { await api('/admin/api/datasources/' + id + '/masks', { method: 'POST', body: JSON.stringify(body) }); loadGov(); toast('脱敏规则已添加', 'success'); }
+  catch (e) { toast(e.message, 'error'); }
 });
 document.getElementById('gAddCls').addEventListener('click', async () => {
   const { id, table } = govDSTable();
   let tags = [];
   const raw = document.getElementById('gClsTags').value.trim();
-  if (raw) { try { tags = JSON.parse(raw); } catch { alert('标签需为合法 JSON 数组'); return; } }
+  if (raw) { try { tags = JSON.parse(raw); } catch { toast('标签需为合法 JSON 数组', 'warning'); return; } }
   const body = {
     table_name: table,
     column_name: document.getElementById('gClsCol').value.trim(),
     level: document.getElementById('gClsLevel').value,
     tags,
   };
-  try { await api('/admin/api/datasources/' + id + '/classifications', { method: 'POST', body: JSON.stringify(body) }); loadGov(); }
-  catch (e) { alert(e.message); }
+  try { await api('/admin/api/datasources/' + id + '/classifications', { method: 'POST', body: JSON.stringify(body) }); loadGov(); toast('分类规则已添加', 'success'); }
+  catch (e) { toast(e.message, 'error'); }
 });
 document.getElementById('gAddSem').addEventListener('click', async () => {
   const { id, table } = govDSTable();
   const parseArr = (v) => { v = v.trim(); if (!v) return []; try { return JSON.parse(v); } catch { return null; } };
   const syn = parseArr(document.getElementById('gSemSyn').value);
   const ex = parseArr(document.getElementById('gSemEx').value);
-  if (syn === null || ex === null) { alert('同义词/示例需为合法 JSON 数组'); return; }
+  if (syn === null || ex === null) { toast('同义词/示例需为合法 JSON 数组', 'warning'); return; }
   const body = {
     table_name: table,
     column_name: document.getElementById('gSemCol').value.trim(),
@@ -82,8 +116,8 @@ document.getElementById('gAddSem').addEventListener('click', async () => {
     synonyms: syn,
     examples: ex,
   };
-  try { await api('/admin/api/datasources/' + id + '/semantics', { method: 'POST', body: JSON.stringify(body) }); loadGov(); }
-  catch (e) { alert(e.message); }
+  try { await api('/admin/api/datasources/' + id + '/semantics', { method: 'POST', body: JSON.stringify(body) }); loadGov(); toast('业务语义已添加', 'success'); }
+  catch (e) { toast(e.message, 'error'); }
 });
 ['maskTable', 'clsTable', 'semTable'].forEach(tid => {
   document.getElementById(tid).addEventListener('click', async (e) => {
@@ -92,30 +126,29 @@ document.getElementById('gAddSem').addEventListener('click', async () => {
     const { id } = govDSTable();
     const kind = { gdelmask: 'masks', gdelcls: 'classifications', gdelsem: 'semantics' }[act];
     if (!kind) return;
-    try { await api('/admin/api/datasources/' + id + '/' + kind + '/' + encodeURIComponent(e.target.dataset.id), { method: 'DELETE' }); loadGov(); }
-    catch (err) { alert(err.message); }
+    try { await api('/admin/api/datasources/' + id + '/' + kind + '/' + encodeURIComponent(e.target.dataset.id), { method: 'DELETE' }); loadGov(); toast('治理配置已删除', 'success'); }
+    catch (err) { toast(err.message, 'error'); }
   });
 });
 document.getElementById('permTable').addEventListener('click', async (e) => {
   if (e.target.dataset.act !== 'delperm') return;
-  try { await api('/admin/api/datasources/' + document.getElementById('gDs').value + '/permissions/' + e.target.dataset.id, { method: 'DELETE' }); loadGov(); }
-  catch (err) { alert(err.message); }
+  try { await api('/admin/api/datasources/' + document.getElementById('gDs').value + '/permissions/' + e.target.dataset.id, { method: 'DELETE' }); loadGov(); toast('表权限已删除', 'success'); }
+  catch (err) { toast(err.message, 'error'); }
 });
 document.getElementById('policyTable').addEventListener('click', async (e) => {
   if (e.target.dataset.act !== 'delpol') return;
-  try { await api('/admin/api/datasources/' + document.getElementById('gDs').value + '/policies/' + e.target.dataset.id, { method: 'DELETE' }); loadGov(); }
-  catch (err) { alert(err.message); }
+  try { await api('/admin/api/datasources/' + document.getElementById('gDs').value + '/policies/' + e.target.dataset.id, { method: 'DELETE' }); loadGov(); toast('行级策略已删除', 'success'); }
+  catch (err) { toast(err.message, 'error'); }
 });
 document.getElementById('gAddPerm').addEventListener('click', async () => {
   const id = document.getElementById('gDs').value, table = document.getElementById('gTable').value;
   const body = { role: document.getElementById('gRole').value, ops: document.getElementById('gOps').value, denied_cols: JSON.parse(document.getElementById('gDenied').value || '[]') };
-  try { await api('/admin/api/datasources/' + id + '/tables/' + table + '/permissions', { method: 'POST', body: JSON.stringify(body) }); loadGov(); }
-  catch (e) { alert(e.message); }
+  try { await api('/admin/api/datasources/' + id + '/tables/' + table + '/permissions', { method: 'POST', body: JSON.stringify(body) }); loadGov(); toast('表权限已添加', 'success'); }
+  catch (e) { toast(e.message, 'error'); }
 });
 document.getElementById('gAddPolicy').addEventListener('click', async () => {
   const id = document.getElementById('gDs').value, table = document.getElementById('gTable').value;
   const body = { role: document.getElementById('gPolicyRole').value, predicate: document.getElementById('gPred').value, priority: parseInt(document.getElementById('gPrio').value || '10', 10) };
-  try { await api('/admin/api/datasources/' + id + '/tables/' + table + '/policies', { method: 'POST', body: JSON.stringify(body) }); loadGov(); }
-  catch (e) { alert(e.message); }
+  try { await api('/admin/api/datasources/' + id + '/tables/' + table + '/policies', { method: 'POST', body: JSON.stringify(body) }); loadGov(); toast('行级策略已添加', 'success'); }
+  catch (e) { toast(e.message, 'error'); }
 });
-

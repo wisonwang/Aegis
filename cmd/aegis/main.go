@@ -20,11 +20,11 @@ import (
 // @description 3. 默认有效期 24h（服务端 `jwt_expiry` 可配），过期后重新登录换取。
 // @description 4. 在线调试：点本页右上方 **Authorize** 按钮，粘贴 `Bearer <token>` 即可。
 // @description
-// @description 本地演示账号：`admin` / `admin123`（由 `seed_demo` 种入，生产请立即修改）。
+// @description 本地演示账号：`admin` / `admin123`（仅开发态 demo 配置会通过 `seed_demo` 种入，生产默认关闭）。
 // @description
 // @description ### 2. MCP（AI Agent 接入）— 静态 API Key
 // @description AI Agent 不走本页 REST 接口，而是连接 `POST /mcp`（JSON-RPC 2.0 over HTTP），用静态 API Key 认证：
-// @description 请求头 `X-MCP-API-Key: <key>`。该 key 由管理员在服务端配置 `mcp.api_key` 下发（本地演示为 `mcp-demo-key`），不经过登录接口。
+// @description 请求头 `X-MCP-API-Key: <key>`。该 key 由管理员在服务端配置 `mcp.api_key` 下发（本地 demo 可用 `mcp-demo-key`），不经过登录接口。
 // @description
 // @description ### 3. 多租户
 // @description 非 admin 角色的请求会被强制限定在其所属工作区；admin 可用请求头 `X-Workspace-Id: <id>` 指定目标工作区（缺省为跨工作区视图）。
@@ -43,7 +43,7 @@ import (
 // @name X-MCP-API-Key
 // @description "MCP 静态 API Key（仅 /mcp 端点），由管理员在服务端 mcp.api_key 配置"
 func main() {
-	cfgPath := flag.String("config", "config.json", "path to JSON config file (default: config.json)")
+	cfgPath := flag.String("config", "", "path to JSON config file (optional; defaults to environment variables + built-in safe defaults)")
 	flag.Parse()
 
 	cfg, err := config.Load(*cfgPath)
