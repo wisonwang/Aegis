@@ -59,6 +59,7 @@ type upsertSemanticRequest struct {
 // @Security BearerAuth
 // @Param id path string true "id"
 // @Success 200 {object} map[string]interface{}
+// @Param body body upsertSemanticRequest true "request"
 // @Router /admin/api/datasources/{id}/semantics [post]
 func (h *Handler) AdminUpsertSemantic(w http.ResponseWriter, r *http.Request) {
 	dsID, ctx, rerr := h.resolveDSBound(r.Context(), pathParam(r, "id"))

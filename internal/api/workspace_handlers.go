@@ -53,6 +53,7 @@ type createWorkspaceRequest struct {
 // @Produce json
 // @Security BearerAuth
 // @Success 200 {object} map[string]interface{}
+// @Param body body createWorkspaceRequest true "request"
 // @Router /admin/api/workspaces [post]
 func (h *Handler) AdminCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	claims := ClaimsFromContext(r.Context())
@@ -154,6 +155,7 @@ type memberRequest struct {
 // @Security BearerAuth
 // @Param id path string true "id"
 // @Success 200 {object} map[string]interface{}
+// @Param body body memberRequest true "request"
 // @Router /admin/api/workspaces/{id}/members [post]
 func (h *Handler) AdminAddWorkspaceMember(w http.ResponseWriter, r *http.Request) {
 	wsID := pathParam(r, "id")

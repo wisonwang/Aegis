@@ -48,6 +48,7 @@ type createDatasetRequest struct {
 // @Produce json
 // @Security BearerAuth
 // @Success 200 {object} map[string]interface{}
+// @Param body body createDatasetRequest true "request"
 // @Router /admin/api/datasets [post]
 func (h *Handler) AdminCreateDataset(w http.ResponseWriter, r *http.Request) {
 	var req createDatasetRequest
@@ -153,6 +154,7 @@ type updateDatasetRequest struct {
 // @Security BearerAuth
 // @Param id path string true "id"
 // @Success 200 {object} map[string]interface{}
+// @Param body body updateDatasetRequest true "request"
 // @Router /admin/api/datasets/{id} [put]
 func (h *Handler) AdminUpdateDataset(w http.ResponseWriter, r *http.Request) {
 	id := pathParam(r, "id")
@@ -320,6 +322,7 @@ func (h *Handler) AdminListDatasetPermissions(w http.ResponseWriter, r *http.Req
 // @Security BearerAuth
 // @Param id path string true "id"
 // @Success 200 {object} map[string]interface{}
+// @Param body body createPermRequest true "request"
 // @Router /admin/api/datasets/{id}/permissions [post]
 func (h *Handler) AdminCreateDatasetPermission(w http.ResponseWriter, r *http.Request) {
 	d, ds, err := h.datasetCtx(r.Context(), pathParam(r, "id"))
@@ -419,6 +422,7 @@ func (h *Handler) AdminListDatasetPolicies(w http.ResponseWriter, r *http.Reques
 // @Security BearerAuth
 // @Param id path string true "id"
 // @Success 200 {object} map[string]interface{}
+// @Param body body createPolicyRequest true "request"
 // @Router /admin/api/datasets/{id}/policies [post]
 func (h *Handler) AdminCreateDatasetPolicy(w http.ResponseWriter, r *http.Request) {
 	d, ds, err := h.datasetCtx(r.Context(), pathParam(r, "id"))
@@ -517,6 +521,7 @@ func (h *Handler) AdminListDatasetMasks(w http.ResponseWriter, r *http.Request) 
 // @Security BearerAuth
 // @Param id path string true "id"
 // @Success 200 {object} map[string]interface{}
+// @Param body body upsertMaskRequest true "request"
 // @Router /admin/api/datasets/{id}/masks [post]
 func (h *Handler) AdminUpsertDatasetMask(w http.ResponseWriter, r *http.Request) {
 	d, ds, err := h.datasetCtx(r.Context(), pathParam(r, "id"))
@@ -607,6 +612,7 @@ func (h *Handler) AdminListDatasetSemantics(w http.ResponseWriter, r *http.Reque
 // @Security BearerAuth
 // @Param id path string true "id"
 // @Success 200 {object} map[string]interface{}
+// @Param body body upsertSemanticRequest true "request"
 // @Router /admin/api/datasets/{id}/semantics [post]
 func (h *Handler) AdminUpsertDatasetSemantic(w http.ResponseWriter, r *http.Request) {
 	d, ds, err := h.datasetCtx(r.Context(), pathParam(r, "id"))
@@ -695,6 +701,11 @@ func (h *Handler) GetDataset(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, schema)
 }
 
+// datasetQueryRequest is the body for POST /api/v1/datasets/{id}/query.
+type datasetQueryRequest struct {
+	Params []interface{} `json:"params"`
+}
+
 // QueryDataset executes a governed dataset query.
 // @Summary query Dataset
 // @Tags datasets
@@ -703,11 +714,10 @@ func (h *Handler) GetDataset(w http.ResponseWriter, r *http.Request) {
 // @Security BearerAuth
 // @Param id path string true "id"
 // @Success 200 {object} map[string]interface{}
+// @Param body body datasetQueryRequest true "request"
 // @Router /api/v1/datasets/{id}/query [post]
 func (h *Handler) QueryDataset(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Params []interface{} `json:"params"`
-	}
+	var req datasetQueryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return

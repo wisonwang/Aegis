@@ -149,6 +149,17 @@ const docTemplate = `{
                     "approvals"
                 ],
                 "summary": "user Submit Approval",
+                "parameters": [
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createApprovalRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -498,6 +509,17 @@ const docTemplate = `{
                     "datasets"
                 ],
                 "summary": "admin Create Dataset",
+                "parameters": [
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createDatasetRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -565,6 +587,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.updateDatasetRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -666,6 +697,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.upsertMaskRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -822,6 +862,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createPermRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -932,6 +981,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createPolicyRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -1079,6 +1137,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.upsertSemanticRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -1211,6 +1278,17 @@ const docTemplate = `{
                     "admin"
                 ],
                 "summary": "admin Create Data Source",
+                "parameters": [
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createDSRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -1246,6 +1324,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createDSRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -1347,6 +1434,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.upsertClassificationRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -1457,6 +1553,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.upsertMaskRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -1494,6 +1599,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.recommendMasksRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -1802,6 +1916,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.upsertSemanticRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -1926,6 +2049,15 @@ const docTemplate = `{
                         "name": "table",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createPermRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -2009,6 +2141,15 @@ const docTemplate = `{
                         "name": "table",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createPolicyRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -2062,6 +2203,17 @@ const docTemplate = `{
                     "admin"
                 ],
                 "summary": "admin Create Role",
+                "parameters": [
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createRoleRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -2097,6 +2249,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.updateRoleRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -2207,6 +2368,17 @@ const docTemplate = `{
                     "admin"
                 ],
                 "summary": "admin Create User",
+                "parameters": [
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createUserRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -2242,6 +2414,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.updateUserRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -2430,6 +2611,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.passwordRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -2467,6 +2657,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.roleRef"
+                        }
                     }
                 ],
                 "responses": {
@@ -2561,6 +2760,17 @@ const docTemplate = `{
                     "workspaces"
                 ],
                 "summary": "admin Create Workspace",
+                "parameters": [
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createWorkspaceRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -2694,6 +2904,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.memberRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -2856,6 +3075,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.datasetQueryRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -3457,6 +3685,76 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_api.createApprovalRequest": {
+            "type": "object",
+            "properties": {
+                "datasource_id": {
+                    "type": "string"
+                },
+                "justification": {
+                    "type": "string"
+                },
+                "ops": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "table_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.createDSRequest": {
+            "type": "object",
+            "properties": {
+                "dsn": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "description": "WorkspaceID is the owning workspace. Required when the caller is in the\ncross-workspace (\"all\") view, because there is no sane default there —\nsilently falling back to \"default\" is how governance ends up orphaned.",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.createDatasetRequest": {
+            "type": "object",
+            "properties": {
+                "datasource_id": {
+                    "type": "string"
+                },
+                "definition": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "fields": {
+                    "description": "optional JSON array of {name,type,description}",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "optional: draft (default) | published",
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "description": "WorkspaceID is the owning workspace. Honored for admins; required when\ncreating from the all-workspaces view so a dataset never silently lands in\n\"default\" (ADR-0007). The datasource lookup stays workspace-agnostic so\nan admin can bind a dataset to any datasource they can see.",
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.createKeyRequest": {
             "type": "object",
             "properties": {
@@ -3466,6 +3764,111 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                }
+            }
+        },
+        "internal_api.createPermRequest": {
+            "type": "object",
+            "properties": {
+                "allowed_cols": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "denied_cols": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "ops": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.createPolicyRequest": {
+            "type": "object",
+            "properties": {
+                "predicate": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.createRoleRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.createUserRequest": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "type": {
+                    "description": "human | service (default human)",
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                },
+                "workspace": {
+                    "description": "optional: join the user to this workspace on creation",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.createWorkspaceRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.datasetQueryRequest": {
+            "type": "object",
+            "properties": {
+                "params": {
+                    "type": "array",
+                    "items": {}
                 }
             }
         },
@@ -3543,6 +3946,17 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_api.memberRequest": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.nl2sqlRequest": {
             "type": "object",
             "properties": {
@@ -3560,6 +3974,14 @@ const docTemplate = `{
                 },
                 "sql_hint": {
                     "description": "optional hand-written SQL to prefer over generation",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.passwordRequest": {
+            "type": "object",
+            "properties": {
+                "password": {
                     "type": "string"
                 }
             }
@@ -3588,6 +4010,158 @@ const docTemplate = `{
                 },
                 "sql": {
                     "description": "SQL for SQL-family backends",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.recommendMasksRequest": {
+            "type": "object",
+            "properties": {
+                "apply": {
+                    "description": "persist recommendations; default false (dry-run)",
+                    "type": "boolean"
+                },
+                "apply_to_all_roles": {
+                    "description": "apply to every non-admin role",
+                    "type": "boolean"
+                },
+                "role": {
+                    "description": "target role name; empty + apply_to_all_roles =\u003e all non-admin roles",
+                    "type": "string"
+                },
+                "table": {
+                    "description": "optional table scope",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.roleRef": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.updateDatasetRequest": {
+            "type": "object",
+            "properties": {
+                "definition": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "fields": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.updateRoleRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.updateUserRequest": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.upsertClassificationRequest": {
+            "type": "object",
+            "properties": {
+                "column_name": {
+                    "description": "\"\" =\u003e table-level",
+                    "type": "string"
+                },
+                "level": {
+                    "description": "public|internal|confidential|restricted|pii",
+                    "type": "string"
+                },
+                "table_name": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "internal_api.upsertMaskRequest": {
+            "type": "object",
+            "properties": {
+                "column": {
+                    "type": "string"
+                },
+                "keep": {
+                    "type": "integer"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "strategy": {
+                    "type": "string"
+                },
+                "table": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.upsertSemanticRequest": {
+            "type": "object",
+            "properties": {
+                "column_name": {
+                    "description": "\"\" =\u003e table-level",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "examples": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "synonyms": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "table_name": {
                     "type": "string"
                 }
             }

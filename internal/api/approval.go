@@ -51,6 +51,7 @@ type createApprovalRequest struct {
 // @Produce json
 // @Security BearerAuth
 // @Success 200 {object} map[string]interface{}
+// @Param body body createApprovalRequest true "request"
 // @Router /admin/api/approvals [post]
 func (h *Handler) UserSubmitApproval(w http.ResponseWriter, r *http.Request) {
 	c := claimsFromContext(r.Context())

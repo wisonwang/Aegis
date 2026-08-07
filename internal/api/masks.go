@@ -77,6 +77,7 @@ type upsertMaskRequest struct {
 // @Security BearerAuth
 // @Param id path string true "id"
 // @Success 200 {object} map[string]interface{}
+// @Param body body upsertMaskRequest true "request"
 // @Router /admin/api/datasources/{id}/masks [post]
 func (h *Handler) AdminUpsertMask(w http.ResponseWriter, r *http.Request) {
 	dsID, ctx, rerr := h.resolveDSBound(r.Context(), pathParam(r, "id"))
@@ -170,6 +171,7 @@ type maskRecommendation struct {
 // @Security BearerAuth
 // @Param id path string true "id"
 // @Success 200 {object} map[string]interface{}
+// @Param body body recommendMasksRequest true "request"
 // @Router /admin/api/datasources/{id}/masks/recommend [post]
 func (h *Handler) AdminRecommendMasks(w http.ResponseWriter, r *http.Request) {
 	dsID, dsCtx, rerr := h.resolveDSBound(r.Context(), pathParam(r, "id"))

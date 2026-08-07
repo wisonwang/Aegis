@@ -22,6 +22,60 @@ definitions:
         description: string|number|date|bool|enum
         type: string
     type: object
+  internal_api.createApprovalRequest:
+    properties:
+      datasource_id:
+        type: string
+      justification:
+        type: string
+      ops:
+        type: string
+      role:
+        type: string
+      table_name:
+        type: string
+    type: object
+  internal_api.createDSRequest:
+    properties:
+      dsn:
+        type: string
+      name:
+        type: string
+      type:
+        type: string
+      workspace_id:
+        description: |-
+          WorkspaceID is the owning workspace. Required when the caller is in the
+          cross-workspace ("all") view, because there is no sane default there —
+          silently falling back to "default" is how governance ends up orphaned.
+        type: string
+    type: object
+  internal_api.createDatasetRequest:
+    properties:
+      datasource_id:
+        type: string
+      definition:
+        type: string
+      description:
+        type: string
+      display_name:
+        type: string
+      fields:
+        description: optional JSON array of {name,type,description}
+        type: string
+      name:
+        type: string
+      status:
+        description: 'optional: draft (default) | published'
+        type: string
+      workspace_id:
+        description: |-
+          WorkspaceID is the owning workspace. Honored for admins; required when
+          creating from the all-workspaces view so a dataset never silently lands in
+          "default" (ADR-0007). The datasource lookup stays workspace-agnostic so
+          an admin can bind a dataset to any datasource they can see.
+        type: string
+    type: object
   internal_api.createKeyRequest:
     properties:
       expires_in:
@@ -29,6 +83,75 @@ definitions:
         type: string
       name:
         type: string
+    type: object
+  internal_api.createPermRequest:
+    properties:
+      allowed_cols:
+        items:
+          type: string
+        type: array
+      denied_cols:
+        items:
+          type: string
+        type: array
+      ops:
+        type: string
+      role:
+        type: string
+    type: object
+  internal_api.createPolicyRequest:
+    properties:
+      predicate:
+        type: string
+      priority:
+        type: integer
+      role:
+        type: string
+    type: object
+  internal_api.createRoleRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+    type: object
+  internal_api.createUserRequest:
+    properties:
+      attributes:
+        additionalProperties:
+          type: string
+        type: object
+      display_name:
+        type: string
+      email:
+        type: string
+      password:
+        type: string
+      roles:
+        items:
+          type: string
+        type: array
+      type:
+        description: human | service (default human)
+        type: string
+      username:
+        type: string
+      workspace:
+        description: 'optional: join the user to this workspace on creation'
+        type: string
+    type: object
+  internal_api.createWorkspaceRequest:
+    properties:
+      name:
+        type: string
+      slug:
+        type: string
+    type: object
+  internal_api.datasetQueryRequest:
+    properties:
+      params:
+        items: {}
+        type: array
     type: object
   internal_api.estimateRequest:
     properties:
@@ -79,6 +202,13 @@ definitions:
       username:
         type: string
     type: object
+  internal_api.memberRequest:
+    properties:
+      role:
+        type: string
+      user_id:
+        type: string
+    type: object
   internal_api.nl2sqlRequest:
     properties:
       datasource:
@@ -92,6 +222,11 @@ definitions:
         type: string
       sql_hint:
         description: optional hand-written SQL to prefer over generation
+        type: string
+    type: object
+  internal_api.passwordRequest:
+    properties:
+      password:
         type: string
     type: object
   internal_api.queryRequest:
@@ -112,6 +247,108 @@ definitions:
         type: string
       sql:
         description: SQL for SQL-family backends
+        type: string
+    type: object
+  internal_api.recommendMasksRequest:
+    properties:
+      apply:
+        description: persist recommendations; default false (dry-run)
+        type: boolean
+      apply_to_all_roles:
+        description: apply to every non-admin role
+        type: boolean
+      role:
+        description: target role name; empty + apply_to_all_roles => all non-admin
+          roles
+        type: string
+      table:
+        description: optional table scope
+        type: string
+    type: object
+  internal_api.roleRef:
+    properties:
+      role:
+        type: string
+    type: object
+  internal_api.updateDatasetRequest:
+    properties:
+      definition:
+        type: string
+      description:
+        type: string
+      display_name:
+        type: string
+      fields:
+        type: string
+      status:
+        type: string
+    type: object
+  internal_api.updateRoleRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+    type: object
+  internal_api.updateUserRequest:
+    properties:
+      attributes:
+        additionalProperties:
+          type: string
+        type: object
+      display_name:
+        type: string
+      email:
+        type: string
+      status:
+        type: string
+      type:
+        type: string
+    type: object
+  internal_api.upsertClassificationRequest:
+    properties:
+      column_name:
+        description: '"" => table-level'
+        type: string
+      level:
+        description: public|internal|confidential|restricted|pii
+        type: string
+      table_name:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+    type: object
+  internal_api.upsertMaskRequest:
+    properties:
+      column:
+        type: string
+      keep:
+        type: integer
+      role:
+        type: string
+      strategy:
+        type: string
+      table:
+        type: string
+    type: object
+  internal_api.upsertSemanticRequest:
+    properties:
+      column_name:
+        description: '"" => table-level'
+        type: string
+      description:
+        type: string
+      examples:
+        items:
+          type: string
+        type: array
+      synonyms:
+        items:
+          type: string
+        type: array
+      table_name:
         type: string
     type: object
   internal_enterprise_handlers.folderRequest:
@@ -254,6 +491,13 @@ paths:
     post:
       consumes:
       - application/json
+      parameters:
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createApprovalRequest'
       produces:
       - application/json
       responses:
@@ -469,6 +713,13 @@ paths:
     post:
       consumes:
       - application/json
+      parameters:
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createDatasetRequest'
       produces:
       - application/json
       responses:
@@ -532,6 +783,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.updateDatasetRequest'
       produces:
       - application/json
       responses:
@@ -575,6 +832,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.upsertMaskRequest'
       produces:
       - application/json
       responses:
@@ -673,6 +936,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createPermRequest'
       produces:
       - application/json
       responses:
@@ -742,6 +1011,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createPolicyRequest'
       produces:
       - application/json
       responses:
@@ -834,6 +1109,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.upsertSemanticRequest'
       produces:
       - application/json
       responses:
@@ -915,6 +1196,13 @@ paths:
       consumes:
       - application/json
       description: The `dsn` is a driver-specific connection string. See the DSN
+      parameters:
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createDSRequest'
       produces:
       - application/json
       responses:
@@ -958,6 +1246,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createDSRequest'
       produces:
       - application/json
       responses:
@@ -1001,6 +1295,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.upsertClassificationRequest'
       produces:
       - application/json
       responses:
@@ -1070,6 +1370,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.upsertMaskRequest'
       produces:
       - application/json
       responses:
@@ -1119,6 +1425,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.recommendMasksRequest'
       produces:
       - application/json
       responses:
@@ -1287,6 +1599,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.upsertSemanticRequest'
       produces:
       - application/json
       responses:
@@ -1366,6 +1684,12 @@ paths:
         name: table
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createPermRequest'
       produces:
       - application/json
       responses:
@@ -1419,6 +1743,12 @@ paths:
         name: table
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createPolicyRequest'
       produces:
       - application/json
       responses:
@@ -1450,6 +1780,13 @@ paths:
     post:
       consumes:
       - application/json
+      parameters:
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createRoleRequest'
       produces:
       - application/json
       responses:
@@ -1493,6 +1830,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.updateRoleRequest'
       produces:
       - application/json
       responses:
@@ -1539,6 +1882,13 @@ paths:
     post:
       consumes:
       - application/json
+      parameters:
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createUserRequest'
       produces:
       - application/json
       responses:
@@ -1582,6 +1932,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.updateUserRequest'
       produces:
       - application/json
       responses:
@@ -1680,6 +2036,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.passwordRequest'
       produces:
       - application/json
       responses:
@@ -1703,6 +2065,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.roleRef'
       produces:
       - application/json
       responses:
@@ -1760,6 +2128,13 @@ paths:
     post:
       consumes:
       - application/json
+      parameters:
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createWorkspaceRequest'
       produces:
       - application/json
       responses:
@@ -1844,6 +2219,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.memberRequest'
       produces:
       - application/json
       responses:
@@ -1944,6 +2325,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.datasetQueryRequest'
       produces:
       - application/json
       responses:

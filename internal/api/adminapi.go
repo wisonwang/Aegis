@@ -79,6 +79,7 @@ type createUserRequest struct {
 // @Produce json
 // @Security BearerAuth
 // @Success 200 {object} map[string]interface{}
+// @Param body body createUserRequest true "request"
 // @Router /admin/api/users [post]
 func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req createUserRequest
@@ -166,6 +167,7 @@ type updateUserRequest struct {
 // @Security BearerAuth
 // @Param id path string true "id"
 // @Success 200 {object} map[string]interface{}
+// @Param body body updateUserRequest true "request"
 // @Router /admin/api/users/{id} [put]
 func (h *Handler) AdminUpdateUser(w http.ResponseWriter, r *http.Request) {
 	id := pathParam(r, "id")
@@ -213,6 +215,7 @@ type passwordRequest struct {
 // @Security BearerAuth
 // @Param id path string true "id"
 // @Success 200 {object} map[string]interface{}
+// @Param body body passwordRequest true "request"
 // @Router /admin/api/users/{id}/password [post]
 func (h *Handler) AdminSetPassword(w http.ResponseWriter, r *http.Request) {
 	id := pathParam(r, "id")
@@ -428,6 +431,7 @@ type roleRef struct {
 // @Security BearerAuth
 // @Param id path string true "id"
 // @Success 200 {object} map[string]interface{}
+// @Param body body roleRef true "request"
 // @Router /admin/api/users/{id}/roles [post]
 func (h *Handler) AdminAddUserRole(w http.ResponseWriter, r *http.Request) {
 	id := pathParam(r, "id")
@@ -506,6 +510,7 @@ type createRoleRequest struct {
 // @Produce json
 // @Security BearerAuth
 // @Success 200 {object} map[string]interface{}
+// @Param body body createRoleRequest true "request"
 // @Router /admin/api/roles [post]
 func (h *Handler) AdminCreateRole(w http.ResponseWriter, r *http.Request) {
 	var req createRoleRequest
@@ -532,6 +537,7 @@ type updateRoleRequest struct {
 // @Security BearerAuth
 // @Param id path string true "id"
 // @Success 200 {object} map[string]interface{}
+// @Param body body updateRoleRequest true "request"
 // @Router /admin/api/roles/{id} [put]
 func (h *Handler) AdminUpdateRole(w http.ResponseWriter, r *http.Request) {
 	id := pathParam(r, "id")
@@ -653,6 +659,7 @@ type createDSRequest struct {
 // @Produce json
 // @Security BearerAuth
 // @Success 200 {object} map[string]interface{}
+// @Param body body createDSRequest true "request"
 // @Router /admin/api/datasources [post]
 // @Description The `dsn` is a driver-specific connection string. See the DSN
 // format reference (returned as `dsn_docs` from GET /admin/api/datasources) for
@@ -717,6 +724,7 @@ func (h *Handler) datasourceWriteCtx(ctx context.Context, want string) (context.
 // @Security BearerAuth
 // @Param id path string true "id"
 // @Success 200 {object} map[string]interface{}
+// @Param body body createDSRequest true "request"
 // @Router /admin/api/datasources/{id} [put]
 func (h *Handler) AdminUpdateDataSource(w http.ResponseWriter, r *http.Request) {
 	dsID, rerr := h.resolveDS(r.Context(), pathParam(r, "id"))
@@ -869,6 +877,7 @@ type createPermRequest struct {
 // @Param id path string true "id"
 // @Param table path string true "table"
 // @Success 200 {object} map[string]interface{}
+// @Param body body createPermRequest true "request"
 // @Router /admin/api/datasources/{id}/tables/{table}/permissions [post]
 func (h *Handler) AdminCreateTablePermission(w http.ResponseWriter, r *http.Request) {
 	// Bind the write to the datasource's own workspace, not the admin's active
@@ -984,6 +993,7 @@ type createPolicyRequest struct {
 // @Param id path string true "id"
 // @Param table path string true "table"
 // @Success 200 {object} map[string]interface{}
+// @Param body body createPolicyRequest true "request"
 // @Router /admin/api/datasources/{id}/tables/{table}/policies [post]
 func (h *Handler) AdminCreateRowPolicy(w http.ResponseWriter, r *http.Request) {
 	dsID, ctx, rerr := h.resolveDSBound(r.Context(), pathParam(r, "id"))

@@ -58,6 +58,7 @@ type upsertClassificationRequest struct {
 // @Security BearerAuth
 // @Param id path string true "id"
 // @Success 200 {object} map[string]interface{}
+// @Param body body upsertClassificationRequest true "request"
 // @Router /admin/api/datasources/{id}/classifications [post]
 func (h *Handler) AdminUpsertClassification(w http.ResponseWriter, r *http.Request) {
 	dsID, ctx, rerr := h.resolveDSBound(r.Context(), pathParam(r, "id"))
